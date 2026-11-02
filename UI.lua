@@ -104,4 +104,49 @@ adv_section:toggle({name = "Enable Chams", flag = "ChamsEnabled", callback = upd
 local chams_fill = adv_section:colorpicker({name = "Chams Fill", flag = "ChamsFillColor", color = Color3.fromRGB(255,0,0), callback = update_elements})
 local chams_outline = adv_section:colorpicker({name = "Chams Outline", flag = "ChamsOutlineColor", color = Color3.fromRGB(255,255,255), callback = update_elements})
 adv_section:slider({name = "Chams Fill Transparency", min = 0, max = 1, default = 0.5, interval = 0.1, flag = "ChamsTransparency", callback = update_elements})
-adv_section:slider({name = "Chams Outline Transparency", min = 0, max = 1, default
+adv_section:slider({name = "Chams Outline Transparency", min = 0, max = 1, default = 0, interval = 0.1, flag = "ChamsOutlineTransparency", callback = update_elements})
+
+-- COLUMN 3: Settings & Colors
+esp_column = ESP:column()
+local colors_section = esp_column:section({name = "Colors", toggle = false})
+
+colors_section:colorpicker({name = "Enemy Color", flag = "EnemyColor", color = Color3.fromRGB(255,25,25), callback = update_elements})
+colors_section:colorpicker({name = "Ally Color", flag = "AllyColor", color = Color3.fromRGB(25,255,25), callback = update_elements})
+colors_section:colorpicker({name = "Health Color", flag = "HealthColor", color = Color3.fromRGB(0,255,0), callback = update_elements})
+
+local effects_section = esp_column:section({name = "Effects & Performance", toggle = false})
+effects_section:toggle({name = "Rainbow Mode", flag = "RainbowEnabled", callback = update_elements})
+effects_section:dropdown({name = "Rainbow Parts", flag = "RainbowParts", items = {"All", "Box Only", "Tracers Only", "Text Only"}, default = "All", callback = function(val)
+    raw_flags["RainbowBoxes"] = (val == "All" or val == "Box Only")
+    raw_flags["RainbowTracers"] = (val == "All" or val == "Tracers Only")
+    raw_flags["RainbowText"] = (val == "All" or val == "Text Only")
+end})
+effects_section:slider({name = "Refresh Rate", min = 30, max = 240, default = 144, interval = 10, flag = "RefreshRate", callback = update_elements})
+
+-- Destroy Button
+local unload_section = esp_column:section({name = "Danger Zone", toggle = false})
+unload_section:button_holder({}) 
+unload_section:button({name = "Destroy ESP", callback = function()
+    if esp and esp.unload then
+        esp:unload()
+        library:notification({text = "ESP Unloaded Safely", time = 3})
+    end
+end})
+
+-- ESP Preview
+esp_preview = window.esp_section:esp_preview({})
+
+Aiming.open_tab()
+
+-- init
+library:config_list_update()
+for index, value in themes.preset do
+    pcall(function()
+        library:update_theme(index, value)
+    end)
+end
+task.wait()
+library.old_config = library:get_config()
+
+esp = loadstring(game:HttpGet(ESP_URL))()
+esp:init({ flags = library.flags })
