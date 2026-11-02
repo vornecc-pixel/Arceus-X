@@ -1,10 +1,7 @@
--- ═══════════════════════════════════════════════════════════════
--- UI MODULE
--- ═══════════════════════════════════════════════════════════════
+
 
 local ESP_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/esp.lua"
 
--- Assuming you uploaded the provided library code to library.lua on your repo
 local library, themes = loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/library.lua"))()
 
 local dim2 = UDim2.new
