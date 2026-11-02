@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
 -- UI MODULE
--- usage: loadstring(game:HttpGet(UI_URL))(ESP_URL)
+-- usage: loadstring(game:HttpGet(UI_URL))()
 -- ═══════════════════════════════════════════════════════════════
 
 local ESP_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/esp.lua"
@@ -61,8 +61,8 @@ vis_a:slider({name = "Rotation Speed", min = 0, max = 100, default = 100, interv
 library.config_flags["fov"](false)
 
 -- ── Visuals tab ────────────────────────────────────────────────
-local esp            -- forward decl: live ESP module (loaded at the bottom)
-local esp_preview    -- UI preview widget (independent of the module)
+local esp
+local esp_preview
 
 local function update_elements()
     if esp and esp.refresh_elements then
@@ -94,6 +94,22 @@ section:toggle({name = "Weapon", flag = "Weapon", callback = update_elements})
 section:toggle({name = "Skeletons", flag = "Skeletons", callback = update_elements})
     :colorpicker({name = "Skeleton Color", flag = "Skeletons_Color", callback = update_elements})
 
+-- NEW FEATURES
+section:toggle({name = "Team Check", flag = "Team_Check", callback = update_elements})
+section:toggle({name = "Rainbow Effects", flag = "Rainbow", callback = update_elements})
+
+section:toggle({name = "Chams", flag = "Chams", callback = update_elements})
+    :colorpicker({name = "Chams Fill", flag = "Chams_Color", callback = update_elements})
+    :colorpicker({name = "Chams Outline", flag = "Chams_Outline", callback = update_elements})
+section:dropdown({name = "Chams Mode", flag = "Chams_Mode", items = {"AlwaysOnTop", "Occluded"}, default = "AlwaysOnTop", callback = update_elements})
+section:toggle({name = "Health Chams", flag = "Health_Chams", callback = update_elements})
+
+section:toggle({name = "Head Dot", flag = "Head_Dot", callback = update_elements})
+    :colorpicker({name = "Dot Color", flag = "Head_Dot_Color", callback = update_elements})
+
+section:toggle({name = "Tracers", flag = "Tracers", callback = update_elements})
+    :colorpicker({name = "Tracer Color", flag = "Tracer_Color", callback = update_elements})
+
 esp_preview = window.esp_section:esp_preview({})
 
 Aiming.open_tab()
@@ -108,6 +124,5 @@ end
 task.wait()
 library.old_config = library:get_config()
 
--- ── load the ESP module and hand it library.flags ──────────────
 esp = loadstring(game:HttpGet(ESP_URL))()
 esp:init({ flags = library.flags })
