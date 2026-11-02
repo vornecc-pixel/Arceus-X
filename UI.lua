@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- UI MODULE (Fixed & Fully Compatible)
+-- UI MODULE
 -- ═══════════════════════════════════════════════════════════════
 
 local ESP_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/esp.lua"
@@ -13,7 +13,7 @@ local window = library:window({name = os.date('Atlanta |  - %b %d %Y'), size = d
 
 local Aiming   = window:tab({name = "Aiming"})
 local Misc     = window:tab({name = "Misc"})
-local Visuals  = window:tab({name = "Visuals"})
+local ESP      = window:tab({name = "ESP"}) -- Renamed from Visuals
 
 -- ── Aiming tab ─────────────────────────────────────────────────
 local aim_column = Aiming:column()
@@ -59,7 +59,7 @@ vis_a:toggle({name = "Spin", flag = "spin_fov"})
 vis_a:slider({name = "Rotation Speed", min = 0, max = 100, default = 100, interval = 1, flag = "spin_speed_fov"})
 library.config_flags["fov"](false)
 
--- ── Visuals tab ────────────────────────────────────────────────
+-- ── ESP tab ────────────────────────────────────────────────────
 local esp
 local esp_preview
 
@@ -69,50 +69,46 @@ local function update_elements()
     end
 end
 
-local visual_column = Visuals:column()
-
--- COLUMN 1: General
-local section = visual_column:section({name = "General", toggle = false})
+local esp_column = ESP:column()
+local section = esp_column:section({name = "General", toggle = false})
 
 section:toggle({name = "Enabled", flag = "Enabled", callback = update_elements})
-section:toggle({name = "Names", flag = "Names", callback = update_elements})
-    :colorpicker({flag = "Name_Color", callback = update_elements})
+section:slider({name = "Max Distance", min = 100, max = 5000, default = 1000, interval = 50, flag = "MaxDistance", callback = update_elements})
+section:toggle({name = "Team Check", flag = "Team_Check", callback = update_elements})
 
 local box_toggle = section:toggle({name = "Boxes", flag = "Boxes", callback = update_elements})
-section:dropdown({name = "Box Type", flag = "Box_Type", items = {"Corner", "Full"}, default = "Corner", callback = update_elements})
 box_toggle:colorpicker({name = "Box Color", flag = "Box_Color", callback = update_elements})
 
-local health_toggle = section:toggle({name = "Healthbar", flag = "Healthbar", callback = update_elements})
-health_toggle:colorpicker({name = "High HP Color", flag = "Health_High", callback = update_elements})
-health_toggle:colorpicker({name = "Low HP Color",  flag = "Health_Low",  callback = update_elements})
+local name_toggle = section:toggle({name = "Names", flag = "Names", callback = update_elements})
+name_toggle:colorpicker({name = "Name Color", flag = "Name_Color", callback = update_elements})
 
-section:toggle({name = "Distance", flag = "Distance", callback = update_elements})
-    :colorpicker({name = "Distance Color", flag = "Distance_Color", callback = update_elements})
+local dist_toggle = section:toggle({name = "Distances", flag = "Distances", callback = update_elements})
+dist_toggle:colorpicker({name = "Distance Color", flag = "Distance_Color", callback = update_elements})
 
-section:toggle({name = "Weapon", flag = "Weapon", callback = update_elements})
-    :colorpicker({name = "Weapon Color", flag = "Weapon_Color", callback = update_elements})
+local health_toggle = section:toggle({name = "Health Bars", flag = "HealthBars", callback = update_elements})
+health_toggle:colorpicker({name = "Health Color", flag = "Health_Color", callback = update_elements})
 
-section:toggle({name = "Skeletons", flag = "Skeletons", callback = update_elements})
-    :colorpicker({name = "Skeleton Color", flag = "Skeletons_Color", callback = update_elements})
-
--- COLUMN 2: Advanced (NEW)
-local visual_column_2 = Visuals:column()
-local adv_section = visual_column_2:section({name = "Advanced", toggle = false})
-
-adv_section:toggle({name = "Team Check", flag = "Team_Check", callback = update_elements})
-adv_section:toggle({name = "Rainbow Effects", flag = "Rainbow", callback = update_elements})
-
-local chams_toggle = adv_section:toggle({name = "Chams", flag = "Chams", callback = update_elements})
-chams_toggle:colorpicker({name = "Chams Fill", flag = "Chams_Color", callback = update_elements})
-chams_toggle:colorpicker({name = "Chams Outline", flag = "Chams_Outline", callback = update_elements})
-adv_section:dropdown({name = "Chams Mode", flag = "Chams_Mode", items = {"AlwaysOnTop", "Occluded"}, default = "AlwaysOnTop", callback = update_elements})
-adv_section:toggle({name = "Health Chams", flag = "Health_Chams", callback = update_elements})
-
-local dot_toggle = adv_section:toggle({name = "Head Dot", flag = "Head_Dot", callback = update_elements})
-dot_toggle:colorpicker({name = "Dot Color", flag = "Head_Dot_Color", callback = update_elements})
-
-local tracer_toggle = adv_section:toggle({name = "Tracers", flag = "Tracers", callback = update_elements})
+local tracer_toggle = section:toggle({name = "Tracers", flag = "Tracers", callback = update_elements})
 tracer_toggle:colorpicker({name = "Tracer Color", flag = "Tracer_Color", callback = update_elements})
+
+local dot_toggle = section:toggle({name = "Head Dots", flag = "HeadDots", callback = update_elements})
+dot_toggle:colorpicker({name = "Dot Color", flag = "Dot_Color", callback = update_elements})
+
+local skeleton_toggle = section:toggle({name = "Skeletons", flag = "Skeleton", callback = update_elements})
+skeleton_toggle:colorpicker({name = "Skeleton Color", flag = "Skeleton_Color", callback = update_elements})
+section:toggle({name = "Skeleton on Team", flag = "SkeletonOnTeam", callback = update_elements})
+
+esp_column = ESP:column()
+local chams_section = esp_column:section({name = "Chams", toggle = false})
+
+chams_section:toggle({name = "Enabled", flag = "Chams", callback = update_elements})
+chams_section:toggle({name = "Chams on Team", flag = "ChamsOnTeam", callback = update_elements})
+
+local vis_chams = chams_section:toggle({name = "Visible Chams", flag = "VisibleChams", callback = update_elements})
+vis_chams:colorpicker({name = "Visible Color", flag = "Chams_Visible_Color", callback = update_elements})
+
+local hid_chams = chams_section:toggle({name = "Hidden Chams", flag = "HiddenChams", callback = update_elements})
+hid_chams:colorpicker({name = "Hidden Color", flag = "Chams_Hidden_Color", callback = update_elements})
 
 esp_preview = window.esp_section:esp_preview({})
 
