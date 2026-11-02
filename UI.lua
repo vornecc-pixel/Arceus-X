@@ -123,13 +123,21 @@ effects_section:dropdown({name = "Rainbow Parts", flag = "RainbowParts", items =
 end})
 effects_section:slider({name = "Refresh Rate", min = 30, max = 240, default = 144, interval = 10, flag = "RefreshRate", callback = update_elements})
 
--- Destroy Button
+-- The Fixed Unload Button
 local unload_section = esp_column:section({name = "Danger Zone", toggle = false})
 unload_section:button_holder({}) 
 unload_section:button({name = "Destroy ESP", callback = function()
+    -- 1. Unload the ESP module (stops the loop, clears drawings)
     if esp and esp.unload then
         esp:unload()
-        library:notification({text = "ESP Unloaded Safely", time = 3})
+    end
+    -- 2. Destroy the library UI safely
+    for _, gui in library.guis do 
+        gui:Destroy() 
+    end 
+    -- 3. Disconnect all library connections
+    for _, connection in library.connections do 
+        connection:Disconnect() 
     end
 end})
 
