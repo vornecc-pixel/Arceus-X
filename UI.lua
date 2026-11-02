@@ -3,7 +3,7 @@
 -- usage: loadstring(game:HttpGet(UI_URL))(ESP_URL)
 -- ═══════════════════════════════════════════════════════════════
 
-local ESP_URL = ... or "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/esp.lua"
+local ESP_URL = ... or "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/esp.lua"
 
 local library, themes = loadstring(game:HttpGet("https://raw.githubusercontent.com/i77lhm/Libraries/refs/heads/main/Atlanta/Library.lua"))()
 
