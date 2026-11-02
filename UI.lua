@@ -13,7 +13,7 @@ local window = library:window({name = os.date('Atlanta |  - %b %d %Y'), size = d
 
 local Aiming   = window:tab({name = "Aiming"})
 local Misc     = window:tab({name = "Misc"})
-local ESP      = window:tab({name = "ESP"}) -- Renamed from Visuals
+local ESP      = window:tab({name = "ESP"}) 
 
 -- ── Aiming tab ─────────────────────────────────────────────────
 local aim_column = Aiming:column()
@@ -70,45 +70,52 @@ local function update_elements()
 end
 
 local esp_column = ESP:column()
-local section = esp_column:section({name = "General", toggle = false})
+local section = esp_column:section({name = "Main ESP", toggle = false})
 
 section:toggle({name = "Enabled", flag = "Enabled", callback = update_elements})
 section:slider({name = "Max Distance", min = 100, max = 5000, default = 1000, interval = 50, flag = "MaxDistance", callback = update_elements})
-section:toggle({name = "Team Check", flag = "Team_Check", callback = update_elements})
+section:toggle({name = "Team Check", flag = "TeamCheck", callback = update_elements})
+section:toggle({name = "Show Team", flag = "ShowTeam", callback = update_elements})
 
-local box_toggle = section:toggle({name = "Boxes", flag = "Boxes", callback = update_elements})
-box_toggle:colorpicker({name = "Box Color", flag = "Box_Color", callback = update_elements})
+local box_toggle = section:toggle({name = "Box ESP", flag = "BoxESP", callback = update_elements})
+section:dropdown({name = "Box Style", flag = "BoxStyle", items = {"Corner", "Full", "ThreeD"}, default = "Corner", callback = update_elements})
 
-local name_toggle = section:toggle({name = "Names", flag = "Names", callback = update_elements})
-name_toggle:colorpicker({name = "Name Color", flag = "Name_Color", callback = update_elements})
+section:toggle({name = "Name ESP", flag = "NameESP", callback = update_elements})
+    :colorpicker({name = "Name Color", flag = "NameColor", callback = update_elements})
 
-local dist_toggle = section:toggle({name = "Distances", flag = "Distances", callback = update_elements})
-dist_toggle:colorpicker({name = "Distance Color", flag = "Distance_Color", callback = update_elements})
+section:toggle({name = "Show Distance", flag = "ShowDistance", callback = update_elements})
+    :colorpicker({name = "Distance Color", flag = "DistanceColor", callback = update_elements})
 
-local health_toggle = section:toggle({name = "Health Bars", flag = "HealthBars", callback = update_elements})
-health_toggle:colorpicker({name = "Health Color", flag = "Health_Color", callback = update_elements})
+section:toggle({name = "Health Bar", flag = "HealthESP", callback = update_elements})
 
-local tracer_toggle = section:toggle({name = "Tracers", flag = "Tracers", callback = update_elements})
-tracer_toggle:colorpicker({name = "Tracer Color", flag = "Tracer_Color", callback = update_elements})
+local tracer_toggle = section:toggle({name = "Tracer ESP", flag = "TracerESP", callback = update_elements})
+tracer_toggle:colorpicker({name = "Tracer Color", flag = "TracerColor", callback = update_elements})
+section:dropdown({name = "Tracer Origin", flag = "TracerOrigin", items = {"Bottom", "Top", "Mouse", "Center"}, default = "Bottom", callback = update_elements})
 
-local dot_toggle = section:toggle({name = "Head Dots", flag = "HeadDots", callback = update_elements})
-dot_toggle:colorpicker({name = "Dot Color", flag = "Dot_Color", callback = update_elements})
-
-local skeleton_toggle = section:toggle({name = "Skeletons", flag = "Skeleton", callback = update_elements})
-skeleton_toggle:colorpicker({name = "Skeleton Color", flag = "Skeleton_Color", callback = update_elements})
-section:toggle({name = "Skeleton on Team", flag = "SkeletonOnTeam", callback = update_elements})
+local skeleton_toggle = section:toggle({name = "Skeleton ESP", flag = "SkeletonESP", callback = update_elements})
+skeleton_toggle:colorpicker({name = "Skeleton Color", flag = "SkeletonColor", callback = update_elements})
 
 esp_column = ESP:column()
-local chams_section = esp_column:section({name = "Chams", toggle = false})
+local settings_section = esp_column:section({name = "Settings & Chams", toggle = false})
 
-chams_section:toggle({name = "Enabled", flag = "Chams", callback = update_elements})
-chams_section:toggle({name = "Chams on Team", flag = "ChamsOnTeam", callback = update_elements})
+settings_section:slider({name = "Refresh Rate", min = 30, max = 240, default = 144, interval = 10, flag = "RefreshRate", callback = update_elements})
+settings_section:toggle({name = "Rainbow Mode", flag = "RainbowEnabled", callback = update_elements})
 
-local vis_chams = chams_section:toggle({name = "Visible Chams", flag = "VisibleChams", callback = update_elements})
-vis_chams:colorpicker({name = "Visible Color", flag = "Chams_Visible_Color", callback = update_elements})
+local enemy_color = settings_section:colorpicker({name = "Enemy Color", flag = "EnemyColor", color = Color3.fromRGB(255,25,25), callback = update_elements})
+local ally_color = settings_section:colorpicker({name = "Ally Color", flag = "AllyColor", color = Color3.fromRGB(25,255,25), callback = update_elements})
 
-local hid_chams = chams_section:toggle({name = "Hidden Chams", flag = "HiddenChams", callback = update_elements})
-hid_chams:colorpicker({name = "Hidden Color", flag = "Chams_Hidden_Color", callback = update_elements})
+settings_section:toggle({name = "Enable Chams", flag = "ChamsEnabled", callback = update_elements})
+local chams_fill = settings_section:colorpicker({name = "Chams Fill", flag = "ChamsFillColor", color = Color3.fromRGB(255,0,0), callback = update_elements})
+local chams_outline = settings_section:colorpicker({name = "Chams Outline", flag = "ChamsOutlineColor", color = Color3.fromRGB(255,255,255), callback = update_elements})
+
+-- UNLOAD BUTTON (Added at the bottom of the right column)
+local unload_section = esp_column:section({name = "Danger Zone", toggle = false})
+unload_section:button({name = "Destroy ESP", callback = function()
+    if esp and esp.unload then
+        esp:unload()
+        library:notification({title = "ESP Unloaded", content = "The ESP has been safely disconnected and removed.", duration = 3})
+    end
+end})
 
 esp_preview = window.esp_section:esp_preview({})
 
