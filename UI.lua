@@ -1,8 +1,10 @@
+-- ═══════════════════════════════════════════════════════════════
+-- MAIN SCRIPT (Atlanta UI + i77lhm's Official ESP)
+-- ═══════════════════════════════════════════════════════════════
 
+local ESP_LIB_URL = "https://raw.githubusercontent.com/i77lhm/Libraries/refs/heads/main/ESP/Library.lua"
 
-local ESP_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/esp.lua"
-
-local library, themes = loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/library.lua"))()
+local library, themes = loadstring(game:HttpGet("https://raw.githubusercontent.com/i77lhm/Libraries/refs/heads/main/Atlanta/Library.lua"))()
 
 local dim2 = UDim2.new
 local hex = Color3.fromHex
@@ -58,100 +60,100 @@ vis_a:slider({name = "Rotation Speed", min = 0, max = 100, default = 100, interv
 library.config_flags["fov"](false)
 
 -- ── ESP tab ────────────────────────────────────────────────────
-local esp
-local esp_preview
+local ESP_Features = loadstring(game:HttpGet(ESP_LIB_URL))()
 
-local function update_elements()
-    if esp and esp.refresh_elements then esp:refresh_elements() end
-end
-
--- COLUMN 1: Main ESP Settings
 local esp_column = ESP:column()
-local section = esp_column:section({name = "Main ESP", toggle = false})
+local main_section = esp_column:section({name = "Main ESP", toggle = false})
 
-section:toggle({name = "Enabled", flag = "Enabled", callback = update_elements})
-section:toggle({name = "Team Check", flag = "TeamCheck", callback = update_elements})
-section:toggle({name = "Show Team", flag = "ShowTeam", callback = update_elements})
-section:slider({name = "Max Distance", min = 100, max = 5000, default = 1000, interval = 50, flag = "MaxDistance", callback = update_elements})
+-- This table maps YOUR UI flags to i77lhm's ESP flags
+local esp_config = {
+    Enabled = "Enabled",
+    Names = "Names",
+    Name_Color = "Name_Color",
+    Boxes = "Boxes",
+    Box_Type = "Box_Type",
+    Box_Color = "Box_Color",
+    Healthbar = "Healthbar",
+    Health_High = "Health_High",
+    Health_Low = "Health_Low",
+    Distance = "Distance",
+    Distance_Color = "Distance_Color",
+    Weapon = "Weapon",
+    Weapon_Color = "Weapon_Color",
+    Skeletons = "Skeletons",
+    Skeletons_Color = "Skeletons_Color"
+}
 
-section:toggle({name = "Box ESP", flag = "BoxESP", callback = update_elements})
-section:dropdown({name = "Box Style", flag = "BoxStyle", items = {"Corner", "Full", "ThreeD"}, default = "Corner", callback = update_elements})
-
-section:toggle({name = "Name ESP", flag = "NameESP", callback = update_elements})
-    :colorpicker({name = "Name Color", flag = "NameColor", callback = update_elements})
-section:toggle({name = "Show Distance", flag = "ShowDistance", callback = update_elements})
-    :colorpicker({name = "Distance Color", flag = "DistanceColor", callback = update_elements})
-
-section:toggle({name = "Health Bar", flag = "HealthESP", callback = update_elements})
-section:dropdown({name = "Health Style", flag = "HealthStyle", items = {"Bar", "Text", "Both"}, default = "Bar", callback = update_elements})
-
-section:toggle({name = "Tracer ESP", flag = "TracerESP", callback = update_elements})
-section:dropdown({name = "Tracer Origin", flag = "TracerOrigin", items = {"Bottom", "Top", "Mouse", "Center"}, default = "Bottom", callback = update_elements})
-
--- COLUMN 2: Skeleton & Chams
-esp_column = ESP:column()
-local adv_section = esp_column:section({name = "Skeleton & Chams", toggle = false})
-
-local skeleton_toggle = adv_section:toggle({name = "Skeleton ESP", flag = "SkeletonESP", callback = update_elements})
-skeleton_toggle:colorpicker({name = "Skeleton Color", flag = "SkeletonColor", callback = update_elements})
-adv_section:slider({name = "Skeleton Thickness", min = 0.5, max = 5, default = 1.5, interval = 0.1, flag = "SkeletonThickness", callback = update_elements})
-adv_section:slider({name = "Skeleton Transparency", min = 0, max = 1, default = 1, interval = 0.1, flag = "SkeletonTransparency", callback = update_elements})
-
-adv_section:toggle({name = "Enable Chams", flag = "ChamsEnabled", callback = update_elements})
-local chams_fill = adv_section:colorpicker({name = "Chams Fill", flag = "ChamsFillColor", color = Color3.fromRGB(255,0,0), callback = update_elements})
-local chams_outline = adv_section:colorpicker({name = "Chams Outline", flag = "ChamsOutlineColor", color = Color3.fromRGB(255,255,255), callback = update_elements})
-adv_section:slider({name = "Chams Fill Transparency", min = 0, max = 1, default = 0.5, interval = 0.1, flag = "ChamsTransparency", callback = update_elements})
-adv_section:slider({name = "Chams Outline Transparency", min = 0, max = 1, default = 0, interval = 0.1, flag = "ChamsOutlineTransparency", callback = update_elements})
-
--- COLUMN 3: Settings & Colors
-esp_column = ESP:column()
-local colors_section = esp_column:section({name = "Colors", toggle = false})
-
-colors_section:colorpicker({name = "Enemy Color", flag = "EnemyColor", color = Color3.fromRGB(255,25,25), callback = update_elements})
-colors_section:colorpicker({name = "Ally Color", flag = "AllyColor", color = Color3.fromRGB(25,255,25), callback = update_elements})
-colors_section:colorpicker({name = "Health Color", flag = "HealthColor", color = Color3.fromRGB(0,255,0), callback = update_elements})
-
-local effects_section = esp_column:section({name = "Effects & Performance", toggle = false})
-effects_section:toggle({name = "Rainbow Mode", flag = "RainbowEnabled", callback = update_elements})
-effects_section:dropdown({name = "Rainbow Parts", flag = "RainbowParts", items = {"All", "Box Only", "Tracers Only", "Text Only"}, default = "All", callback = function(val)
-    raw_flags["RainbowBoxes"] = (val == "All" or val == "Box Only")
-    raw_flags["RainbowTracers"] = (val == "All" or val == "Tracers Only")
-    raw_flags["RainbowText"] = (val == "All" or val == "Text Only")
+main_section:toggle({name = "Enabled", flag = esp_config.Enabled, callback = function()
+    ESP_Features:Update(library.flags)
 end})
-effects_section:slider({name = "Refresh Rate", min = 30, max = 240, default = 144, interval = 10, flag = "RefreshRate", callback = update_elements})
 
--- The Fixed Unload Button
+main_section:toggle({name = "Names", flag = esp_config.Names, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+    :colorpicker({flag = esp_config.Name_Color, callback = function()
+        ESP_Features:Update(library.flags)
+    end})
+
+local box_toggle = main_section:toggle({name = "Boxes", flag = esp_config.Boxes, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+main_section:dropdown({name = "Box Type", flag = esp_config.Box_Type, items = {"Corner", "Full"}, default = "Corner", callback = function()
+    ESP_Features:Update(library.flags)
+end})
+box_toggle:colorpicker({name = "Box Color", flag = esp_config.Box_Color, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+
+local health_toggle = main_section:toggle({name = "Healthbar", flag = esp_config.Healthbar, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+health_toggle:colorpicker({name = "High HP Color", flag = esp_config.Health_High, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+health_toggle:colorpicker({name = "Low HP Color", flag = esp_config.Health_Low, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+
+main_section:toggle({name = "Distance", flag = esp_config.Distance, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+    :colorpicker({name = "Distance Color", flag = esp_config.Distance_Color, callback = function()
+        ESP_Features:Update(library.flags)
+    end})
+
+main_section:toggle({name = "Weapon", flag = esp_config.Weapon, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+    :colorpicker({name = "Weapon Color", flag = esp_config.Weapon_Color, callback = function()
+        ESP_Features:Update(library.flags)
+    end})
+
+main_section:toggle({name = "Skeletons", flag = esp_config.Skeletons, callback = function()
+    ESP_Features:Update(library.flags)
+end})
+    :colorpicker({name = "Skeleton Color", flag = esp_config.Skeletons_Color, callback = function()
+        ESP_Features:Update(library.flags)
+    end})
+
+-- The original ESP example has an esp_preview. We can load it here.
+ESP_Features:Init(library.flags)
+
+-- Unload button
 local unload_section = esp_column:section({name = "Danger Zone", toggle = false})
 unload_section:button_holder({}) 
 unload_section:button({name = "Destroy ESP", callback = function()
-    -- 1. Unload the ESP module (stops the loop, clears drawings)
-    if esp and esp.unload then
-        esp:unload()
-    end
-    -- 2. Destroy the library UI safely
-    for _, gui in library.guis do 
-        gui:Destroy() 
-    end 
-    -- 3. Disconnect all library connections
-    for _, connection in library.connections do 
-        connection:Disconnect() 
-    end
+    ESP_Features:Unload()
+    for _, gui in library.guis do gui:Destroy() end 
+    for _, connection in library.connections do connection:Disconnect() end
 end})
-
--- ESP Preview
-esp_preview = window.esp_section:esp_preview({})
 
 Aiming.open_tab()
 
 -- init
 library:config_list_update()
 for index, value in themes.preset do
-    pcall(function()
-        library:update_theme(index, value)
-    end)
+    pcall(function() library:update_theme(index, value) end)
 end
 task.wait()
 library.old_config = library:get_config()
-
-esp = loadstring(game:HttpGet(ESP_URL))()
-esp:init({ flags = library.flags })
