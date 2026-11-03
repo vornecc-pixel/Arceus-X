@@ -20,6 +20,7 @@ return function(opts)
     local windowOpts = {
         Name = opts.Name or "ARC3USX.EXE", Size = Vector2.new(750, 600),
         MenuKey = Enum.KeyCode.RightShift, Logo = logo, Mix = "NH Classic", Intro = true,
+        MobileLandscape = true,
     }
     if type(mix) == "table" and type(mix.CreateWindow) == "function" then
         local ok, result = pcall(mix.CreateWindow, library, windowOpts)

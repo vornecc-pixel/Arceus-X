@@ -283,6 +283,7 @@ function Mix.CreateWindow(Library, opts)
         Logo = opts.Logo,
         Size = opts.Size,
         MenuKey = opts.MenuKey,
+        MobileLandscape = opts.MobileLandscape,
         Intro = opts.Intro,
     })
     win:WaitReady()

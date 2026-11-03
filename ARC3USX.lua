@@ -789,6 +789,15 @@ function Library:Unload()
             c:Disconnect()
         end)
     end
+    local orientation = self._orientationChange
+    self._orientationChange = nil
+    if orientation then
+        pcall(function()
+            if orientation.gui.ScreenOrientation == orientation.requested then
+                orientation.gui.ScreenOrientation = orientation.previous
+            end
+        end)
+    end
     if self.Gui then
         self.Gui:Destroy()
     end
@@ -964,16 +973,26 @@ function Group:AddSlider(o)
         TextXAlignment = Enum.TextXAlignment.Right,
         Parent = row,
     })
+    local touch = self.Window.Touch
     local bar = New("Frame", {
         Name = "SliderBar",
-        Position = UDim2.fromOffset(12, 21),
-        Size = UDim2.new(1, -12, 0, self.Window.Touch and 18 or 6),
+        Position = UDim2.fromOffset(touch and 42 or 12, 21),
+        Size = UDim2.new(1, touch and -84 or -12, 0, touch and 18 or 6),
         BackgroundColor3 = T.Box,
         BackgroundTransparency = 0,
         Parent = row,
     }, { Stroke(T.Line) })
     local fill = New("Frame", { Size = UDim2.fromScale(0, 1), BackgroundTransparency = 0, Parent = bar })
     Acc(fill, "BackgroundColor3")
+    local thumb
+    if touch then
+        thumb = New("Frame", {
+            Name = "SliderThumb", AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromOffset(7, 22),
+            BackgroundTransparency = 0, Parent = bar,
+        }, { Stroke(T.BoxLine) })
+        Acc(thumb, "BackgroundColor3")
+    end
 
     local obj = { Type = "Slider", Flag = flag }
     function obj:Set(v, silent)
@@ -982,7 +1001,9 @@ function Group:AddSlider(o)
         v = math.floor(v * m + 0.5) / m
         self.Value = v
         Library.Flags[flag] = v
-        fill.Size = UDim2.fromScale((v - min) / math.max(max - min, 1e-9), 1)
+        local progress = (v - min) / math.max(max - min, 1e-9)
+        fill.Size = UDim2.fromScale(progress, 1)
+        if thumb then thumb.Position = UDim2.fromScale(progress, 0.5) end
         val.Text = tostring(v) .. suf
         if not silent and o.Callback then
             task.spawn(o.Callback, v)
@@ -991,6 +1012,20 @@ function Group:AddSlider(o)
     Drag(bar, function(r)
         obj:Set(min + (max - min) * r)
     end)
+    if touch then
+        local step = tonumber(o.Step) or (10 ^ -rnd)
+        if step <= 0 then step = 10 ^ -rnd end
+        for _, direction in ipairs({ -1, 1 }) do
+            local button = New("TextButton", {
+                Name = direction < 0 and "SliderDecrease" or "SliderIncrease",
+                Text = direction < 0 and "−" or "+",
+                Position = direction < 0 and UDim2.fromOffset(12, 18) or UDim2.new(1, -29, 0, 18),
+                Size = UDim2.fromOffset(25, 24), BackgroundColor3 = T.P2,
+                BackgroundTransparency = 0, Parent = row,
+            }, { Stroke(T.Line) })
+            Connect(button.MouseButton1Click, function() obj:Set(obj.Value + direction * step) end)
+        end
+    end
     obj:Set(o.Default or min, true)
     Library.Options[flag] = obj
     return obj
@@ -1735,7 +1770,7 @@ end
 
 function Window:Toggle()
     self.Root.Visible = not self.Root.Visible
-    self.Fab.Visible = not self.Root.Visible
+    self.Fab.Visible = self.Touch or not self.Root.Visible
     self:_closePopup()
 end
 
@@ -1753,6 +1788,7 @@ function Window:Replay()
             if self.Root and self.Root.Parent then self.Root.Visible = true end
             if self.Fab and self.Fab.Parent then self.Fab.Visible = false end
         end
+        if self.Fab and self.Fab.Parent then self.Fab.Visible = self.Touch or not self.Root.Visible end
         self._introRunning = false
         self._ready = true
     end)
@@ -2000,8 +2036,32 @@ function Library:CreateWindow(opts)
     local gui = self:_gui()
     self:_init()
 
-    local size = opts.Size or Vector2.new(560, 500)
     self.Device = self:DetectDevice()
+    if opts.MobileLandscape and self.Device.Kind == "Mobile" then
+        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if playerGui then
+            local ok, previous = pcall(function() return playerGui.ScreenOrientation end)
+            local landscape = Enum.ScreenOrientation.LandscapeSensor
+            if ok and previous and landscape and previous ~= landscape then
+                local changed, err = pcall(function() playerGui.ScreenOrientation = landscape end)
+                if changed then
+                    self._orientationChange = { gui = playerGui, previous = previous, requested = landscape }
+                else
+                    warn("[ARC3USX] Could not request landscape orientation: " .. tostring(err))
+                end
+            end
+            -- Rotation is asynchronous; avoid starting the intro against stale dimensions.
+            local started = os.clock()
+            while gui.Parent and self.Gui == gui and os.clock() - started < 2 do
+                local camera = workspace.CurrentCamera
+                if camera and camera.ViewportSize.X >= camera.ViewportSize.Y then break end
+                task.wait(0.1)
+            end
+            if not gui.Parent or self.Gui ~= gui then return nil end
+        end
+        self.Device = self:DetectDevice()
+    end
+    local size = opts.Size or Vector2.new(560, 500)
     local win = setmetatable({ Tabs = {}, Touch = self.Device.Touch }, Window)
 
     local root = New("Frame", {
@@ -2033,6 +2093,7 @@ function Library:CreateWindow(opts)
         root.Size = UDim2.fromOffset(width, height)
         if lastWidth ~= vp.X or lastHeight ~= vp.Y then
             root.Position = UDim2.fromScale(0.5, 0.5)
+            if win.Touch and win.Fab then win.Fab.Position = UDim2.new(1, -34, 0.5, 0) end
             lastWidth, lastHeight = vp.X, vp.Y
         end
         local short = { ["ESP / World"] = "ESP", Settings = "Config" }
@@ -2145,18 +2206,48 @@ function Library:CreateWindow(opts)
         Parent = root,
     }, { Stroke(T.Line) })
 
-    -- floating button (shown when the menu is hidden)
+    -- The touch button stays available while the menu is open or minimized.
     win.Fab = New("ImageButton", {
-        Image = self.Logo,
-        AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.new(1, -14, 1, -14),
+        Name = "FloatingMenuToggle", Image = self.Logo,
+        AnchorPoint = win.Touch and Vector2.new(0.5, 0.5) or Vector2.new(1, 1),
+        Position = win.Touch and UDim2.new(1, -34, 0.5, 0) or UDim2.new(1, -14, 1, -14),
         Size = UDim2.fromOffset(win.Touch and 52 or 44, win.Touch and 52 or 44),
         BackgroundColor3 = Color3.fromRGB(232, 232, 238),
-        BackgroundTransparency = 0,
-        Visible = false,
+        BackgroundTransparency = 0, ZIndex = 30,
+        Visible = win.Touch,
         Parent = gui,
     }, { New("UICorner", { CornerRadius = UDim.new(1, 0) }), Stroke(self.Accent) })
+    local fabStroke = win.Fab:FindFirstChildOfClass("UIStroke")
+    if fabStroke then Acc(fabStroke, "Color") end
+    local fabTouch, fabStart, fabCenter, fabDragged, suppressFabClick
+    if win.Touch then
+        Connect(win.Fab.InputBegan, function(i)
+            if i.UserInputType ~= Enum.UserInputType.Touch or fabTouch then return end
+            fabTouch, fabStart, fabDragged, suppressFabClick = i, i.Position, false, false
+            fabCenter = win.Fab.AbsolutePosition + win.Fab.AbsoluteSize / 2
+        end)
+        Connect(UserInputService.InputChanged, function(i)
+            if i ~= fabTouch then return end
+            local dx, dy = i.Position.X - fabStart.X, i.Position.Y - fabStart.Y
+            if dx * dx + dy * dy > 36 then fabDragged = true end
+            if not fabDragged or not workspace.CurrentCamera then return end
+            local vp = workspace.CurrentCamera.ViewportSize
+            local half = win.Fab.AbsoluteSize / 2
+            local x = math.clamp(fabCenter.X + dx, half.X, math.max(half.X, vp.X - half.X))
+            local y = math.clamp(fabCenter.Y + dy, half.Y, math.max(half.Y, vp.Y - half.Y))
+            win.Fab.Position = UDim2.fromOffset(x, y)
+        end)
+        Connect(UserInputService.InputEnded, function(i)
+            if i == fabTouch then
+                suppressFabClick, fabTouch = fabDragged, nil
+            end
+        end)
+    end
     Connect(win.Fab.MouseButton1Click, function()
+        if fabDragged or suppressFabClick then
+            fabDragged, suppressFabClick = false, false
+            return
+        end
         win:Toggle()
     end)
 

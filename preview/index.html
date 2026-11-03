@@ -24,9 +24,8 @@
         <div class="device-toolbar" aria-label="Choose device preview">
           <div class="device-switch" role="group" aria-label="Device">
             <button class="device-choice active" data-device="pc" aria-pressed="true"><span aria-hidden="true">▣</span> PC</button>
-            <button class="device-choice" data-device="portrait" aria-pressed="false"><span aria-hidden="true">▯</span> Mobile</button>
+            <button class="device-choice" data-device="landscape" aria-pressed="false"><span aria-hidden="true">▯</span> Mobile</button>
           </div>
-          <button id="rotate-device" class="rotate-device" disabled><span aria-hidden="true">↻</span> Rotate</button>
           <div class="device-detail"><span class="device-detail-label">VIEWING</span><strong id="device-label">PC · 1280 × 720</strong><span id="device-description">Two-column desktop layout</span></div>
         </div>
         <div class="stage-area" id="stage-area"><div class="device-shell" id="device-shell"><div class="stage" id="stage">
@@ -40,7 +39,7 @@
               <div class="menu-body" id="menu-body"></div>
             </div>
           </div>
-          <button id="floating" class="floating" aria-label="Show menu" title="Show menu"><img src="assets/logo.png" alt=""></button>
+          <button id="floating" class="floating" aria-label="Toggle menu" title="Toggle menu"><img src="assets/logo.png" alt=""></button>
           <div id="intro" class="intro" aria-label="Simulated loading sequence" hidden>
             <div id="terminal" class="terminal"></div>
             <div id="intro-checks" class="intro-checks"><div class="intro-title">ARC3USX.EXE</div><div class="intro-sub">32-bit compatibility check</div><div class="check-list" id="check-list"></div><div class="intro-bar"><i id="intro-progress"></i></div><div class="intro-status" id="intro-status">Starting up...</div></div>

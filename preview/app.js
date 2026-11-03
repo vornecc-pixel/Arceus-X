@@ -62,7 +62,7 @@
   function row(r){
     if(r.type==='toggle') return `<div class="row"><button class="toggle ${state[r.flag]?'on':''}" data-toggle="${esc(r.flag)}" aria-pressed="${!!state[r.flag]}" aria-label="${esc(r.label)}"></button><span class="row-label" data-toggle="${esc(r.flag)}">${esc(r.label)}</span>${(colors[r.flag]||[]).map((c,i)=>`<label class="swatch" style="background:${esc(c)}" title="Change ${esc(r.label)} color"><input type="color" data-color="${esc(r.flag)}" data-index="${i}" value="${esc(c)}" aria-label="${esc(r.label)} color ${i+1}"></label>`).join('')}</div>`;
     if(r.type==='select') return `<div class="select-row"><div class="control-heading">${esc(r.label)}</div><select data-select="${esc(r.flag)}" aria-label="${esc(r.label)}">${r.options.map(o=>`<option ${o===state[r.flag]?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
-    if(r.type==='range'){const pct=(state[r.flag]-r.min)/(r.max-r.min)*100;return `<div class="slider-row"><div class="control-heading"><span>${esc(r.label)}</span><span data-value="${esc(r.flag)}">${state[r.flag]}${esc(r.suffix||'')}</span></div><input type="range" data-range="${esc(r.flag)}" data-suffix="${esc(r.suffix||'')}" min="${r.min}" max="${r.max}" step="${r.max<=1?'.001':'1'}" value="${state[r.flag]}" style="--pct:${pct}%" aria-label="${esc(r.label)}"></div>`;}
+    if(r.type==='range'){const pct=(state[r.flag]-r.min)/(r.max-r.min)*100;return `<div class="slider-row"><div class="control-heading"><span>${esc(r.label)}</span><span data-value="${esc(r.flag)}">${state[r.flag]}${esc(r.suffix||'')}</span></div><div class="slider-controls"><button class="slider-step" data-step="-1" aria-label="Decrease ${esc(r.label)}">−</button><input type="range" data-range="${esc(r.flag)}" data-suffix="${esc(r.suffix||'')}" min="${r.min}" max="${r.max}" step="${r.max<=1?'.001':'1'}" value="${state[r.flag]}" style="--pct:${pct}%" aria-label="${esc(r.label)}"><button class="slider-step" data-step="1" aria-label="Increase ${esc(r.label)}">+</button></div></div>`;}
     if(r.type==='button') return `<button class="ui-button" data-action="${esc(r.action)}">${esc(r.label)}</button>`;
     if(r.type==='label') return `<p class="label-text">${esc(r.label)}</p>`;
     if(r.type==='preview') return `<div class="preview-stage"><div class="figure"><div class="part head"></div><div class="part torso"></div><div class="part arm1"></div><div class="part arm2"></div><div class="part leg1"></div><div class="part leg2"></div><svg class="skeleton" viewBox="0 0 60 130" fill="none" stroke="white" stroke-width="1.5"><path d="M30 10V68 M16 28H44 M16 28L9 64 M44 28L51 64 M30 68L22 98V124 M30 68L38 98V124"/></svg><div class="esp-frame"></div><div class="health"><i></i></div><div class="figure-label name">Target</div><div class="figure-label distance">42m</div><div class="figure-label weapon">Sword</div></div></div>`;
@@ -93,7 +93,7 @@
     state.NH_Mix=name; state.theme=name;state.NH_Watermark=m.watermark;state.NH_KeybindList=m.keys;
     $('#watermark').style.display=m.watermark?'':'none';$('#keybinds').style.display=m.keys?'':'none';$('#current-theme').textContent=name.toUpperCase();
   }
-  function showMenu(show){menuShown=show; menuWrap.style.display=show?'':'none'; $('#floating').style.display=show?'none':'block';}
+  function showMenu(show){menuShown=show; menuWrap.style.display=show?'':'none'; $('#floating').style.display=(devices[selectedDevice].touch||!show)?'block':'none';}
   function fit(){
     const device=devices[selectedDevice], w=device.width, h=device.height;
     const border=device.touch?6:0;
@@ -118,13 +118,12 @@
     selectedDevice=id; const device=devices[id];
     stopIntro();stageArea.classList.toggle('mobile',device.touch);
     document.querySelectorAll('.device-choice').forEach(button=>{
-      const active=button.dataset.device===(device.touch?'portrait':'pc');
+      const active=button.dataset.device===id;
       button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
     });
-    $('#rotate-device').disabled=!device.touch;
     $('#device-label').textContent=device.label;$('#device-description').textContent=device.description;
-    $('#device-hint').innerHTML=device.touch?'TAP × TO HIDE <span class="bottom-separator">·</span> TAP LOGO TO REOPEN':'<kbd>RIGHT SHIFT</kbd> TOGGLE MENU <span class="bottom-separator">·</span> <span class="desktop-label">DRAG WINDOW TO MOVE</span>';
-    menuWrap.style.left='50%';menuWrap.style.top='50%';showMenu(true);fit();
+    $('#device-hint').innerHTML=device.touch?'TAP CIRCLE TO TOGGLE <span class="bottom-separator">·</span> DRAG TO MOVE':'<kbd>RIGHT SHIFT</kbd> TOGGLE MENU <span class="bottom-separator">·</span> <span class="desktop-label">DRAG WINDOW TO MOVE</span>';
+    menuWrap.style.left='50%';menuWrap.style.top='50%';const fab=$('#floating');fab.style.left='';fab.style.top='';fab.style.right='';fab.style.bottom='';showMenu(true);fit();
   }
   function stopIntro(){introTimers.forEach(clearTimeout);introTimers=[];$('#intro').hidden=true;$('#intro').classList.remove('smash');$('#intro-checks').hidden=false;$('#intro-reveal').hidden=true;}
   function later(fn,ms){introTimers.push(setTimeout(fn,ms));}
@@ -143,6 +142,7 @@
   $('#tabs').addEventListener('click',e=>{const tab=e.target.closest('[data-tab]');if(tab){activeTab=tab.dataset.tab;render();$('#menu-body').scrollTop=0;}});
   $('#menu-body').addEventListener('click',e=>{
     const toggle=e.target.closest('[data-toggle]');if(toggle){const key=toggle.dataset.toggle;state[key]=!state[key];if(key==='NH_Watermark')$('#watermark').style.display=state[key]?'':'none';if(key==='NH_KeybindList')$('#keybinds').style.display=state[key]?'':'none';const button=$(`.toggle[data-toggle="${key}"]`);button.classList.toggle('on',state[key]);button.setAttribute('aria-pressed',state[key]);updateFigure();return;}
+    const step=e.target.closest('[data-step]'); if(step){const input=step.parentElement.querySelector('input'); if(step.dataset.step==='1')input.stepUp();else input.stepDown();input.dispatchEvent(new Event('input',{bubbles:true}));return;}
     const action=e.target.closest('[data-action]')?.dataset.action;if(!action)return;
     if(action==='next-mix'){const keys=Object.keys(mixes);applyMix(keys[(keys.indexOf(currentMix)+1)%keys.length]);render();}
     if(action==='intro')playIntro();if(action==='unload')showMenu(false);if(action==='scan'){e.target.textContent='No staff detected';setTimeout(()=>{if(e.target)e.target.textContent='Scan Now';},2000)}
@@ -150,11 +150,15 @@
   $('#menu-body').addEventListener('input',e=>{const el=e.target;if(el.dataset.range){state[el.dataset.range]=Number(el.value);const pct=(el.value-el.min)/(el.max-el.min)*100;el.style.setProperty('--pct',pct+'%');$(`[data-value="${el.dataset.range}"]`).textContent=el.value+(el.dataset.suffix||'');}if(el.dataset.color){colors[el.dataset.color][Number(el.dataset.index)]=el.value;el.parentElement.style.background=el.value;updateFigure();}});
   $('#menu-body').addEventListener('change',e=>{const key=e.target.dataset.select;if(!key)return;state[key]=e.target.value;if(key==='NH_Mix'||key==='theme'){applyMix(e.target.value);render();}else updateFigure();});
   document.querySelectorAll('.device-choice').forEach(button=>button.addEventListener('click',()=>selectDevice(button.dataset.device)));
-  $('#rotate-device').addEventListener('click',()=>selectDevice(selectedDevice==='portrait'?'landscape':'portrait'));
-  $('#replay').addEventListener('click',playIntro);$('#skip-intro').addEventListener('click',stopIntro);$('#close-menu').addEventListener('click',()=>showMenu(false));$('#floating').addEventListener('click',()=>showMenu(true));
+  $('#replay').addEventListener('click',playIntro);$('#skip-intro').addEventListener('click',stopIntro);$('#close-menu').addEventListener('click',()=>showMenu(false));$('#floating').addEventListener('click',()=>{if(fabMoved){fabMoved=false;return;} showMenu(!menuShown);});
   $('#reset').addEventListener('click',()=>{stopIntro();defaults();applyMix(currentMix);render();showMenu(true);menuWrap.style.left='50%';menuWrap.style.top='50%';});
   document.addEventListener('keydown',e=>{if(e.code==='ShiftRight'&&!e.repeat&&!['INPUT','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();showMenu(!menuShown);}});
   let drag=null;$('#drag-handle').addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;const rect=menuWrap.getBoundingClientRect(),parent=stage.getBoundingClientRect();drag={dx:e.clientX-(rect.left+rect.width/2),dy:e.clientY-(rect.top+rect.height/2),left:parent.left,top:parent.top,scale:parent.width/devices[selectedDevice].width};e.currentTarget.setPointerCapture(e.pointerId)});$('#drag-handle').addEventListener('pointermove',e=>{if(!drag||!drag.scale)return;menuWrap.style.left=(e.clientX-drag.left-drag.dx)/drag.scale+'px';menuWrap.style.top=(e.clientY-drag.top-drag.dy)/drag.scale+'px'});$('#drag-handle').addEventListener('pointerup',()=>drag=null);$('#drag-handle').addEventListener('pointercancel',()=>drag=null);
+  let fabDrag=null, fabMoved=false;
+  const fab=$('#floating');
+  fab.addEventListener('pointerdown',e=>{if(!devices[selectedDevice].touch)return;const rect=fab.getBoundingClientRect(),parent=stage.getBoundingClientRect();fabMoved=false;fabDrag={x:e.clientX,y:e.clientY,left:rect.left,top:rect.top,scale:parent.width/devices[selectedDevice].width};fab.setPointerCapture(e.pointerId)});
+  fab.addEventListener('pointermove',e=>{if(!fabDrag)return;const dx=e.clientX-fabDrag.x,dy=e.clientY-fabDrag.y;if(dx*dx+dy*dy>36)fabMoved=true;if(!fabMoved)return;const parent=stage.getBoundingClientRect(),scale=fabDrag.scale;fab.style.left=Math.max(0,Math.min(devices[selectedDevice].width-52,(fabDrag.left-parent.left+dx)/scale))+'px';fab.style.top=Math.max(0,Math.min(devices[selectedDevice].height-52,(fabDrag.top-parent.top+dy)/scale))+'px';fab.style.right='auto';fab.style.bottom='auto';});
+  fab.addEventListener('pointerup',()=>fabDrag=null);fab.addEventListener('pointercancel',()=>{fabDrag=null;fabMoved=false});
   window.addEventListener('resize',fit);
   const now=new Date();$('#menu-date').textContent=now.toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'}).replace(',','');$('#hud-time').textContent=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:false});
   defaults();applyMix(currentMix);render();selectDevice('pc');

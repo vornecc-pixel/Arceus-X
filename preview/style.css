@@ -19,3 +19,8 @@
 .stage{position:absolute;inset:0 auto auto 0;min-height:0;max-height:none;aspect-ratio:auto;transform-origin:top left}
 .menu-wrap.touch .row{min-height:34px}.menu-wrap.touch .swatch{width:30px;height:26px}.menu-wrap.touch .ui-button{height:34px}.menu-wrap.touch .select-row select{height:32px}.menu-wrap.touch .slider-row{padding-bottom:12px}.menu-wrap.touch .slider-row input{height:16px}.menu-wrap.touch .menu-titlebar{height:34px}.menu-wrap.touch .tabs{height:34px}.menu-wrap.touch .menu-body{height:calc(100% - 85px)}
 @media(max-width:650px){.device-toolbar{flex-wrap:wrap;padding:10px}.device-detail{width:100%;margin:2px 0 0;text-align:left;gap:8px}.device-detail span:last-child{display:none}.stage-area.mobile{padding:18px 8px}.showcase-top .showcase-badge{font-size:8px}.showcase-top{gap:8px}}
+/* Touch controls match the in-game landscape layout. */
+.slider-controls{display:flex;align-items:center;gap:5px}.slider-controls input{flex:1;min-width:0}.slider-step{display:none}
+.menu-wrap.touch .slider-step{display:block;width:25px;height:24px;flex:none;border:1px solid var(--ui-line);background:var(--ui-panel);color:var(--ui-text);font:15px var(--ui-font)}
+.menu-wrap.touch .slider-row input::-webkit-slider-thumb{width:7px;height:22px}
+.stage-area.mobile .floating{width:52px;height:52px;right:8px;top:calc(50% - 26px);bottom:auto;touch-action:none}

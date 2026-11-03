@@ -36,6 +36,7 @@ local function color(r,g,b)
 end
 Color3 = { new = color, fromRGB = function(r,g,b) return color(r/255,g/255,b/255) end }
 local v2meta = { __add = function(a,b) return setmetatable({ X = a.X+b.X, Y = a.Y+b.Y }, getmetatable(a)) end,
+    __div = function(a,b) return setmetatable({ X = a.X/b, Y = a.Y/b }, getmetatable(a)) end,
     __sub = function(a,b) return setmetatable({ X = a.X-b.X, Y = a.Y-b.Y }, getmetatable(a)) end,
     __index = function(a,k) if k == "Magnitude" then return math.sqrt(a.X*a.X+a.Y*a.Y) end end }
 Vector2 = { new = function(x,y) return setmetatable({X=x,Y=y},v2meta) end }
@@ -87,7 +88,7 @@ root.CurrentCamera.ViewportSize=Vector2.new(1280,720)
 root.CurrentCamera.CFrame={Position=Vector3.new(0,0,0)}
 function root.CurrentCamera:WorldToViewportPoint() return {X=500,Y=300,Z=10} end
 local player=object("Player"); player.Name="Local"; player.CharacterAdded=signal(); player.CharacterRemoving=signal()
-local pg=object("PlayerGui"); pg.Parent=player
+local pg=object("PlayerGui"); pg.Parent=player; pg.ScreenOrientation=Enum.ScreenOrientation.Sensor
 function player:WaitForChild() return pg end
 function player:GetNetworkPing() return 0.05 end
 local players={LocalPlayer=player,PlayerAdded=signal(),PlayerRemoving=signal()}
@@ -229,6 +230,7 @@ for _, o in ipairs(objects) do
     if o:IsDescendantOf(mobileGui) and type(o.Text)=="string" and o.Text:find("Mobile IOS",1,true) then reportedMobile=true end
 end
 assert(reportedMobile, "intro displays detected device")
+assert(pg.ScreenOrientation==Enum.ScreenOrientation.LandscapeSensor, "mobile requests landscape orientation")
 step(52)
 local mobileWindow = loadedLibrary._windows[1]
 assert(loadedLibrary.Device.Kind=="Mobile" and loadedLibrary.Device.Touch and loadedLibrary.Device.Orientation=="Portrait", "iOS touch device detected")
@@ -247,7 +249,23 @@ assert(hide, "touch close button exists")
 hide.MouseButton1Click:Fire()
 assert(not mobileWindow.Root.Visible and mobileWindow.Fab.Visible, "touch close shows floating reopen button")
 mobileWindow.Fab.MouseButton1Click:Fire()
-assert(mobileWindow.Root.Visible and not mobileWindow.Fab.Visible, "floating button reopens menu")
+assert(mobileWindow.Root.Visible and mobileWindow.Fab.Visible, "floating button reopens menu and stays visible")
+mobileWindow.Fab.MouseButton1Click:Fire()
+assert(not mobileWindow.Root.Visible and mobileWindow.Fab.Visible, "floating button minimizes menu")
+mobileWindow.Fab.MouseButton1Click:Fire()
+mobileWindow.Fab.AbsolutePosition=Vector2.new(300,300)
+mobileWindow.Fab.AbsoluteSize=Vector2.new(52,52)
+local fabFinger={UserInputType=Enum.UserInputType.Touch,Position=Vector3.new(310,310,0)}
+local otherFinger={UserInputType=Enum.UserInputType.Touch,Position=Vector3.new(900,900,0)}
+mobileWindow.Fab.InputBegan:Fire(fabFinger)
+input.InputChanged:Fire(otherFinger)
+assert(mobileWindow.Fab.Position.X.Scale==1, "another touch cannot drag the floating button")
+fabFinger.Position=Vector3.new(1000,1000,0)
+input.InputChanged:Fire(fabFinger)
+assert(mobileWindow.Fab.Position.X.Offset==364 and mobileWindow.Fab.Position.Y.Offset==818, "floating button drag clamps to screen")
+input.InputEnded:Fire(fabFinger)
+mobileWindow.Fab.MouseButton1Click:Fire()
+assert(mobileWindow.Root.Visible, "drag does not toggle menu")
 mobileWindow.Root.AbsolutePosition=Vector2.new(20,100)
 mobileWindow.Root.AbsoluteSize=Vector2.new(300,500)
 local dragTouch={UserInputType=Enum.UserInputType.Touch,Position=Vector3.new(30,110,0)}
@@ -262,7 +280,14 @@ for _, o in ipairs(objects) do
         bar=o.Parent:FindFirstChild("SliderBar"); if bar then break end
     end
 end
-assert(bar and bar.Active, "touch slider has an active hit target")
+assert(bar and bar.Active and bar:FindFirstChild("SliderThumb"), "touch slider has an active hit target and thumb")
+local minus, plus = bar.Parent:FindFirstChild("SliderDecrease"), bar.Parent:FindFirstChild("SliderIncrease")
+assert(minus and plus, "touch slider has step buttons")
+local before = loadedLibrary.Options.plr_max_dist.Value
+plus.MouseButton1Click:Fire()
+assert(loadedLibrary.Options.plr_max_dist.Value == before + 1, "plus increases slider")
+minus.MouseButton1Click:Fire()
+assert(loadedLibrary.Options.plr_max_dist.Value == before, "minus decreases slider")
 local first={UserInputType=Enum.UserInputType.Touch, Position=Vector3.new(150,100,0)}
 local second={UserInputType=Enum.UserInputType.Touch, Position=Vector3.new(450,100,0)}
 bar.InputBegan:Fire(first)
@@ -292,5 +317,28 @@ step(0.2)
 assert(loadedLibrary.ThemeName=="Sakura", "new mix is selectable")
 environment.ARC3USX_MAIN_UNLOAD()
 step(1)
+assert(pg.ScreenOrientation==Enum.ScreenOrientation.Sensor, "unload restores original orientation")
+
+-- Rotation arriving during startup uses landscape for the initial window.
+local rotatedWindow
+schedule(function() rotatedWindow=loadedLibrary:CreateWindow({MobileLandscape=true,Intro=false}) end,0)
+step(0.2)
+assert(pg.ScreenOrientation==Enum.ScreenOrientation.LandscapeSensor and not rotatedWindow, "startup waits for rotation")
+root.CurrentCamera.ViewportSize=Vector2.new(844,390)
+step(0.2)
+assert(rotatedWindow and not rotatedWindow.SingleColumn, "startup continues with landscape layout")
+pg.ScreenOrientation=Enum.ScreenOrientation.Portrait
+loadedLibrary:Unload()
+assert(pg.ScreenOrientation==Enum.ScreenOrientation.Portrait, "unload preserves another orientation change")
+
+-- Cancel an in-flight orientation wait without leaving a window or changing orientation.
+pg.ScreenOrientation=Enum.ScreenOrientation.Sensor
+root.CurrentCamera.ViewportSize=Vector2.new(390,844)
+local cancelledWindow="pending"
+schedule(function() cancelledWindow=loadedLibrary:CreateWindow({MobileLandscape=true,Intro=false}) end,0)
+step(0.2)
+loadedLibrary:Unload()
+step(0.2)
+assert(cancelledWindow==nil and pg.ScreenOrientation==Enum.ScreenOrientation.Sensor and #loadedLibrary._windows==0, "unload cancels orientation wait")
 assert(#failures==0, table.concat(failures,"; "))
 print("Real UI, mobile layout, device checks, controls, themes, intro, reinjection, unload and fallback mock integration passed")
