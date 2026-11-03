@@ -1,6 +1,6 @@
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
-  const tabs = ['ESP / World', 'Combat', 'Misc', 'Mixes', 'Settings'];
+  const tabs = ['ESP / World', 'Combat', 'Misc', 'Settings'];
   const mixes = {
     'NH Classic': { accent:'#98bcff', bg:'#101114', panel:'#141519', item:'#1c1d23', line:'#24262d', border:'#343740', text:'#b4b4b4', mute:'#646464', font:"'Courier New',monospace", watermark:true, keys:true },
     'Arceus Purple': { accent:'#a43cff', bg:'#0d0d0f', panel:'#141416', item:'#1a1a1d', line:'#2b2b31', border:'#34343a', text:'#c9c9d0', mute:'#72727d', font:'Arial,sans-serif', watermark:true, keys:true },
@@ -22,35 +22,36 @@
   const group = (title, rows) => ({title,rows});
   const human = prefix => {
     const p = prefix === 'plr', name = p ? 'Players' : 'NPCs';
-    const list = [T(`Master Enable (${name})`,`${prefix}_master`,true),T(`${name} ESP Toggle`,`${prefix}_enabled`),R('Max Distance',`${prefix}_max_dist`,10,2000,500,'m'),S('Box Style',`${prefix}_style`,['Corners','Full'],'Corners'),T('Box',`${prefix}_box`,true,['#ffffff']),T('Name',`${prefix}_name`,true,['#ffffff']),T('Distance',`${prefix}_dist`,true,['#ffffff']),T('Weapon',`${prefix}_weapon`,true,[p?'#00ffff':'#ffb43c'])];
-    list.push(T('Health Bar',`${prefix}_health`,true,['#00ff00','#ff0000']),T('Skeleton',`${prefix}_skel`,true,['#ffffff']),T('Tracers',`${prefix}_tracer`,false,[p?'#98bcff':'#ffb43c']),T('Visible Only',`${prefix}_visible_only`));
-    if(p) list.push(T('Hide Teammates','plr_ignore_team'));
-    list.push(T('Chams',`${prefix}_chams`,true,[p?'#00ffff':'#3cff78','#ff3250'])); return list;
+    const list = [T(`Master Enable (${name})`,`${prefix}_master`,true), T(`${name} ESP Toggle`,`${prefix}_enabled`)];
+    if (p) list.push(R('Update Rate (Hz)','player_esp_hz',30,240,60,' Hz'));
+    list.push(S('Box Style',`${prefix}_style`,['Corners','Full'],'Corners'), R('Max Distance',`${prefix}_max_dist`,10,2000,500,'m'),
+      T('Box',`${prefix}_box`,true,['#ffffff']), T('Name',`${prefix}_name`,true,['#ffffff']));
+    if (p) list.push(T('Health Bar','plr_health',true,['#00ff00','#ff0000']));
+    list.push(T('Distance',`${prefix}_dist`,true,['#ffffff']), T('Weapon',`${prefix}_weapon`,true,[p?'#00ffff':'#ffb43c']));
+    if (p) list.push(T('Skeleton','plr_skel',true,['#ffffff']));
+    list.push(T('Chams',`${prefix}_chams`,true,[p?'#00ffff':'#3cff78','#ff3250']));
+    return list;
   };
-  const slider = (label, flag, value=0) => R(label,flag,0,1,value);
   const layout = {
     'ESP / World': [
-      [group('Overlay Settings',[T('Show ESP','esp_master',true),R('Updates Per Second','esp_rate',5,60,30,' Hz')]),group('Player ESP',human('plr')),group('Ore ESP',[T('Master Enable (Ores)','ore_master',true),T('Ores ESP Toggle','ore_enabled'),R('Max Distance','ore_max_dist',10,2000,300,'m'),T('Show Name','ore_name',true),T('Show Item Icon','ore_marker',true),T('Show Distance','ore_dist',true),...['Cactus','MetalNode','SulfurNode','Tree','Meteor','StoneNode'].map(x=>T(x,'ore_'+x,true))]),group('Loot ESP',[T('Master Enable (Loot)','loot_master',true),T('Loot ESP Toggle','loot_enabled'),R('Max Distance','loot_max_dist',10,2000,300,'m'),T('Show Name','loot_name',true),T('Show Distance','loot_dist',true),T('Highlight','loot_chams',true)])],
-      [group('NPC ESP',human('npc')),group('Heli ESP',[T('Master Enable (Heli)','heli_master',true),T('Heli ESP Toggle','heli_enabled'),R('Max Distance','heli_max_dist',10,5000,2000,'m'),S('Box Style','heli_style',['Corners','Full'],'Full'),T('Chams','heli_chams',true),T('Show Distance','heli_dist',true)]),group('Deployables ESP',[T('Master Enable (Deployables)','dep_master',true),T('Deployables ESP Toggle','dep_enabled'),R('Max Distance','dep_max_dist',10,2000,300,'m'),T('Turrets','dep_turret',true),T('Sleeping Bags / Beds','dep_bag',true),T('Tool Cupboards','dep_cupboard',true),T('Other Deployables','dep_other',true),T('Show Name','dep_name',true),T('Show Distance','dep_dist',true),T('Highlight','dep_chams',true)]),group('ESP Preview',[{type:'preview'}])]
+      [group('Player ESP',human('plr')),group('Ore ESP (Icons)',[T('Master Enable (Ores)','ore_master',true),T('Ore ESP Toggle','ore_enabled'),R('Max Distance','ore_max_dist',10,2000,300,'m'),T('Show Distance','ore_dist',true),...['Cactus','MetalNode','SulfurNode','Tree','Meteor','StoneNode'].map(x=>T(x,'ore_'+x,true))])],
+      [group('NPC ESP',human('npc')),group('Heli ESP',[T('Master Enable (Heli)','heli_master',true),T('Heli ESP Toggle','heli_enabled'),S('Box Style','heli_style',['Corners','Full'],'Full'),R('Max Distance','heli_max_dist',10,5000,2000,'m'),T('Chams','heli_chams',true),T('Show Distance','heli_dist',true)]),group('ESP Preview',[{type:'preview'}])]
     ],
     'Combat': [
-      [group('Gun Master',[T('Enable Gun Mods','gunmods_enabled')]),group('Gun Timing',[T('Instant Equip','gunmods_inst_equip'),R('Equip Time','gunmods_equip_time',.001,1,.001),T('Instant ADS','gunmods_inst_ads'),R('ADS Time','gunmods_ads_time',.001,1,.001)]),group('Fire Rate & Spread',[T('No Spread + Custom Rate','gunmods_nospread'),R('Fire Rate','gunmods_rate',.01,1,.05),T('Force Auto','gunmods_force_auto',true),slider('Spread','gunmods_spread'),slider('ADS Spread','gunmods_ads_spread'),slider('Move Spread','gunmods_move_spread')]),group('Bow Mods',[T('Enable Bow Mods','bowmods_enabled'),T('Instant Draw (max charge)','bowmods_instdraw'),T('Instant Reload (crossbow)','bowmods_instreload'),T('No Shot Cooldown','bowmods_nocd'),T('No Recoil / No Tremble','bowmods_norecoil'),T('No Drop (every bow)','bowmods_nodrop')])],
-      [group('Recoil & Bloom',[T('No Recoil','gunmods_norecoil'),slider('Visual Bloom','gunmods_bloom'),slider('Recoil Climb','gunmods_climb'),slider('Shake Max','gunmods_shakemax')]),group('Sway',[T('No Sway','gunmods_nosway'),slider('Sway','gunmods_sway'),slider('Sway Max','gunmods_swaymax'),slider('Bob Walk','gunmods_bobwalk'),slider('Bob Idle','gunmods_bobidle'),slider('Lean','gunmods_lean')]),group('Kick',[slider('Kick Pitch','gunmods_kickpitch'),slider('Kick Back','gunmods_kickback')]),group('Universal Bypass',[T('Infinite Ammo (every weapon)','universal_ammo'),T('No Air Block (fire while jumping)','universal_noair')])]
+      [group('Aimbot',[T('Master Enable','aim_enabled'),T('Team Check','aim_team',true),T('Wall Check','aim_wall',true),S('Target Part','aim_part',['Head','HumanoidRootPart','Closest','Random'],'Head'),R('FOV','aim_fov',10,360,180,'°'),R('Max Distance','aim_dist',50,2000,600,' studs'),R('Prediction','aim_pred',0,.5,.12),R('Smoothness','aim_smooth',0,1,.1)]),group('Bow Assist',[T('Bow Auto Lock','bow_auto',true),T('Full Charge (Crossbow)','bow_full'),R('Bow FOV','bow_fov',10,360,180),R('Bow Max Distance','bow_dist',50,1000,300),R('Bow Smoothness','bow_smooth',0,.5,.05),R('Draw Time','bow_draw',.1,2,.8),R('Speed Base','bow_speed',20,200,95),R('Speed Charge','bow_charge',0,200,125),R('Gravity','bow_gravity',0,200,50)])],
+      [group('Aimbot Visuals',[T('Show FOV Circle','aim_showfov',true),T('Show Target','aim_showtarget',true),T('Show Info','aim_showinfo',true)]),group('Aimbot Keys',[L('Toggle: Z  |  Hold: Q  |  Cycle Mode: X'),B('Cycle Target Part','demo')])]
     ],
     'Misc': [
-      [group('Staff Detection',[T('Enable Staff Monitor','staff_monitor'),T('Highlight Staff','staff_esp'),L('Staff scan inactive.'),B('Scan Now','scan')]),group('Auto Weakspot',[T('Enable Auto Weakspot','weakspot_enabled'),R('Max Distance','weakspot_max_dist',5,100,30,'m'),L('Creates an invisible marker at the nearest node; it does not redirect hits.')])],
-      [group('System',[B('Unload Script & Clear Memory','unload')])]
-    ],
-    'Mixes': [
-      [group('Mix',[S('Mix','NH_Mix',Object.keys(mixes),'NH Classic'),B('Next mix','next-mix')])],
-      [group('HUD',[T('Watermark','NH_Watermark',true),T('Keybind list','NH_KeybindList',true)])]
+      [group('Staff Detection',[T('Enable Staff Monitor','staff_monitor'),L('Not scanned yet.'),B('Scan Now','scan')]),group('System',[B('Unload Script & Clear Memory','unload')])],
+      [group('Staff ESP',[T('Highlight Staff','staff_esp'),B('Refresh Highlights','demo'),B('Clear Highlights','demo')]),group('Mining (Silent Insta-Hit)',[T('Enable Insta-Hit Weakspot','weakspot_enabled'),L('Silently snaps the camera at the nearest weakspot for one tick, activates the tool, then restores the camera. No visible lock. Radius: 50 studs.')])]
     ],
     'Settings': [
-      [group('Configs',[S('Select config','config',['None'],'None'),B('Save config','demo'),B('Load config','demo'),T('Auto Load Selected','__autoload')]),group('Appearance',[S('Theme','theme',Object.keys(mixes),'NH Classic'),S('Font','font',['Code','SourceSans','Gotham','RobotoMono'],'Code'),R('UI Scale','scale',.5,1.5,1),R('Window Opacity','opacity',0,1,1)])],
+      [group('Configs',[S('Select config','config',['None'],'None'),B('Save config','demo'),B('Load config','demo'),T('Auto Load Selected','__autoload')]),group('Appearance',[S('Theme','theme',Object.keys(mixes),'Arceus Purple'),S('Font','font',['Code','SourceSans','Gotham','RobotoMono'],'Code'),R('UI Scale','scale',.5,1.5,1),R('Window Opacity','opacity',0,1,1)])],
       [group('Other',[B('Replay Intro','intro'),B('Unload Menu','unload'),L('Settings are simulated in this presentation.')])]
     ]
   };
-  let state = {}, colors = {}, activeTab = 'ESP / World', currentMix = 'NH Classic', introTimers = [], menuShown = true;
+
+  let state = {}, colors = {}, activeTab = 'ESP / World', currentMix = 'Arceus Purple', introTimers = [], menuShown = true;
   const stage = $('#stage'), menuWrap = $('#menu-wrap'), stageArea = $('#stage-area'), deviceShell = $('#device-shell');
   const devices = {
     pc: {width:1280,height:720,touch:false,label:'PC · 1280 × 720',description:'Two-column desktop layout'},
@@ -58,7 +59,7 @@
     landscape: {width:844,height:390,touch:true,label:'MOBILE · LANDSCAPE',description:'844 × 390 · Two-column touch layout'}
   };
   let selectedDevice = 'pc';
-  function defaults(){ state={}; colors={}; Object.values(layout).flat(2).forEach(g=>g.rows.forEach(r=>{if(r.flag !== undefined) state[r.flag] = r.type==='toggle'?r.on:r.value; if(r.colors) colors[r.flag]=[...r.colors]})); currentMix='NH Classic'; activeTab='ESP / World'; menuShown=true; }
+  function defaults(){ state={}; colors={}; Object.values(layout).flat(2).forEach(g=>g.rows.forEach(r=>{if(r.flag !== undefined) state[r.flag] = r.type==='toggle'?r.on:r.value; if(r.colors) colors[r.flag]=[...r.colors]})); currentMix='Arceus Purple'; activeTab='ESP / World'; menuShown=true; }
   function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function row(r){
     if(r.type==='toggle') return `<div class="row"><button class="toggle ${state[r.flag]?'on':''}" data-toggle="${esc(r.flag)}" aria-pressed="${!!state[r.flag]}" aria-label="${esc(r.label)}"></button><span class="row-label" data-toggle="${esc(r.flag)}">${esc(r.label)}</span>${(colors[r.flag]||[]).map((c,i)=>`<label class="swatch" style="background:${esc(c)}" title="Change ${esc(r.label)} color"><input type="color" data-color="${esc(r.flag)}" data-index="${i}" value="${esc(c)}" aria-label="${esc(r.label)} color ${i+1}"></label>`).join('')}</div>`;
@@ -66,7 +67,7 @@
     if(r.type==='range'){const pct=(state[r.flag]-r.min)/(r.max-r.min)*100;return `<div class="slider-row"><div class="control-heading"><span>${esc(r.label)}</span><span data-value="${esc(r.flag)}">${state[r.flag]}${esc(r.suffix||'')}</span></div><div class="slider-controls"><button class="slider-step" data-step="-1" aria-label="Decrease ${esc(r.label)}">−</button><input type="range" data-range="${esc(r.flag)}" data-suffix="${esc(r.suffix||'')}" min="${r.min}" max="${r.max}" step="${r.max<=1?'.001':'1'}" value="${state[r.flag]}" style="--pct:${pct}%" aria-label="${esc(r.label)}"><button class="slider-step" data-step="1" aria-label="Increase ${esc(r.label)}">+</button></div></div>`;}
     if(r.type==='button') return `<button class="ui-button" data-action="${esc(r.action)}">${esc(r.label)}</button>`;
     if(r.type==='label') return `<p class="label-text">${esc(r.label)}</p>`;
-    if(r.type==='preview') return `<div class="preview-stage"><div class="tracer-preview"></div><div class="figure"><div class="part head"></div><div class="part torso"></div><div class="part arm1"></div><div class="part arm2"></div><div class="part leg1"></div><div class="part leg2"></div><svg class="skeleton" viewBox="0 0 60 130" fill="none" stroke="white" stroke-width="1.5"><path d="M30 10V68 M16 28H44 M16 28L9 64 M44 28L51 64 M30 68L22 98V124 M30 68L38 98V124"/></svg><div class="esp-frame"></div><div class="health"><i></i></div><div class="figure-label name">Target</div><div class="figure-label distance">42m</div><div class="figure-label weapon">Sword</div></div></div>`;
+    if(r.type==='preview') return `<div class="preview-stage"><div class="figure"><div class="part head"></div><div class="part torso"></div><div class="part arm1"></div><div class="part arm2"></div><div class="part leg1"></div><div class="part leg2"></div><svg class="skeleton" viewBox="0 0 60 130" fill="none" stroke="white" stroke-width="1.5"><path d="M30 10V68 M16 28H44 M16 28L9 64 M44 28L51 64 M30 68L22 98V124 M30 68L38 98V124"/></svg><div class="esp-frame"></div><div class="health"><i></i></div><div class="figure-label name">Target</div><div class="figure-label distance">42m</div><div class="figure-label weapon">Sword</div></div></div>`;
     return '';
   }
   function render(){
@@ -76,7 +77,7 @@
   }
   function updateFigure(){
     const fig=$('.figure'); if(!fig)return;
-    fig.classList.toggle('chams',!!state.plr_chams);const tracer=$('.tracer-preview');tracer.style.display=state.plr_tracer?'':'none';if(colors.plr_tracer)tracer.style.background=colors.plr_tracer[0];
+    fig.classList.toggle('chams',!!state.plr_chams);
     $('.esp-frame',fig).style.display=state.plr_box?'':'none'; $('.esp-frame',fig).classList.toggle('corners',state.plr_style==='Corners');
     $('.name',fig).style.display=state.plr_name?'':'none'; $('.distance',fig).style.display=state.plr_dist?'':'none'; $('.weapon',fig).style.display=state.plr_weapon?'':'none'; $('.health',fig).style.display=state.plr_health?'':'none'; $('.skeleton',fig).style.display=state.plr_skel?'':'none';
     const partColor=colors.plr_chams?.[0]; if(partColor) fig.style.setProperty('--chams',partColor);
