@@ -1,0 +1,5431 @@
+- Decompiled with Potassium's decompiler.
+
+local ContextActionService = game:GetService("ContextActionService");
+local Debris = game:GetService("Debris");
+local Players = game:GetService("Players");
+local ReplicatedStorage = game:GetService("ReplicatedStorage");
+local RunService = game:GetService("RunService");
+local SoundService = game:GetService("SoundService");
+local UserInputService = game:GetService("UserInputService");
+local LocalPlayer = Players.LocalPlayer;
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui");
+local Fust = ReplicatedStorage:WaitForChild("Fust");
+local Mode = Fust:WaitForChild("Mode");
+
+while Mode.Value == "" do
+    Mode.Changed:Wait();
+end;
+
+if Mode.Value ~= "World" then
+    return;
+end;
+
+local Items = require((Fust:WaitForChild("Items")));
+local Remotes = Fust:WaitForChild("Remotes");
+local u1 = {
+    kb = nil
+};
+local Keybinds = Fust:WaitForChild("Keybinds", 5);
+local success, result = pcall(function() -- Line: 79
+    -- upvalues: Keybinds (copy)
+    if Keybinds and Keybinds:IsA("ModuleScript") then
+        return require(Keybinds);
+    end;
+
+    return nil;
+end);
+
+if not (success and (type(result) == "table" and type(result.mouseKey) == "function")) then
+    result = nil;
+end;
+
+u1.kb = result;
+
+function u1.lmb(p2: userdata, p3: boolean?) -- Line: 84
+    -- upvalues: u1 (copy)
+    local kb = u1.kb;
+    local v4;
+
+    if p2.UserInputType == Enum.UserInputType.MouseButton1 then
+        v4 = true;
+    elseif kb == nil then
+        v4 = false;
+    else
+        v4 = kb.mouseKey(p2, "primary", p3);
+    end;
+
+    return v4;
+end;
+
+function u1.rmb(p5: userdata, p6: boolean?) -- Line: 88
+    -- upvalues: u1 (copy)
+    local kb = u1.kb;
+    local v7;
+
+    if p5.UserInputType == Enum.UserInputType.MouseButton2 then
+        v7 = true;
+    elseif kb == nil then
+        v7 = false;
+    else
+        v7 = kb.mouseKey(p5, "aim", p6);
+    end;
+
+    return v7;
+end;
+
+function u1.aim(p8: boolean, p9: boolean) -- Line: 92
+    -- upvalues: u1 (copy)
+    local kb = u1.kb;
+
+    if kb == nil then
+        return p9;
+    end;
+
+    return kb.aimStep(p8, p9);
+end;
+
+function u1.lmbHeld() -- Line: 96
+    -- upvalues: u1 (copy), UserInputService (copy)
+    local kb = u1.kb;
+
+    if kb == nil then
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1);
+    end;
+
+    return kb.primaryHeld();
+end;
+
+function u1.rmbHeld() -- Line: 100
+    -- upvalues: u1 (copy), UserInputService (copy)
+    local kb = u1.kb;
+
+    if kb == nil then
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2);
+    end;
+
+    return kb.aimHeld();
+end;
+
+local u10 = {
+    DRAW_TIME = 0.8,
+    MIN_DRAW = 0.25,
+    MIN_CHARGE = 0.15,
+    DRAW_NOTE_GAP = 0.1,
+    SHOT_GAP = 0.6,
+    REDRAW_GAP = 0.35,
+    FOV_DRAWN = 58,
+    SPEED_BASE = 95,
+    SPEED_CHARGE = 125,
+    GRAVITY = 50,
+    LIFE = 4.5,
+    MUZZLE = 1,
+    OWN_STUCK_TIME = 2,
+    OTHER_HOLD = 1,
+    OTHER_STUCK_TIME = 0.35,
+    BODY_HIDE = 0.06,
+    FX_RANGE = 320,
+    IMPACT_SOUND_RANGE = 90,
+    MAX_ARROWS = 60,
+    HIT_TIME = 0.25,
+    KILL_TIME = 0.55,
+    NUMBER_TIME = 0.75,
+    INDICATOR_TIME = 3,
+    INDICATOR_R = 165,
+    RING_DOTS = 32,
+    RING_R_OPEN = 22,
+    RING_R_FULL = 15,
+    MAX_NUMBERS = 6,
+    MAX_INDICATORS = 4,
+    FIRE_BUFFER = 0.3,
+    FIRE_ACTION = "FustBowFire",
+    AIM_ACTION = "FustBowAim",
+    AIM_TIME = 0.22,
+    AIM_OUT_TIME = 0.3,
+    SHAKE_STEP = "FustCombatShake",
+    SHAKE_UNDO = "FustCombatShakeUndo",
+    PANELS = { "FustInventory", "FustCrafting", "FustFurnace", "FustContainer", "FustDeath", "FustCupboard", "FustLock", "FustBuildWheel", "FustAdmin", "FustMap", "FustTeam", "FustReturn", "FustCursor", "FustSettings", "FustUpdates" }
+};
+table.insert(u10.PANELS, "FustFreeLook");
+table.insert(u10.PANELS, "FustShop");
+table.insert(u10.PANELS, "FustSleeperLook");
+table.insert(u10.PANELS, "FustRepair");
+local u11 = nil;
+task.spawn(function() -- Line: 155
+    -- upvalues: Fust (copy), u11 (ref)
+    local TouchLayout = Fust:WaitForChild("TouchLayout", 10);
+    local success2, result2 = pcall(function() -- Line: 157
+        -- upvalues: TouchLayout (copy)
+        if TouchLayout then
+            return require(TouchLayout);
+        end;
+
+        return nil;
+    end);
+
+    if success2 and type(result2) == "table" then
+        u11 = result2;
+    end;
+end);
+
+local function touchAimLit(p12: boolean) -- Line: 166
+    -- upvalues: u11 (ref), u10 (copy)
+    if u11 then
+        u11.setActive(u10.AIM_ACTION, p12);
+    end;
+end;
+
+local u13 = {
+    text = Color3.fromHex("ECE6DA"),
+    rust = Color3.fromHex("C2502A"),
+    rustLight = Color3.fromHex("E07A52"),
+    patina = Color3.fromHex("3F8F84"),
+    black = Color3.fromHex("0B0D0C"),
+    white = Color3.new(1, 1, 1),
+    kill = Color3.fromHex("E5382A"),
+    head = Color3.fromHex("F2C14E"),
+    blood = Color3.fromHex("A3140B"),
+    indicator = Color3.fromHex("E2452F"),
+    string = Color3.fromHex("D9CFB8"),
+    shaft = Color3.fromRGB(150, 108, 64),
+    tip = Color3.fromRGB(96, 94, 90),
+    fletch = Color3.fromRGB(222, 214, 196)
+};
+local Font_new_ret = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.Bold);
+local u14 = {
+    character = nil,
+    humanoid = nil,
+    charConns = {},
+    toolConns = {},
+    bowTool = nil,
+    bowDef = nil,
+    joints = nil,
+    wristFix = nil,
+    posed = false,
+    drawing = false,
+    drawStart = 0,
+    drawVis = 0,
+    aim = 0,
+    aimMouse = false,
+    aimPad = false,
+    aimTouch = false,
+    aimHintShown = false,
+    fireQueuedAt = nil,
+    wantDraw = false,
+    lastShot = (-1 / 0),
+    shotId = 0,
+    counts = {},
+    pendingSpent = 0,
+    lastSpentAt = (-1 / 0),
+    fovBase = nil,
+    fovApplied = nil,
+    drawSound = nil,
+    actionsBound = false,
+    loop = nil,
+    hitBorn = (-1 / 0),
+    hitKind = "body",
+    hitHead = false,
+    hurtAlpha = 0,
+    hurtHoldUntil = 0,
+    hintUntil = 0,
+    lastHintAt = (-1 / 0),
+    lastAmmoText = "",
+    ringLit = -1,
+    ringFull = false,
+    ringEarly379 = false,
+    noteAt379 = nil,
+    noteBow379 = nil,
+    shakeUntil = 0,
+    shakeStrength = 0,
+    shakeDur = 0.2,
+    shakeApplied = nil,
+    shakeBound = false,
+    scale = 1
+};
+local u15 = {
+    Shoot = nil,
+    ArrowFX = nil,
+    ArrowHit = nil,
+    CombatFX = nil
+};
+local u16 = {
+    gc = nil,
+    hintAt = (-1 / 0)
+};
+task.spawn(function() -- Line: 270
+    -- upvalues: Fust (copy), u16 (copy)
+    local GunControl = Fust:WaitForChild("GunControl", 10);
+    local success2, result2 = pcall(function() -- Line: 272
+        -- upvalues: GunControl (copy)
+        if GunControl and GunControl:IsA("ModuleScript") then
+            return require(GunControl);
+        end;
+
+        return nil;
+    end);
+
+    if success2 and (type(result2) == "table" and type(result2.Airborne) == "function") then
+        u16.gc = result2;
+    end;
+end);
+local u17 = {
+    loaded = false,
+    reloadAt = nil,
+    hintAt = (-1 / 0),
+    XB_LATCH = 0.28,
+    XB_TIP_L = Vector3.new(-1.34, 0.34, 1.52),
+    XB_TIP_R = Vector3.new(1.34, 0.34, 1.52),
+    XB_REST = Vector3.new(0, 0.34, 1.52),
+    XB_LATCH_AT = Vector3.new(0, 0.36, -0.08),
+    XB_BOLT_TAIL = Vector3.new(0, 0.47, -0.05),
+    XB_ROLL = CFrame.Angles(0, 0, 1.7802358370342162),
+    XB_AIM = CFrame.new(0, -0.82, -1.9) * CFrame.Angles(0, 3.141592653589793, 0),
+    XB_READY = CFrame.new(0.55, -1.25, -1.75) * CFrame.Angles(-0.20943951023931956, 3.3510321638291125, -0.24434609527920614),
+
+    spec = function() -- Line: 305, Name: spec
+        -- upvalues: u14 (copy), Items (copy)
+        local bowDef = u14.bowDef;
+
+        if bowDef and type(Items.BowSpec) == "function" then
+            return Items.BowSpec(bowDef);
+        end;
+
+        return nil;
+    end
+};
+
+function u17.xbow() -- Line: 309
+    -- upvalues: u17 (copy)
+    local v18 = u17.spec();
+    local v19;
+
+    if v18 == nil then
+        v19 = false;
+    else
+        v19 = v18.loaded == true;
+    end;
+
+    return v19;
+end;
+
+function u17.drawTime() -- Line: 313
+    -- upvalues: u17 (copy), u10 (copy)
+    local v20 = u17.spec();
+
+    if v20 and (type(v20.drawTime) == "number" and (v20.drawTime > 0 and v20.drawTime < 10)) then
+        return v20.drawTime;
+    end;
+
+    return u10.DRAW_TIME;
+end;
+
+function u17.reloadLen() -- Line: 317
+    -- upvalues: u17 (copy)
+    local v21 = u17.spec();
+
+    return not (v21 and (type(v21.reload) == "number" and (v21.reload > 0 and v21.reload < 30))) and 3 or v21.reload;
+end;
+
+function u17.bd() -- Line: 322
+    -- upvalues: Items (copy)
+    local BOW_DRAW = Items.BOW_DRAW;
+
+    if type(BOW_DRAW) == "table" and (type(BOW_DRAW.scale) == "function" and type(BOW_DRAW.minFrac) == "number") then
+        return BOW_DRAW;
+    end;
+
+    return nil;
+end;
+
+function u17.minDraw() -- Line: 327
+    -- upvalues: u17 (copy), u10 (copy)
+    local v22 = u17.bd();
+
+    if v22 then
+        return math.clamp(v22.minFrac, 0, 0.9) * u17.drawTime();
+    end;
+
+    return u10.MIN_DRAW;
+end;
+
+function u17.progress(p23: number) -- Line: 332
+    -- upvalues: u17 (copy)
+    if u17.loaded then
+        return 1;
+    end;
+
+    local reloadAt = u17.reloadAt;
+
+    if not reloadAt then
+        return 0;
+    end;
+
+    local v24 = (p23 - reloadAt) / u17.reloadLen();
+
+    return math.clamp(v24, 0, 1);
+end;
+
+local function make(p25: string, p26: table?, p27: table?) -- Line: 343
+    local Instance_new_ret = Instance.new(p25);
+    local v28 = nil;
+
+    if p26 then
+        for i, v in pairs(p26) do
+            if i == "Parent" then
+                v28 = v;
+            else
+                Instance_new_ret[i] = v;
+            end;
+        end;
+    end;
+
+    if p27 then
+        for _, v in ipairs(p27) do
+            v.Parent = Instance_new_ret;
+        end;
+    end;
+
+    if v28 then
+        Instance_new_ret.Parent = v28;
+    end;
+
+    return Instance_new_ret;
+end;
+
+local function camera() -- Line: 366
+    return workspace.CurrentCamera;
+end;
+
+local function finite(p29) -- Line: 370
+    local v30;
+
+    if type(p29) == "number" and (p29 == p29 and p29 > (-1 / 0)) then
+        v30 = p29 < (1 / 0);
+    else
+        v30 = false;
+    end;
+
+    return v30;
+end;
+
+local function finiteVec(p31) -- Line: 374
+    local v32;
+
+    if typeof(p31) == "Vector3" then
+        local X = p31.X;
+
+        if type(X) == "number" and (X == X and X > (-1 / 0)) then
+            v32 = X < (1 / 0);
+        else
+            v32 = false;
+        end;
+
+        if v32 then
+            local Y = p31.Y;
+
+            if type(Y) == "number" and (Y == Y and Y > (-1 / 0)) then
+                v32 = Y < (1 / 0);
+            else
+                v32 = false;
+            end;
+
+            if v32 then
+                local Z = p31.Z;
+
+                if type(Z) == "number" and (Z == Z and Z > (-1 / 0)) then
+                    v32 = Z < (1 / 0);
+                else
+                    v32 = false;
+                end;
+            end;
+        end;
+    else
+        v32 = false;
+    end;
+
+    return v32;
+end;
+
+local function lerp(p33: number, p34: number, p35: number) -- Line: 378
+    return p33 + (p34 - p33) * p35;
+end;
+
+local function approach(p36: number, p37: number, p38: number) -- Line: 382
+    if p36 < p37 then
+        return math.min(p37, p36 + p38);
+    end;
+
+    return math.max(p37, p36 - p38);
+end;
+
+local function aimCF(p39: vector, p40: vector) -- Line: 390
+    if p40.Magnitude < 0.0001 then
+        return CFrame.new(p39);
+    end;
+
+    local Unit = p40.Unit;
+    local v41 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+
+    return CFrame.lookAt(p39, p39 + Unit, v41);
+end;
+
+local function panelOpen() -- Line: 399
+    -- upvalues: u10 (copy), PlayerGui (copy)
+    for _, v in ipairs(u10.PANELS) do
+        local v42 = PlayerGui:FindFirstChild(v);
+
+        if v42 ~= nil and v42:GetAttribute("Open") == true then
+            return true;
+        end;
+    end;
+
+    return false;
+end;
+
+local function alive() -- Line: 409
+    -- upvalues: u14 (copy), LocalPlayer (copy)
+    local humanoid = u14.humanoid;
+    local v43;
+
+    if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+        v43 = false;
+    else
+        v43 = LocalPlayer:GetAttribute("Dead") ~= true;
+    end;
+
+    return v43;
+end;
+
+local function canAct() -- Line: 414
+    -- upvalues: u14 (copy), LocalPlayer (copy), panelOpen (copy)
+    local humanoid = u14.humanoid;
+    local v44;
+
+    if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+        v44 = false;
+    else
+        v44 = LocalPlayer:GetAttribute("Dead") ~= true;
+    end;
+
+    local v45 = v44 and not panelOpen() and LocalPlayer:GetAttribute("InvLoaded") == true;
+
+    return v45;
+end;
+
+local function bodyOf(p46: userdata?) -- Line: 419
+    for i = 1, 5 do
+        if p46 == nil or p46 == workspace then
+            return nil;
+        end;
+
+        local v47 = p46:IsA("Model") and p46:FindFirstChildOfClass("Humanoid");
+
+        if v47 then
+            if v47.Health > 0 then
+                return p46;
+            end;
+
+            return nil;
+        end;
+
+        p46 = p46.Parent;
+        local _ = i;
+    end;
+
+    return nil;
+end;
+
+local function soundTemplate(p48: string) -- Line: 438
+    -- upvalues: Fust (copy)
+    local Sounds = Fust:FindFirstChild("Sounds");
+
+    if Sounds then
+        Sounds = Sounds:FindFirstChild(p48);
+    end;
+
+    if Sounds and Sounds:IsA("Sound") then
+        return Sounds;
+    end;
+
+    return nil;
+end;
+
+local function play2D(p49: string, p50: number?) -- Line: 447
+    -- upvalues: Fust (copy), SoundService (copy), Debris (copy)
+    local Sounds = Fust:FindFirstChild("Sounds");
+
+    if Sounds then
+        Sounds = Sounds:FindFirstChild(p49);
+    end;
+
+    if not (Sounds and Sounds:IsA("Sound")) then
+        Sounds = nil;
+    end;
+
+    if not Sounds then
+        return nil;
+    end;
+
+    local v51 = Sounds:Clone();
+
+    if p50 then
+        v51.PlaybackSpeed = v51.PlaybackSpeed * p50;
+    end;
+
+    v51.Parent = SoundService;
+    v51:Play();
+    Debris:AddItem(v51, 6);
+
+    return v51;
+end;
+
+local function play3D(p52: string, p53: vector) -- Line: 462
+    -- upvalues: Fust (copy), Debris (copy)
+    local Sounds = Fust:FindFirstChild("Sounds");
+
+    if Sounds then
+        Sounds = Sounds:FindFirstChild(p52);
+    end;
+
+    if not (Sounds and Sounds:IsA("Sound")) then
+        Sounds = nil;
+    end;
+
+    if not Sounds then
+        return;
+    end;
+
+    local Attachment = Instance.new("Attachment");
+    Attachment.Position = p53;
+    local v54 = Sounds:Clone();
+    v54.PlaybackSpeed = v54.PlaybackSpeed * (0.94 + math.random() * 0.12);
+    v54.RollOffMode = Enum.RollOffMode.InverseTapered;
+    v54.RollOffMaxDistance = 90;
+    v54.RollOffMinDistance = math.min(v54.RollOffMinDistance, 8);
+    v54.Parent = Attachment;
+    Attachment.Parent = workspace.Terrain;
+    v54:Play();
+    Debris:AddItem(Attachment, 6);
+end;
+
+local v55 = {
+    Name = "FustCombat",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 4,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+};
+local ScreenGui = Instance.new("ScreenGui");
+local v56 = nil;
+
+if v55 then
+    for i, v in pairs(v55) do
+        if i == "Parent" then
+            v56 = v;
+        else
+            ScreenGui[i] = v;
+        end;
+    end;
+end;
+
+if v56 then
+    ScreenGui.Parent = v56;
+end;
+
+local u57 = {};
+local v58 = {
+    Name = "Hurt",
+    BackgroundTransparency = 1,
+    Visible = false,
+    ZIndex = 1,
+    Size = UDim2.fromScale(1, 1),
+    Parent = ScreenGui
+};
+local Frame = Instance.new("Frame");
+local v59 = nil;
+
+if v58 then
+    for i, v in pairs(v58) do
+        if i == "Parent" then
+            v59 = v;
+        else
+            Frame[i] = v;
+        end;
+    end;
+end;
+
+if v59 then
+    Frame.Parent = v59;
+end;
+
+u57.hurt = Frame;
+u57.hurtEdges = {};
+local NumberSequence_new_ret = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.4, 0.55), NumberSequenceKeypoint.new(1, 1) });
+local v60 = {
+    {
+        UDim2.fromScale(1, 0.2),
+        UDim2.fromScale(0, 0),
+        Vector2.new(0, 0),
+        90
+    },
+    {
+        UDim2.fromScale(1, 0.2),
+        UDim2.fromScale(0, 1),
+        Vector2.new(0, 1),
+        -90
+    },
+    {
+        UDim2.fromScale(0.15, 1),
+        UDim2.fromScale(0, 0),
+        Vector2.new(0, 0),
+        0
+    },
+    {
+        UDim2.fromScale(0.15, 1),
+        UDim2.fromScale(1, 0),
+        Vector2.new(1, 0),
+        180
+    }
+};
+
+for _, v in ipairs(v60) do
+    local v61 = {
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Size = v[1],
+        Position = v[2],
+        AnchorPoint = v[3],
+        BackgroundColor3 = u13.blood,
+        Parent = u57.hurt
+    };
+    local v62 = {};
+    local v63 = {
+        Rotation = v[4],
+        Transparency = NumberSequence_new_ret
+    };
+    local UIGradient = Instance.new("UIGradient");
+    local v64 = nil;
+    local v65;
+
+    if v63 then
+        v65 = make;
+
+        for i, v2 in pairs(v63) do
+            if i == "Parent" then
+                v64 = v2;
+            else
+                UIGradient[i] = v2;
+            end;
+        end;
+    else
+        v65 = make;
+    end;
+
+    if v64 then
+        UIGradient.Parent = v64;
+    end;
+
+    v62[1] = UIGradient;
+    local v66 = v65("Frame", v61, v62);
+    table.insert(u57.hurtEdges, v66);
+end;
+
+local v67 = {};
+local UIScale = Instance.new("UIScale");
+local v68 = nil;
+
+if v67 then
+    for i, v in pairs(v67) do
+        if i == "Parent" then
+            v68 = v;
+        else
+            UIScale[i] = v;
+        end;
+    end;
+end;
+
+if v68 then
+    UIScale.Parent = v68;
+end;
+
+u57.scale = UIScale;
+u57.center = make("Frame", {
+    Name = "Center",
+    BackgroundTransparency = 1,
+    ZIndex = 2,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(0, 0),
+    Parent = ScreenGui
+}, { u57.scale });
+u57.cross303 = LocalPlayer:GetAttribute("OptCrosshair") ~= false;
+LocalPlayer:GetAttributeChangedSignal("OptCrosshair"):Connect(function() -- Line: 544
+    -- upvalues: u57 (copy), LocalPlayer (copy)
+    u57.cross303 = LocalPlayer:GetAttribute("OptCrosshair") ~= false;
+end);
+local v69 = {
+    Name = "DrawRing",
+    BackgroundTransparency = 1,
+    Visible = false,
+    ZIndex = 2,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromOffset(0, 0),
+    Size = UDim2.fromOffset(u10.RING_R_OPEN * 2, u10.RING_R_OPEN * 2),
+    Parent = u57.center
+};
+local Frame2 = Instance.new("Frame");
+local v70 = nil;
+
+if v69 then
+    for i, v in pairs(v69) do
+        if i == "Parent" then
+            v70 = v;
+        else
+            Frame2[i] = v;
+        end;
+    end;
+end;
+
+if v70 then
+    Frame2.Parent = v70;
+end;
+
+u57.ring = Frame2;
+u57.dots = {};
+
+for i = 1, u10.RING_DOTS do
+    local v71 = (i - 1) / u10.RING_DOTS * 3.141592653589793 * 2;
+    local v72 = {
+        BackgroundTransparency = 0.55,
+        BorderSizePixel = 0,
+        ZIndex = 2,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5 + 0.5 * math.sin(v71), 0.5 - 0.5 * math.cos(v71)),
+        Size = UDim2.fromOffset(3, 3),
+        BackgroundColor3 = u13.black,
+        Parent = u57.ring
+    };
+    local v73 = {};
+    local v74 = {
+        CornerRadius = UDim.new(1, 0)
+    };
+    local UICorner = Instance.new("UICorner");
+    local v75 = nil;
+    local v76, v77;
+
+    if v74 then
+        v76 = i;
+        v77 = make;
+
+        for i2, v in pairs(v74) do
+            if i2 == "Parent" then
+                v75 = v;
+            else
+                UICorner[i2] = v;
+            end;
+        end;
+    else
+        v76 = i;
+        v77 = make;
+    end;
+
+    if v75 then
+        UICorner.Parent = v75;
+    end;
+
+    v73[1] = UICorner;
+    local v78 = v77("Frame", v72, v73);
+    u57.dots[v76] = v78;
+end;
+
+local v79 = {
+    Name = "Ammo",
+    BackgroundTransparency = 1,
+    TextSize = 15,
+    TextStrokeTransparency = 0.45,
+    Text = "",
+    Visible = false,
+    ZIndex = 2,
+    AnchorPoint = Vector2.new(0, 0.5),
+    Position = UDim2.fromOffset(32, 14),
+    Size = UDim2.fromOffset(70, 18),
+    FontFace = Font_new_ret,
+    TextColor3 = u13.text,
+    TextStrokeColor3 = u13.black,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = u57.center
+};
+local TextLabel = Instance.new("TextLabel");
+local v80 = nil;
+
+if v79 then
+    for i, v in pairs(v79) do
+        if i == "Parent" then
+            v80 = v;
+        else
+            TextLabel[i] = v;
+        end;
+    end;
+end;
+
+if v80 then
+    TextLabel.Parent = v80;
+end;
+
+u57.ammo = TextLabel;
+local v81 = {
+    Name = "Hint",
+    BackgroundTransparency = 1,
+    TextSize = 17,
+    TextStrokeTransparency = 0.5,
+    Text = "NO ARROWS",
+    Visible = false,
+    ZIndex = 2,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromOffset(0, -64),
+    Size = UDim2.fromOffset(260, 20),
+    Font = Enum.Font.Oswald,
+    TextColor3 = u13.rustLight,
+    TextStrokeColor3 = u13.black,
+    Parent = u57.center
+};
+local TextLabel2 = Instance.new("TextLabel");
+local v82 = nil;
+
+if v81 then
+    for i, v in pairs(v81) do
+        if i == "Parent" then
+            v82 = v;
+        else
+            TextLabel2[i] = v;
+        end;
+    end;
+end;
+
+if v82 then
+    TextLabel2.Parent = v82;
+end;
+
+u57.hint = TextLabel2;
+local v83 = {
+    Name = "Hitmarker",
+    BackgroundTransparency = 1,
+    Visible = false,
+    ZIndex = 4,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromOffset(0, 0),
+    Size = UDim2.fromOffset(0, 0),
+    Parent = u57.center
+};
+local Frame3 = Instance.new("Frame");
+local v84 = nil;
+
+if v83 then
+    for i, v in pairs(v83) do
+        if i == "Parent" then
+            v84 = v;
+        else
+            Frame3[i] = v;
+        end;
+    end;
+end;
+
+if v84 then
+    Frame3.Parent = v84;
+end;
+
+u57.hit = Frame3;
+u57.ticks = {};
+
+for i = 0, 3 do
+    local math_rad_ret = math.rad(45 + 90 * i);
+    local v85 = {
+        Transparency = 0.55,
+        Thickness = 1,
+        Color = u13.black
+    };
+    local UIStroke = Instance.new("UIStroke");
+    local v86 = nil;
+    local v87;
+
+    if v85 then
+        v87 = i;
+
+        for i2, v in pairs(v85) do
+            if i2 == "Parent" then
+                v86 = v;
+            else
+                UIStroke[i2] = v;
+            end;
+        end;
+    else
+        v87 = i;
+    end;
+
+    if v86 then
+        UIStroke.Parent = v86;
+    end;
+
+    local v88 = make("Frame", {
+        BorderSizePixel = 0,
+        ZIndex = 4,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = math.deg(math_rad_ret),
+        BackgroundColor3 = u13.white,
+        Parent = u57.hit
+    }, { UIStroke });
+    table.insert(u57.ticks, {
+        frame = v88,
+        stroke = UIStroke,
+        angle = math_rad_ret
+    });
+end;
+
+u57.killTicks = {};
+
+for i = 0, 3 do
+    local math_rad_ret = math.rad(90 * i);
+    local v89 = {
+        Transparency = 0.55,
+        Thickness = 1,
+        Color = u13.black
+    };
+    local UIStroke = Instance.new("UIStroke");
+    local v90 = nil;
+    local v91;
+
+    if v89 then
+        v91 = i;
+
+        for i2, v in pairs(v89) do
+            if i2 == "Parent" then
+                v90 = v;
+            else
+                UIStroke[i2] = v;
+            end;
+        end;
+    else
+        v91 = i;
+    end;
+
+    if v90 then
+        UIStroke.Parent = v90;
+    end;
+
+    local v92 = make("Frame", {
+        BorderSizePixel = 0,
+        Visible = false,
+        ZIndex = 4,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = math.deg(math_rad_ret),
+        BackgroundColor3 = u13.kill,
+        Parent = u57.hit
+    }, { UIStroke });
+    table.insert(u57.killTicks, {
+        frame = v92,
+        stroke = UIStroke,
+        angle = math_rad_ret
+    });
+end;
+
+u57.numbers = {};
+
+for i = 1, u10.MAX_NUMBERS do
+    local v93 = {
+        BackgroundTransparency = 1,
+        TextSize = 16,
+        TextStrokeTransparency = 0.35,
+        Text = "",
+        Visible = false,
+        ZIndex = 3,
+        Name = "Damage" .. i,
+        AnchorPoint = Vector2.new(0, 0.5),
+        Size = UDim2.fromOffset(60, 22),
+        FontFace = Font_new_ret,
+        TextColor3 = u13.white,
+        TextStrokeColor3 = u13.black,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = u57.center
+    };
+    local TextLabel3 = Instance.new("TextLabel");
+    local v94 = nil;
+    local v95;
+
+    if v93 then
+        v95 = i;
+
+        for i2, v in pairs(v93) do
+            if i2 == "Parent" then
+                v94 = v;
+            else
+                TextLabel3[i2] = v;
+            end;
+        end;
+    else
+        v95 = i;
+    end;
+
+    if v94 then
+        TextLabel3.Parent = v94;
+    end;
+
+    u57.numbers[v95] = {
+        born = (-1 / 0),
+        x = 0,
+        size = 16,
+        active = false,
+        label = TextLabel3
+    };
+end;
+
+u57.nextNumber = 1;
+u57.indicators = {};
+local u96 = { -0.24, -0.12, 0, 0.12, 0.24 };
+local v97 = { 3, 4, 6, 4, 3 };
+
+for i = 1, u10.MAX_INDICATORS do
+    local v98 = {};
+
+    for i2 = 1, #u96 do
+        local v99 = {
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Visible = false,
+            ZIndex = 2,
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Size = UDim2.fromOffset(math.floor(u10.INDICATOR_R * 0.125 + 0.5), v97[i2]),
+            BackgroundColor3 = u13.indicator,
+            Parent = u57.center
+        };
+        local Frame4 = Instance.new("Frame");
+        local v100 = nil;
+        local v101;
+
+        if v99 then
+            v101 = i2;
+
+            for i3, v in pairs(v99) do
+                if i3 == "Parent" then
+                    v100 = v;
+                else
+                    Frame4[i3] = v;
+                end;
+            end;
+        else
+            v101 = i2;
+        end;
+
+        if v100 then
+            Frame4.Parent = v100;
+        end;
+
+        v98[v101] = Frame4;
+    end;
+
+    u57.indicators[i] = {
+        from = Vector3.new(0, 0, 0),
+        born = (-1 / 0),
+        active = false,
+        segs = v98
+    };
+end;
+
+ScreenGui.Parent = PlayerGui;
+
+local function updateScale() -- Line: 696
+    -- upvalues: u14 (copy), u57 (copy)
+    local workspace_CurrentCamera = workspace.CurrentCamera;
+    local v102;
+
+    if workspace_CurrentCamera then
+        v102 = workspace_CurrentCamera.ViewportSize;
+    else
+        v102 = Vector2.new(1280, 720);
+    end;
+
+    local v103 = math.min(v102.X, v102.Y) / 900;
+    u14.scale = math.clamp(v103, 0.6, 1.2);
+    u57.scale.Scale = u14.scale;
+end;
+
+local u104 = nil;
+
+local function hookViewport() -- Line: 703
+    -- upvalues: u104 (ref), updateScale (copy), u14 (copy), u57 (copy)
+    if u104 then
+        u104:Disconnect();
+        u104 = nil;
+    end;
+
+    local workspace_CurrentCamera = workspace.CurrentCamera;
+
+    if workspace_CurrentCamera then
+        u104 = workspace_CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale);
+    end;
+
+    local workspace_CurrentCamera2 = workspace.CurrentCamera;
+    local v105;
+
+    if workspace_CurrentCamera2 then
+        v105 = workspace_CurrentCamera2.ViewportSize;
+    else
+        v105 = Vector2.new(1280, 720);
+    end;
+
+    local v106 = math.min(v105.X, v105.Y) / 900;
+    u14.scale = math.clamp(v106, 0.6, 1.2);
+    u57.scale.Scale = u14.scale;
+end;
+
+if u104 then
+    u104:Disconnect();
+    u104 = nil;
+end;
+
+local workspace_CurrentCamera = workspace.CurrentCamera;
+
+if workspace_CurrentCamera then
+    u104 = workspace_CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale);
+end;
+
+local workspace_CurrentCamera2 = workspace.CurrentCamera;
+local v107;
+
+if workspace_CurrentCamera2 then
+    v107 = workspace_CurrentCamera2.ViewportSize;
+else
+    v107 = Vector2.new(1280, 720);
+end;
+
+local v108 = math.min(v107.X, v107.Y) / 900;
+u14.scale = math.clamp(v108, 0.6, 1.2);
+u57.scale.Scale = u14.scale;
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(hookViewport);
+
+local function ammoId() -- Line: 719
+    -- upvalues: u14 (copy)
+    local bowDef = u14.bowDef;
+
+    if bowDef and type(bowDef.ammo) == "string" then
+        return bowDef.ammo;
+    end;
+
+    return nil;
+end;
+
+local function ammoCount() -- Line: 724
+    -- upvalues: u14 (copy)
+    local bowDef = u14.bowDef;
+    local v109;
+
+    if bowDef and type(bowDef.ammo) == "string" then
+        v109 = bowDef.ammo;
+    else
+        v109 = nil;
+    end;
+
+    if not v109 then
+        return 0;
+    end;
+
+    if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+        u14.pendingSpent = 0;
+    end;
+
+    return math.max(0, (u14.counts[v109] or 0) - u14.pendingSpent);
+end;
+
+local function onInventory(p110) -- Line: 735
+    -- upvalues: u14 (copy)
+    if type(p110) ~= "table" or type(p110.slots) ~= "table" then
+        return;
+    end;
+
+    local v111 = {};
+
+    for _, v in pairs(p110.slots) do
+        if type(v) == "table" and (type(v.id) == "string" and (type(v.n) == "number" and v.n >= 1)) then
+            v111[v.id] = (v111[v.id] or 0) + math.floor(v.n);
+        end;
+    end;
+
+    local bowDef = u14.bowDef;
+    local v112;
+
+    if bowDef and type(bowDef.ammo) == "string" then
+        v112 = bowDef.ammo;
+    else
+        v112 = nil;
+    end;
+
+    local v113 = v112 or "wooden_arrow";
+    local v114 = u14.counts[v113] or 0;
+    local v115 = v111[v113] or 0;
+
+    if v115 < v114 and u14.pendingSpent > 0 then
+        u14.pendingSpent = math.max(0, u14.pendingSpent - (v114 - v115));
+    end;
+
+    u14.counts = v111;
+end;
+
+local v116 = {
+    Name = "FustArrowFX",
+    Parent = workspace
+};
+local Folder = Instance.new("Folder");
+local v117 = nil;
+
+if v116 then
+    for i, v in pairs(v116) do
+        if i == "Parent" then
+            v117 = v;
+        else
+            Folder[i] = v;
+        end;
+    end;
+end;
+
+if v117 then
+    Folder.Parent = v117;
+end;
+
+local u118 = {};
+local u119 = {};
+local u120 = {};
+local u121 = {};
+local u122 = {};
+
+local function prepPart(p123: userdata) -- Line: 783
+    p123.Anchored = true;
+    p123.CanCollide = false;
+    p123.CanQuery = false;
+    p123.CanTouch = false;
+    p123.CastShadow = false;
+    p123.Massless = true;
+end;
+
+local function fallbackPart(p124: string, p125: vector, p126, p127, p128: any, p129: userdata) -- Line: 792
+    local v130 = {
+        Name = p124,
+        Size = p125,
+        CFrame = p126,
+        Color = p127,
+        Material = p128,
+        TopSurface = Enum.SurfaceType.Smooth,
+        BottomSurface = Enum.SurfaceType.Smooth
+    };
+    local Part = Instance.new("Part");
+    local v131 = nil;
+
+    if v130 then
+        for i, v in pairs(v130) do
+            if i == "Parent" then
+                v131 = v;
+            else
+                Part[i] = v;
+            end;
+        end;
+    end;
+
+    if v131 then
+        Part.Parent = v131;
+    end;
+
+    Part.Anchored = true;
+    Part.CanCollide = false;
+    Part.CanQuery = false;
+    Part.CanTouch = false;
+    Part.CastShadow = false;
+    Part.Massless = true;
+    Part.Parent = p129;
+
+    return Part;
+end;
+
+local function newArrowVisual() -- Line: 809
+    -- upvalues: Fust (copy), fallbackPart (copy), u13 (copy)
+    local Model = Instance.new("Model");
+    Model.Name = "Arrow";
+    local u132 = {};
+    local u133 = {};
+    local Models = Fust:FindFirstChild("Models");
+
+    if Models then
+        Models = Models:FindFirstChild("WoodenArrow");
+    end;
+
+    if Models and (Models:IsA("Model") or Models:IsA("BasePart")) and (not pcall(function() -- Line: 817
+        -- upvalues: Models (copy), u132 (ref), u133 (ref), Model (copy)
+        local v134 = Models:Clone();
+        local v135;
+
+        if v134:IsA("Model") then
+            v135 = v134:GetPivot();
+        else
+            v135 = v134.CFrame;
+        end;
+
+        local v136 = v134:IsA("BasePart") and { v134 } or {};
+
+        for _, descendant in ipairs(v134:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                table.insert(v136, descendant);
+            elseif descendant:IsA("BaseScript") or (descendant:IsA("JointInstance") or descendant:IsA("WeldConstraint")) then
+                descendant:Destroy();
+            end;
+        end;
+
+        for _, v in ipairs(v136) do
+            v.Anchored = true;
+            v.CanCollide = false;
+            v.CanQuery = false;
+            v.CanTouch = false;
+            v.CastShadow = false;
+            v.Massless = true;
+            table.insert(u132, v);
+            table.insert(u133, v135:ToObjectSpace(v.CFrame));
+        end;
+
+        v134.Parent = Model;
+    end) or #u132 == 0) then
+        Model:ClearAllChildren();
+        table.clear(u132);
+        table.clear(u133);
+    end;
+
+    if #u132 == 0 then
+        u132 = { fallbackPart("Shaft", Vector3.new(0.12, 0.12, 2.4), CFrame.identity, u13.shaft, Enum.Material.Wood, Model), fallbackPart("Head", Vector3.new(0.18, 0.18, 0.32), CFrame.new(0, 0, -1.3), u13.tip, Enum.Material.Slate, Model), (fallbackPart("Fletching", Vector3.new(0.03, 0.22, 0.45), CFrame.new(0, 0, 1), u13.fletch, Enum.Material.Fabric, Model)) };
+        u133 = { CFrame.identity, CFrame.new(0, 0, -1.3), CFrame.new(0, 0, 1) };
+    end;
+
+    return Model, u132, u133;
+end;
+
+local function addTrail(p137: table) -- Line: 851
+    local v138 = p137.parts[1];
+    local v139 = p137.offsets[1];
+    local v140 = {
+        Position = v139:PointToObjectSpace(Vector3.new(0, 0.05, 0.9)),
+        Parent = v138
+    };
+    local Attachment = Instance.new("Attachment");
+    local v141 = nil;
+
+    if v140 then
+        for i, v in pairs(v140) do
+            if i == "Parent" then
+                v141 = v;
+            else
+                Attachment[i] = v;
+            end;
+        end;
+    end;
+
+    if v141 then
+        Attachment.Parent = v141;
+    end;
+
+    local v142 = {
+        Position = v139:PointToObjectSpace(Vector3.new(0, -0.05, 0.9)),
+        Parent = v138
+    };
+    local Attachment2 = Instance.new("Attachment");
+    local v143 = nil;
+
+    if v142 then
+        for i, v in pairs(v142) do
+            if i == "Parent" then
+                v143 = v;
+            else
+                Attachment2[i] = v;
+            end;
+        end;
+    end;
+
+    if v143 then
+        Attachment2.Parent = v143;
+    end;
+
+    local v144 = {
+        Lifetime = 0.18,
+        MinLength = 0.05,
+        FaceCamera = true,
+        LightEmission = 0.25,
+        LightInfluence = 0.6,
+        Attachment0 = Attachment,
+        Attachment1 = Attachment2,
+        Color = ColorSequence.new(Color3.fromRGB(240, 232, 214)),
+        Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 1) }),
+        WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.2) }),
+        Parent = v138
+    };
+    local Trail = Instance.new("Trail");
+    local v145 = nil;
+
+    if v144 then
+        for i, v in pairs(v144) do
+            if i == "Parent" then
+                v145 = v;
+            else
+                Trail[i] = v;
+            end;
+        end;
+    end;
+
+    if v145 then
+        Trail.Parent = v145;
+    end;
+
+    p137.trail = Trail;
+end;
+
+local function queueMove(p146: table, p147) -- Line: 877
+    -- upvalues: u121 (copy), u122 (copy)
+    for i, v in ipairs(p146.parts) do
+        table.insert(u121, v);
+        table.insert(u122, p147 * p146.offsets[i]);
+    end;
+end;
+
+local function flushMoves() -- Line: 884
+    -- upvalues: u121 (copy), u122 (copy)
+    if #u121 > 0 then
+        pcall(function() -- Line: 886
+            -- upvalues: u121 (ref), u122 (ref)
+            workspace:BulkMoveTo(u121, u122, Enum.BulkMoveMode.FireCFrameChanged);
+        end);
+        table.clear(u121);
+        table.clear(u122);
+    end;
+end;
+
+local function placeNow(p148: table, p149) -- Line: 894
+    for i, v in ipairs(p148.parts) do
+        v.CFrame = p149 * p148.offsets[i];
+    end;
+end;
+
+local function makeParams(p150: table) -- Line: 900
+    -- upvalues: Folder (copy)
+    local v151 = { Folder };
+
+    for _, v in pairs(p150) do
+        if v then
+            table.insert(v151, v);
+        end;
+    end;
+
+    local ArrowPickups = workspace:FindFirstChild("ArrowPickups");
+
+    if ArrowPickups then
+        table.insert(v151, ArrowPickups);
+    end;
+
+    local FustTrapCaps = workspace:FindFirstChild("FustTrapCaps");
+
+    if FustTrapCaps then
+        table.insert(v151, FustTrapCaps);
+    end;
+
+    local RaycastParams_new_ret = RaycastParams.new();
+    RaycastParams_new_ret.FilterType = Enum.RaycastFilterType.Exclude;
+    RaycastParams_new_ret.FilterDescendantsInstances = v151;
+    RaycastParams_new_ret.IgnoreWater = false;
+
+    return RaycastParams_new_ret;
+end;
+
+local u152 = nil;
+
+local function spawnArrow(p153: vector, p154: vector, p155: vector, p156: boolean, p157: table) -- Line: 924
+    -- upvalues: u118 (copy), u10 (copy), newArrowVisual (copy), makeParams (copy), addTrail (copy), Folder (copy), u152 (ref)
+    if #u118 >= u10.MAX_ARROWS then
+        return nil;
+    end;
+
+    local v158, v159, v160 = newArrowVisual();
+    local v161 = {
+        trail = nil,
+        state = "fly",
+        endAt = (1 / 0),
+        shotId = nil,
+        serverId = nil,
+        hitBody = false,
+        stopPos = nil,
+        model = v158,
+        parts = v159,
+        offsets = v160,
+        origin = p153,
+        vel = p154,
+        g = p155,
+        t0 = os.clock(),
+        last = p153,
+        own = p156,
+        params = makeParams(p157)
+    };
+    local v162;
+
+    if p154.Magnitude < 0.0001 then
+        v162 = CFrame.new(p153);
+    else
+        local Unit = p154.Unit;
+        local v163 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+        v162 = CFrame.lookAt(p153, p153 + Unit, v163);
+    end;
+
+    for i, v in ipairs(v161.parts) do
+        v.CFrame = v162 * v161.offsets[i];
+    end;
+
+    addTrail(v161);
+    v158.Parent = Folder;
+    table.insert(u118, v161);
+    u152();
+
+    return v161;
+end;
+
+local function stopArrow(p164: table, p165: vector, p166: vector, p167: number) -- Line: 957
+    p164.state = "stuck";
+    p164.endAt = os.clock() + p167;
+    p164.stopPos = p165;
+
+    if p164.trail then
+        p164.trail.Enabled = false;
+    end;
+
+    local v168 = p166.Magnitude <= 0.0001 and Vector3.new(-0, -0, -1) or p166.Unit;
+    local v169 = p165 - v168 * 0.8;
+    local v170;
+
+    if v168.Magnitude < 0.0001 then
+        v170 = CFrame.new(v169);
+    else
+        local Unit = v168.Unit;
+        local v171 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+        v170 = CFrame.lookAt(v169, v169 + Unit, v171);
+    end;
+
+    for i, v in ipairs(p164.parts) do
+        v.CFrame = v170 * p164.offsets[i];
+    end;
+end;
+
+local function removeArrowAt(p172: number) -- Line: 968
+    -- upvalues: u118 (copy), u119 (copy), u120 (copy)
+    local v173 = u118[p172];
+    u118[p172] = u118[#u118];
+    u118[#u118] = nil;
+
+    if v173.serverId ~= nil and u119[v173.serverId] == v173 then
+        u119[v173.serverId] = nil;
+    end;
+
+    if v173.shotId and u120[v173.shotId] == v173 then
+        u120[v173.shotId] = nil;
+    end;
+
+    v173.model:Destroy();
+end;
+
+local function stepArrows(p174: number) -- Line: 981
+    -- upvalues: u118 (copy), u10 (copy), bodyOf (copy), stopArrow (copy), queueMove (copy), aimCF (copy), removeArrowAt (copy), flushMoves (copy)
+    local v175 = 1;
+
+    while v175 <= #u118 do
+        local v176 = u118[v175];
+        local v177 = true;
+
+        if v176.state == "fly" then
+            local v178 = p174 - v176.t0;
+
+            if u10.LIFE <= v178 then
+                v177 = false;
+            else
+                local v179 = v176.origin + v176.vel * v178 + v176.g * (v178 * 0.5 * v178);
+                local v180 = v179 - v176.last;
+                local v181 = v176.vel + v176.g * v178;
+                local v182;
+
+                if v180.Magnitude > 0.001 then
+                    v182 = workspace:Raycast(v176.last, v180, v176.params);
+                else
+                    v182 = nil;
+                end;
+
+                if v182 then
+                    local v183 = bodyOf(v182.Instance) ~= nil;
+                    v176.hitBody = v183;
+                    local v184;
+
+                    if v183 then
+                        v184 = u10.BODY_HIDE;
+                    elseif v176.own then
+                        v184 = u10.OWN_STUCK_TIME;
+                    else
+                        v184 = u10.OTHER_HOLD;
+                    end;
+
+                    stopArrow(v176, v182.Position, v181, v184);
+                else
+                    v176.last = v179;
+                    queueMove(v176, aimCF(v179, v181));
+                end;
+            end;
+        elseif v176.endAt <= p174 then
+            v177 = false;
+        end;
+
+        if v177 then
+            v175 = v175 + 1;
+        else
+            removeArrowAt(v175);
+        end;
+    end;
+
+    flushMoves();
+end;
+
+local u185 = {
+    REST_SIDE = 0.06,
+    NOCK_Z = 0.6,
+    NOCK_FAR = 60,
+    BOB_WALK = 0.014,
+    BOB_IDLE = 0.005,
+    SWAY = 0.009,
+    SWAY_MAX = 0.06,
+    SWAY_SPRING = 13,
+    TREMBLE_AFTER = 1,
+    TREMBLE_MAX = 0.006,
+    STEP = "FustCombatViewmodel",
+    AIM = CFrame.new(0.5, -0.36, -1.9) * CFrame.Angles(0, 0, -0.20943951023931956),
+    READY = CFrame.new(0.7, -1.05, -1.8) * CFrame.Angles(-0.3141592653589793, -0.13962634015954636, -0.5585053606381855),
+    ARMS = { "RightUpperArm", "RightLowerArm", "RightHand", "LeftUpperArm", "LeftLowerArm", "LeftHand", "Right Arm", "Left Arm" }
+};
+local u186 = {
+    tool = nil,
+    model = nil,
+    top = Vector3.new(0, 2, 0.2),
+    bottom = Vector3.new(0, -2, 0.2),
+    mid = Vector3.new(0, 0, 0.2),
+    rest = Vector3.new(0.06, 0, 0),
+    shown = false,
+    sway = Vector3.new(0, 0, 0),
+    prevLook = nil,
+    parts = {},
+    offsets = {},
+    hidden = {}
+};
+local u187 = {
+    model = nil,
+    parts = nil,
+    offsets = nil,
+    upper = nil,
+    lower = nil
+};
+
+local function stringSegment(p188: string) -- Line: 1072
+    -- upvalues: u13 (copy)
+    local v189 = {
+        Size = Vector3.new(0.022, 0.022, 1),
+        Name = p188,
+        Color = u13.string,
+        Material = Enum.Material.SmoothPlastic,
+        TopSurface = Enum.SurfaceType.Smooth,
+        BottomSurface = Enum.SurfaceType.Smooth
+    };
+    local Part = Instance.new("Part");
+    local v190 = nil;
+
+    if v189 then
+        for i, v in pairs(v189) do
+            if i == "Parent" then
+                v190 = v;
+            else
+                Part[i] = v;
+            end;
+        end;
+    end;
+
+    if v190 then
+        Part.Parent = v190;
+    end;
+
+    Part.Anchored = true;
+    Part.CanCollide = false;
+    Part.CanQuery = false;
+    Part.CanTouch = false;
+    Part.CastShadow = false;
+    Part.Massless = true;
+
+    return Part;
+end;
+
+local function hideNock() -- Line: 1085
+    -- upvalues: u187 (copy)
+    if u187.model then
+        u187.model.Parent = nil;
+    end;
+
+    if u187.upper then
+        u187.upper.Parent = nil;
+    end;
+
+    if u187.lower then
+        u187.lower.Parent = nil;
+    end;
+end;
+
+local function placeSegment(p191: userdata, p192: vector, p193: vector) -- Line: 1097
+    local v194 = p193 - p192;
+    local math_max_ret = math.max(v194.Magnitude, 0.05);
+    p191.Size = Vector3.new(0.022, 0.022, math_max_ret);
+    local v195 = (p192 + p193) / 2;
+    local v196;
+
+    if v194.Magnitude < 0.0001 then
+        v196 = CFrame.new(v195);
+    else
+        local Unit = v194.Unit;
+        local v197 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+        v196 = CFrame.lookAt(v195, v195 + Unit, v197);
+    end;
+
+    p191.CFrame = v196;
+end;
+
+local u198 = { "JointInstance", "WeldConstraint", "BaseScript", "Sound", "ProximityPrompt", "Light", "ParticleEmitter", "Trail", "Beam", "Fire", "Smoke" };
+
+local function isJunk(p199: userdata) -- Line: 1106
+    -- upvalues: u198 (copy)
+    for _, v in ipairs(u198) do
+        if p199:IsA(v) then
+            return true;
+        end;
+    end;
+
+    return false;
+end;
+
+local function buildViewmodel(p200: userdata) -- Line: 1116
+    -- upvalues: u186 (copy), u198 (copy), u185 (copy)
+    local Handle = p200:FindFirstChild("Handle");
+
+    if not (Handle and Handle:IsA("BasePart")) then
+        return false;
+    end;
+
+    if u186.model then
+        u186.model:Destroy();
+        u186.model = nil;
+    end;
+
+    local CFrame2 = Handle.CFrame;
+    local Model = Instance.new("Model");
+    Model.Name = "FustBowViewmodel";
+    local v201 = nil;
+    local v202 = nil;
+    local v203 = {};
+    local v204 = (1 / 0);
+    local v205 = (-1 / 0);
+    local v206 = Vector3.new(0, 0, 0);
+
+    for _, descendant in ipairs(p200:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            local v207 = CFrame2:ToObjectSpace(descendant.CFrame);
+
+            if descendant.Name == "String" and not v202 then
+                v206 = descendant.Size;
+                v202 = v207;
+            elseif descendant.Name == "Wrap" and not v201 then
+                v201 = v207.Position;
+            end;
+
+            v204 = math.min(v204, v207.Position.Y - descendant.Size.Magnitude / 2);
+            v205 = math.max(v205, v207.Position.Y + descendant.Size.Magnitude / 2);
+            local success2, result2 = pcall(descendant.Clone, descendant);
+
+            if success2 and result2 then
+                for _, descendant2 in ipairs(result2:GetDescendants()) do
+                    local v208 = descendant2;
+                    local v209 = false;
+
+                    for _, v in ipairs(u198) do
+                        if v208:IsA(v) then
+                            v209 = true;
+                            break;
+                        end;
+                    end;
+
+                    if v209 then
+                        v208:Destroy();
+                    end;
+                end;
+
+                result2.Anchored = true;
+                result2.CanCollide = false;
+                result2.CanQuery = false;
+                result2.CanTouch = false;
+                result2.CastShadow = false;
+                result2.Massless = true;
+
+                if result2.Name == "String" then
+                    result2.Transparency = 1;
+                end;
+
+                result2.Parent = Model;
+                table.insert(v203, {
+                    part = result2,
+                    rel = v207
+                });
+            end;
+        end;
+    end;
+
+    if #v203 == 0 then
+        Model:Destroy();
+
+        return false;
+    end;
+
+    local v210, v211, v212, v213;
+
+    if v202 then
+        v210 = v202.YVector;
+        local Y = v206.Y;
+
+        if Y < v206.X then
+            v210 = v202.XVector;
+            Y = v206.X;
+        end;
+
+        if Y < v206.Z then
+            v210 = v202.ZVector;
+            Y = v206.Z;
+        end;
+
+        if v210.Y < 0 then
+            v210 = -v210;
+        end;
+
+        v211 = v202.Position;
+        v212 = v211 + v210 * (Y / 2);
+        v213 = v211 - v210 * (Y / 2);
+    else
+        local math_max_ret = math.max(v205, 1);
+        v212 = Vector3.new(0, math_max_ret, 0.25);
+        local math_min_ret = math.min(v204, -1);
+        v213 = Vector3.new(0, math_min_ret, 0.25);
+        v211 = Vector3.new(0, 0, 0.25);
+        v210 = Vector3.new(0, 1, 0);
+    end;
+
+    local v214 = v201 or Vector3.new(0, 0, 0);
+    local v215 = v214 - v211;
+    local v216 = v215 - v210 * v215:Dot(v210);
+
+    if v216.Magnitude < 0.03 then
+        local v217 = Vector3.new(0, 0, -1) - v210 * -v210.Z;
+        v216 = v217.Magnitude < 0.03 and Vector3.new(1, 0, 0) or v217;
+    end;
+
+    local v218 = -v216.Unit;
+    local Unit = v210:Cross(v218).Unit;
+    local Unit2 = v218:Cross(Unit).Unit;
+    local v219 = v214 + Unit2 * (v211 - v214):Dot(Unit2);
+    local CFrame_fromMatrix_ret = CFrame.fromMatrix(v219, Unit, Unit2, v218);
+    u186.top = CFrame_fromMatrix_ret:PointToObjectSpace(v212);
+    u186.bottom = CFrame_fromMatrix_ret:PointToObjectSpace(v213);
+    u186.mid = CFrame_fromMatrix_ret:PointToObjectSpace(v211);
+    u186.rest = Vector3.new(u186.mid.X + u185.REST_SIDE, u186.mid.Y, 0);
+    table.clear(u186.parts);
+    table.clear(u186.offsets);
+    u186.rels = {};
+
+    for _, v in ipairs(v203) do
+        table.insert(u186.parts, v.part);
+        table.insert(u186.offsets, CFrame_fromMatrix_ret:ToObjectSpace(v.rel));
+        table.insert(u186.rels, v.rel);
+    end;
+
+    u186.model = Model;
+    u186.tool = p200;
+
+    return true;
+end;
+
+local function viewmodelStep(p220: number) -- Line: 1223
+    -- upvalues: u186 (copy), u185 (copy), u14 (copy), u17 (copy), u121 (copy), u122 (copy), u187 (copy), stringSegment (copy), Folder (copy), newArrowVisual (copy), flushMoves (copy)
+    local workspace_CurrentCamera3 = workspace.CurrentCamera;
+    local model = u186.model;
+
+    if not (workspace_CurrentCamera3 and model) then
+        return;
+    end;
+
+    for _, v in ipairs(u186.hidden) do
+        v.LocalTransparencyModifier = 1;
+    end;
+
+    local os_clock_ret = os.clock();
+    local CFrame2 = workspace_CurrentCamera3.CFrame;
+    local prevLook = u186.prevLook;
+    local math_clamp_ret = math.clamp(p220, 0, 0.1);
+    local v221;
+
+    if prevLook and math_clamp_ret > 0.0001 then
+        local v222 = CFrame2:VectorToObjectSpace(prevLook) / math.max(math_clamp_ret, 0.004166666666666667);
+        v221 = Vector3.new(v222.X, v222.Y, 0) * (u185.SWAY * (1 - 0.5 * u14.aim));
+
+        if v221.Magnitude > u185.SWAY_MAX then
+            v221 = v221.Unit * u185.SWAY_MAX;
+        end;
+    else
+        v221 = Vector3.new(0, 0, 0);
+    end;
+
+    u186.prevLook = CFrame2.LookVector;
+    local SWAY_SPRING = u185.SWAY_SPRING;
+    local math_exp_ret = math.exp(-SWAY_SPRING * math_clamp_ret);
+    local v223 = u186.sway - v221;
+    local v224 = u186.swayV or Vector3.new(0, 0, 0);
+    local v225 = (v224 + v223 * SWAY_SPRING) * math_clamp_ret;
+    u186.sway = v221 + (v223 + v225) * math_exp_ret;
+    u186.swayV = (v224 - v225 * SWAY_SPRING) * math_exp_ret;
+    local humanoid = u14.humanoid;
+    local v226 = not humanoid and 0 or math.clamp(humanoid.MoveDirection.Magnitude, 0, 1);
+    local v227 = math.sin(os_clock_ret * 7) * u185.BOB_WALK * v226;
+    local v228 = math.sin(os_clock_ret * 14) * u185.BOB_WALK * 0.5 * v226 + math.sin(os_clock_ret * 1.7) * u185.BOB_IDLE;
+    local Vector3_new_ret = Vector3.new(v227, v228, 0);
+    local v229 = Vector3.new(0, 0, 0);
+    local v230 = u17.spec();
+
+    if u14.drawing and (not v230 or v230.noTremble ~= true) then
+        local v231 = os_clock_ret - u14.drawStart - u17.drawTime() - u185.TREMBLE_AFTER;
+
+        if v231 > 0 then
+            local math_min_ret = math.min(u185.TREMBLE_MAX, v231 * 0.004);
+            local v232 = (math.random() - 0.5) * 2 * math_min_ret;
+            local v233 = (math.random() - 0.5) * 2 * math_min_ret;
+            v229 = Vector3.new(v232, v233, 0);
+        end;
+    end;
+
+    local math_clamp_ret2 = math.clamp(u14.aim, 0, 1);
+    local v234;
+
+    if v230 == nil then
+        v234 = false;
+    else
+        v234 = v230.loaded == true;
+    end;
+
+    if v234 and (type(u186.rels) == "table" and #u186.rels == #u186.parts) then
+        local v235 = CFrame2 * CFrame.new(u186.sway + Vector3_new_ret) * u17.XB_READY:Lerp(u17.XB_AIM, math_clamp_ret2);
+
+        for i, v in ipairs(u186.parts) do
+            table.insert(u121, v);
+            table.insert(u122, v235 * u186.rels[i]);
+        end;
+
+        local v236 = v235 * u17.XB_REST:Lerp(u17.XB_LATCH_AT, (math.clamp(u14.drawVis, 0, 1)));
+        u187.upper = u187.upper or stringSegment("StringUpper");
+        u187.lower = u187.lower or stringSegment("StringLower");
+        local upper = u187.upper;
+        local v237 = v235 * u17.XB_TIP_L;
+        local v238 = v236 - v237;
+        local math_max_ret = math.max(v238.Magnitude, 0.05);
+        upper.Size = Vector3.new(0.022, 0.022, math_max_ret);
+        local v239 = (v237 + v236) / 2;
+        local v240;
+
+        if v238.Magnitude < 0.0001 then
+            v240 = CFrame.new(v239);
+        else
+            local Unit = v238.Unit;
+            local v241 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+            v240 = CFrame.lookAt(v239, v239 + Unit, v241);
+        end;
+
+        upper.CFrame = v240;
+        local lower = u187.lower;
+        local v242 = v235 * u17.XB_TIP_R;
+        local v243 = v242 - v236;
+        local math_max_ret2 = math.max(v243.Magnitude, 0.05);
+        lower.Size = Vector3.new(0.022, 0.022, math_max_ret2);
+        local v244 = (v236 + v242) / 2;
+        local v245;
+
+        if v243.Magnitude < 0.0001 then
+            v245 = CFrame.new(v244);
+        else
+            local Unit = v243.Unit;
+            local v246 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+            v245 = CFrame.lookAt(v244, v244 + Unit, v246);
+        end;
+
+        lower.CFrame = v245;
+        u187.upper.Parent = Folder;
+        u187.lower.Parent = Folder;
+
+        if u17.loaded then
+            local bowDef = u14.bowDef;
+            local v247;
+
+            if bowDef and type(bowDef.ammo) == "string" then
+                v247 = bowDef.ammo;
+            else
+                v247 = nil;
+            end;
+
+            local v248;
+
+            if v247 then
+                if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+                    u14.pendingSpent = 0;
+                end;
+
+                v248 = math.max(0, (u14.counts[v247] or 0) - u14.pendingSpent);
+            else
+                v248 = 0;
+            end;
+
+            if v248 >= 1 then
+                if not u187.model then
+                    local v249, v250, v251 = newArrowVisual();
+                    u187.model = v249;
+                    u187.parts = v250;
+                    u187.offsets = v251;
+                end;
+
+                local v252 = v235:VectorToWorldSpace(Vector3.new(0, 0, 1));
+                local v253 = v235 * u17.XB_BOLT_TAIL + v252 * 1.2;
+                local v254;
+
+                if v252.Magnitude < 0.0001 then
+                    v254 = CFrame.new(v253);
+                else
+                    local Unit = v252.Unit;
+                    local v255 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+                    v254 = CFrame.lookAt(v253, v253 + Unit, v255);
+                end;
+
+                for i, v in ipairs(u187.parts) do
+                    table.insert(u121, v);
+                    table.insert(u122, v254 * u187.offsets[i]);
+                end;
+
+                u187.model.Parent = Folder;
+            elseif u187.model then
+                u187.model.Parent = nil;
+            end;
+        elseif u187.model then
+            u187.model.Parent = nil;
+        end;
+
+        flushMoves();
+        model.Parent = Folder;
+
+        return;
+    end;
+
+    local v256 = CFrame2 * CFrame.new(u186.sway + Vector3_new_ret + v229) * u185.READY:Lerp(u185.AIM, math_clamp_ret2);
+
+    if v234 then
+        v256 = v256 * u17.XB_ROLL;
+    end;
+
+    for i, v in ipairs(u186.parts) do
+        table.insert(u121, v);
+        table.insert(u122, v256 * u186.offsets[i]);
+    end;
+
+    local v257 = u14.drawVis * (not v234 and 1 or u17.XB_LATCH);
+    local v258 = v256 * u186.mid;
+    local v259 = CFrame2:PointToObjectSpace(v256 * u186.rest);
+    local Vector3_new_ret2 = Vector3.new(0, 0, -u185.NOCK_FAR);
+    local v260 = v258:Lerp(CFrame2 * (Vector3_new_ret2 + (v259 - Vector3_new_ret2) * ((u185.NOCK_FAR - u185.NOCK_Z) / math.max(u185.NOCK_FAR + v259.Z, 1))), v257);
+    u187.upper = u187.upper or stringSegment("StringUpper");
+    u187.lower = u187.lower or stringSegment("StringLower");
+    local upper = u187.upper;
+    local v261 = v256 * u186.top;
+    local v262 = v260 - v261;
+    local math_max_ret = math.max(v262.Magnitude, 0.05);
+    upper.Size = Vector3.new(0.022, 0.022, math_max_ret);
+    local v263 = (v261 + v260) / 2;
+    local v264;
+
+    if v262.Magnitude < 0.0001 then
+        v264 = CFrame.new(v263);
+    else
+        local Unit = v262.Unit;
+        local v265 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+        v264 = CFrame.lookAt(v263, v263 + Unit, v265);
+    end;
+
+    upper.CFrame = v264;
+    local lower = u187.lower;
+    local v266 = v256 * u186.bottom;
+    local v267 = v266 - v260;
+    local math_max_ret2 = math.max(v267.Magnitude, 0.05);
+    lower.Size = Vector3.new(0.022, 0.022, math_max_ret2);
+    local v268 = (v260 + v266) / 2;
+    local v269;
+
+    if v267.Magnitude < 0.0001 then
+        v269 = CFrame.new(v268);
+    else
+        local Unit = v267.Unit;
+        local v270 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+        v269 = CFrame.lookAt(v268, v268 + Unit, v270);
+    end;
+
+    lower.CFrame = v269;
+    u187.upper.Parent = Folder;
+    u187.lower.Parent = Folder;
+    local v271;
+
+    if v234 then
+        v271 = u17.loaded;
+    else
+        v271 = u14.drawing;
+    end;
+
+    if v271 then
+        local bowDef = u14.bowDef;
+        local v272;
+
+        if bowDef and type(bowDef.ammo) == "string" then
+            v272 = bowDef.ammo;
+        else
+            v272 = nil;
+        end;
+
+        local v273;
+
+        if v272 then
+            if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+                u14.pendingSpent = 0;
+            end;
+
+            v273 = math.max(0, (u14.counts[v272] or 0) - u14.pendingSpent);
+        else
+            v273 = 0;
+        end;
+
+        if v273 >= 1 then
+            if not u187.model then
+                local v274, v275, v276 = newArrowVisual();
+                u187.model = v274;
+                u187.parts = v275;
+                u187.offsets = v276;
+            end;
+
+            local v277 = v256 * u186.rest - v260;
+
+            if v277.Magnitude < 0.2 then
+                v277 = v256.LookVector;
+            end;
+
+            local v278 = v260 + v277.Unit * 1.2;
+            local v279;
+
+            if v277.Magnitude < 0.0001 then
+                v279 = CFrame.new(v278);
+            else
+                local Unit = v277.Unit;
+                local v280 = math.abs(Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0);
+                v279 = CFrame.lookAt(v278, v278 + Unit, v280);
+            end;
+
+            for i, v in ipairs(u187.parts) do
+                table.insert(u121, v);
+                table.insert(u122, v279 * u187.offsets[i]);
+            end;
+
+            u187.model.Parent = Folder;
+        elseif u187.model then
+            u187.model.Parent = nil;
+        end;
+    elseif u187.model then
+        u187.model.Parent = nil;
+    end;
+
+    flushMoves();
+    model.Parent = Folder;
+end;
+
+local function setViewmodel(p281: boolean) -- Line: 1357
+    -- upvalues: u14 (copy), u186 (copy), buildViewmodel (copy), u185 (copy), RunService (copy), viewmodelStep (copy), u187 (copy)
+    if not p281 then
+        if u186.shown then
+            u186.shown = false;
+            RunService:UnbindFromRenderStep(u185.STEP);
+
+            for _, v in ipairs(u186.hidden) do
+                if v.Parent then
+                    v.LocalTransparencyModifier = 0;
+                end;
+            end;
+
+            table.clear(u186.hidden);
+
+            if u186.model then
+                u186.model.Parent = nil;
+            end;
+
+            if u187.model then
+                u187.model.Parent = nil;
+            end;
+
+            if u187.upper then
+                u187.upper.Parent = nil;
+            end;
+
+            if u187.lower then
+                u187.lower.Parent = nil;
+            end;
+        end;
+
+        return;
+    end;
+
+    local bowTool = u14.bowTool;
+
+    if not bowTool then
+        return;
+    end;
+
+    if not (u186.tool == bowTool and u186.model or buildViewmodel(bowTool)) then
+        return;
+    end;
+
+    if u186.shown then
+        return;
+    end;
+
+    u186.shown = true;
+    table.clear(u186.hidden);
+
+    for _, descendant in ipairs(bowTool:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            table.insert(u186.hidden, descendant);
+        end;
+    end;
+
+    local character = u14.character;
+
+    if character then
+        for _, v in ipairs(u185.ARMS) do
+            local v282 = character:FindFirstChild(v);
+
+            if v282 and v282:IsA("BasePart") then
+                table.insert(u186.hidden, v282);
+            end;
+        end;
+    end;
+
+    u186.sway = Vector3.new(0, 0, 0);
+    u186.prevLook = nil;
+    RunService:BindToRenderStep(u185.STEP, Enum.RenderPriority.Camera.Value + 3, function(p283) -- Line: 1389
+        -- upvalues: viewmodelStep (ref)
+        local success2, result2 = pcall(viewmodelStep, p283);
+
+        if not success2 then
+            warn("[Fust] FustCombat: viewmodel failed:", result2);
+        end;
+    end);
+end;
+
+local function dropViewmodel() -- Line: 1411
+    -- upvalues: u186 (copy), RunService (copy), u185 (copy), u187 (copy)
+    if u186.shown then
+        u186.shown = false;
+        RunService:UnbindFromRenderStep(u185.STEP);
+
+        for _, v in ipairs(u186.hidden) do
+            if v.Parent then
+                v.LocalTransparencyModifier = 0;
+            end;
+        end;
+
+        table.clear(u186.hidden);
+
+        if u186.model then
+            u186.model.Parent = nil;
+        end;
+
+        if u187.model then
+            u187.model.Parent = nil;
+        end;
+
+        if u187.upper then
+            u187.upper.Parent = nil;
+        end;
+
+        if u187.lower then
+            u187.lower.Parent = nil;
+        end;
+    end;
+
+    if u186.model then
+        u186.model:Destroy();
+        u186.model = nil;
+    end;
+
+    u186.tool = nil;
+end;
+
+local function motor(p284: userdata?, p285: string) -- Line: 1422
+    if p284 then
+        p284 = p284:FindFirstChild(p285);
+    end;
+
+    if p284 and (p284:IsA("Motor6D") or p284:IsA("AnimationConstraint")) then
+        return p284;
+    end;
+
+    return nil;
+end;
+
+local function findJoints(p286: userdata) -- Line: 1430
+    local RightUpperArm = p286:FindFirstChild("RightUpperArm");
+
+    if RightUpperArm then
+        RightUpperArm = RightUpperArm:FindFirstChild("RightShoulder");
+    end;
+
+    if not (RightUpperArm and (RightUpperArm:IsA("Motor6D") or RightUpperArm:IsA("AnimationConstraint"))) then
+        RightUpperArm = nil;
+    end;
+
+    local LeftUpperArm = p286:FindFirstChild("LeftUpperArm");
+
+    if LeftUpperArm then
+        LeftUpperArm = LeftUpperArm:FindFirstChild("LeftShoulder");
+    end;
+
+    if not (LeftUpperArm and (LeftUpperArm:IsA("Motor6D") or LeftUpperArm:IsA("AnimationConstraint"))) then
+        LeftUpperArm = nil;
+    end;
+
+    if not (RightUpperArm and LeftUpperArm) then
+        local Torso = p286:FindFirstChild("Torso");
+        local v287;
+
+        if Torso then
+            v287 = Torso:FindFirstChild("Right Shoulder");
+        else
+            v287 = Torso;
+        end;
+
+        if not (v287 and (v287:IsA("Motor6D") or v287:IsA("AnimationConstraint"))) then
+            v287 = nil;
+        end;
+
+        if Torso then
+            Torso = Torso:FindFirstChild("Left Shoulder");
+        end;
+
+        if not (Torso and (Torso:IsA("Motor6D") or Torso:IsA("AnimationConstraint"))) then
+            Torso = nil;
+        end;
+
+        return v287 and Torso and {
+            rig = "R6",
+            rs = v287,
+            ls = Torso,
+            rightHand = p286:FindFirstChild("Right Arm"),
+            leftHand = p286:FindFirstChild("Left Arm")
+        } or nil;
+    end;
+
+    local v288 = {
+        rig = "R15",
+        rs = RightUpperArm,
+        ls = LeftUpperArm
+    };
+    local RightLowerArm = p286:FindFirstChild("RightLowerArm");
+
+    if RightLowerArm then
+        RightLowerArm = RightLowerArm:FindFirstChild("RightElbow");
+    end;
+
+    if not (RightLowerArm and (RightLowerArm:IsA("Motor6D") or RightLowerArm:IsA("AnimationConstraint"))) then
+        RightLowerArm = nil;
+    end;
+
+    v288.re = RightLowerArm;
+    local LeftLowerArm = p286:FindFirstChild("LeftLowerArm");
+
+    if LeftLowerArm then
+        LeftLowerArm = LeftLowerArm:FindFirstChild("LeftElbow");
+    end;
+
+    if not (LeftLowerArm and (LeftLowerArm:IsA("Motor6D") or LeftLowerArm:IsA("AnimationConstraint"))) then
+        LeftLowerArm = nil;
+    end;
+
+    v288.le = LeftLowerArm;
+    local RightHand = p286:FindFirstChild("RightHand");
+
+    if RightHand then
+        RightHand = RightHand:FindFirstChild("RightWrist");
+    end;
+
+    if not (RightHand and (RightHand:IsA("Motor6D") or RightHand:IsA("AnimationConstraint"))) then
+        RightHand = nil;
+    end;
+
+    v288.rw = RightHand;
+    v288.rightHand = p286:FindFirstChild("RightHand");
+    v288.leftHand = p286:FindFirstChild("LeftHand");
+
+    return v288;
+end;
+
+local function computeWristFix() -- Line: 1456
+    -- upvalues: u14 (copy)
+    local joints = u14.joints;
+
+    if joints then
+        joints = joints.rightHand;
+    end;
+
+    if joints then
+        joints = joints:FindFirstChild("RightGrip");
+    end;
+
+    if not (joints and joints:IsA("JointInstance")) then
+        return nil;
+    end;
+
+    local v289 = (joints.C0 * joints.C1:Inverse()):VectorToWorldSpace(Vector3.new(0, 1, 0));
+    local success2, result2 = pcall(CFrame.fromRotationBetweenVectors, v289, Vector3.new(0, 0, -1));
+
+    if success2 and typeof(result2) == "CFrame" then
+        return result2;
+    end;
+
+    return nil;
+end;
+
+local function resetPose() -- Line: 1472
+    -- upvalues: u14 (copy)
+    if not u14.posed then
+        return;
+    end;
+
+    u14.posed = false;
+    local joints = u14.joints;
+
+    if joints then
+        for _, v in ipairs({ "rs", "ls", "re", "le", "rw" }) do
+            local v290 = joints[v];
+
+            if v290 and v290.Parent then
+                v290.Transform = CFrame.identity;
+            end;
+        end;
+    end;
+end;
+
+local function applyPose(p291: vector) -- Line: 1488
+    -- upvalues: u14 (copy), computeWristFix (copy)
+    local joints = u14.joints;
+
+    if not (joints and (joints.rs.Parent and joints.ls.Parent)) then
+        return;
+    end;
+
+    u14.posed = true;
+    local math_clamp_ret = math.clamp(p291.Y, -1, 1);
+    local math_asin_ret = math.asin(math_clamp_ret);
+    local math_clamp_ret2 = math.clamp(math_asin_ret, -1.25, 1.25);
+    local v292 = 1.2 + math_clamp_ret2 * 0.55;
+    local v293 = 0.1;
+    local v294 = 0.08;
+    local v295 = (1.5 + math_clamp_ret2 * 0.95) * 0;
+    local v296 = -0.6 * 0;
+    local v297 = 0.12 * 0;
+
+    if joints.rig == "R15" then
+        joints.rs.Transform = CFrame.Angles(0, v293, 0) * CFrame.Angles(v292, 0, 0) * CFrame.Angles(0, v294, 0);
+
+        if joints.re then
+            joints.re.Transform = CFrame.Angles(0.3, 0, 0);
+        end;
+
+        if joints.rw then
+            if not u14.wristFix then
+                u14.wristFix = computeWristFix();
+            end;
+
+            joints.rw.Transform = u14.wristFix or CFrame.identity;
+        end;
+
+        joints.ls.Transform = CFrame.Angles(0, v296, 0) * CFrame.Angles(v295, 0, 0);
+
+        if joints.le then
+            joints.le.Transform = CFrame.Angles(0, 0, v297);
+        end;
+    else
+        joints.rs.Transform = CFrame.Angles(0, v293, 0) * CFrame.Angles(0, 0, v292);
+        joints.ls.Transform = CFrame.Angles(0, v296, 0) * CFrame.Angles(0, 0, -v295);
+    end;
+end;
+
+local function shakeUndo() -- Line: 1528
+    -- upvalues: u14 (copy)
+    if u14.shakeApplied then
+        local workspace_CurrentCamera3 = workspace.CurrentCamera;
+        workspace_CurrentCamera3.CFrame = workspace_CurrentCamera3.CFrame * u14.shakeApplied:Inverse();
+        u14.shakeApplied = nil;
+    end;
+end;
+
+local function shakeApply() -- Line: 1536
+    -- upvalues: u14 (copy), RunService (copy), u10 (copy)
+    local v298 = u14.shakeUntil - os.clock();
+
+    if v298 <= 0 then
+        u14.shakeBound = false;
+        RunService:UnbindFromRenderStep(u10.SHAKE_STEP);
+        RunService:UnbindFromRenderStep(u10.SHAKE_UNDO);
+
+        return;
+    end;
+
+    local v299 = u14.shakeStrength * (v298 / u14.shakeDur);
+    local CFrame_Angles_ret = CFrame.Angles((math.random() - 0.5) * v299, (math.random() - 0.5) * v299, (math.random() - 0.5) * v299 * 0.6);
+    local workspace_CurrentCamera3 = workspace.CurrentCamera;
+    workspace_CurrentCamera3.CFrame = workspace_CurrentCamera3.CFrame * CFrame_Angles_ret;
+    u14.shakeApplied = CFrame_Angles_ret;
+end;
+
+local function shake(p300: number, p301: number) -- Line: 1551
+    -- upvalues: u14 (copy), RunService (copy), u10 (copy), shakeUndo (copy), shakeApply (copy)
+    local os_clock_ret = os.clock();
+
+    if u14.shakeUntil <= os_clock_ret then
+        u14.shakeStrength = 0;
+    end;
+
+    u14.shakeStrength = math.max(u14.shakeStrength, p300);
+    u14.shakeDur = math.max(p301, 0.05);
+    u14.shakeUntil = math.max(u14.shakeUntil, os_clock_ret + p301);
+
+    if not u14.shakeBound then
+        u14.shakeBound = true;
+        RunService:BindToRenderStep(u10.SHAKE_UNDO, Enum.RenderPriority.Camera.Value - 1, shakeUndo);
+        RunService:BindToRenderStep(u10.SHAKE_STEP, Enum.RenderPriority.Camera.Value + 1, shakeApply);
+    end;
+end;
+
+local function showHint(p302: string) -- Line: 1568
+    -- upvalues: u14 (copy), u57 (copy), u152 (ref)
+    local os_clock_ret = os.clock();
+
+    if os_clock_ret - u14.lastHintAt < 0.6 then
+        return;
+    end;
+
+    u14.lastHintAt = os_clock_ret;
+    u14.hintUntil = os_clock_ret + 1.3;
+    u57.hint.Text = p302;
+    u57.hint.TextTransparency = 0;
+    u57.hint.TextStrokeTransparency = 0.5;
+    u57.hint.Visible = true;
+    u152();
+end;
+
+local function stopDrawSound() -- Line: 1584
+    -- upvalues: u14 (copy)
+    local drawSound = u14.drawSound;
+    u14.drawSound = nil;
+
+    if drawSound then
+        pcall(function() -- Line: 1588
+            -- upvalues: drawSound (copy)
+            drawSound:Stop();
+            drawSound:Destroy();
+        end);
+    end;
+end;
+
+local function aimHeld() -- Line: 1595
+    -- upvalues: u14 (copy)
+    return u14.aimMouse or (u14.aimPad or u14.aimTouch);
+end;
+
+local function endDraw() -- Line: 1599
+    -- upvalues: u14 (copy)
+    u14.drawing = false;
+    u14.fireQueuedAt = nil;
+    local drawSound = u14.drawSound;
+    u14.drawSound = nil;
+
+    if drawSound then
+        pcall(function() -- Line: 1588
+            -- upvalues: drawSound (copy)
+            drawSound:Stop();
+            drawSound:Destroy();
+        end);
+    end;
+end;
+
+local function cancelDraw() -- Line: 1606
+    -- upvalues: u14 (copy)
+    if u14.drawing then
+        u14.drawing = false;
+        u14.fireQueuedAt = nil;
+        local drawSound = u14.drawSound;
+        u14.drawSound = nil;
+
+        if drawSound then
+            pcall(function() -- Line: 1588
+                -- upvalues: drawSound (copy)
+                drawSound:Stop();
+                drawSound:Destroy();
+            end);
+        end;
+    end;
+
+    u14.wantDraw = false;
+    u14.fireQueuedAt = nil;
+end;
+
+local function tryDraw() -- Line: 1615
+    -- upvalues: u14 (copy), LocalPlayer (copy), panelOpen (copy), u17 (copy), u152 (ref), u11 (ref), u10 (copy), u57 (copy), Fust (copy), SoundService (copy), Debris (copy), u15 (copy)
+    if u14.drawing or not u14.bowDef then
+        return;
+    end;
+
+    local humanoid = u14.humanoid;
+    local v303;
+
+    if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+        v303 = false;
+    else
+        v303 = LocalPlayer:GetAttribute("Dead") ~= true;
+    end;
+
+    local v304 = v303 and not panelOpen() and LocalPlayer:GetAttribute("InvLoaded") == true;
+
+    if not v304 then
+        u14.wantDraw = false;
+
+        return;
+    end;
+
+    if u17.xbow() then
+        if not u17.loaded then
+            u14.wantDraw = false;
+            u17.startReload(os.clock());
+
+            return;
+        end;
+
+        u14.wantDraw = false;
+        u14.drawing = true;
+        u14.drawStart = os.clock();
+        u14.fireQueuedAt = nil;
+        u152();
+
+        return;
+    end;
+
+    local bowDef = u14.bowDef;
+    local v305;
+
+    if bowDef and type(bowDef.ammo) == "string" then
+        v305 = bowDef.ammo;
+    else
+        v305 = nil;
+    end;
+
+    local v306;
+
+    if v305 then
+        if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+            u14.pendingSpent = 0;
+        end;
+
+        v306 = math.max(0, (u14.counts[v305] or 0) - u14.pendingSpent);
+    else
+        v306 = 0;
+    end;
+
+    if v306 < 1 then
+        u14.wantDraw = false;
+        u14.aimTouch = false;
+
+        if u11 then
+            u11.setActive(u10.AIM_ACTION, false);
+        end;
+
+        local os_clock_ret = os.clock();
+
+        if os_clock_ret - u14.lastHintAt < 0.6 then
+            return;
+        end;
+
+        u14.lastHintAt = os_clock_ret;
+        u14.hintUntil = os_clock_ret + 1.3;
+        u57.hint.Text = "NO ARROWS";
+        u57.hint.TextTransparency = 0;
+        u57.hint.TextStrokeTransparency = 0.5;
+        u57.hint.Visible = true;
+        u152();
+
+        return;
+    end;
+
+    local os_clock_ret = os.clock();
+
+    if os_clock_ret - u14.lastShot < u10.REDRAW_GAP then
+        u14.wantDraw = true;
+        u152();
+
+        return;
+    end;
+
+    u14.wantDraw = false;
+    u14.drawing = true;
+    u14.drawStart = os_clock_ret;
+    u14.fireQueuedAt = nil;
+    local drawSound = u14.drawSound;
+    u14.drawSound = nil;
+
+    if drawSound then
+        pcall(function() -- Line: 1588
+            -- upvalues: drawSound (copy)
+            drawSound:Stop();
+            drawSound:Destroy();
+        end);
+    end;
+
+    local Sounds = Fust:FindFirstChild("Sounds");
+
+    if Sounds then
+        Sounds = Sounds:FindFirstChild("BowDraw");
+    end;
+
+    if not (Sounds and Sounds:IsA("Sound")) then
+        Sounds = nil;
+    end;
+
+    local v307;
+
+    if Sounds then
+        v307 = Sounds:Clone();
+        v307.Parent = SoundService;
+        v307:Play();
+        Debris:AddItem(v307, 6);
+    else
+        v307 = nil;
+    end;
+
+    u14.drawSound = v307;
+    local noteAt379 = u14.noteAt379;
+
+    if u15.Shoot and (noteAt379 == nil or (noteAt379 <= u14.lastShot or (os_clock_ret - noteAt379 >= u10.DRAW_NOTE_GAP or u14.noteBow379 ~= u14.bowDef))) then
+        local bowDef2 = u14.bowDef;
+        u14.noteAt379 = os_clock_ret;
+        u14.noteBow379 = bowDef2;
+        pcall(function() -- Line: 1663
+            -- upvalues: u15 (ref)
+            u15.Shoot:FireServer({
+                draw = true
+            });
+        end);
+    end;
+
+    u152();
+end;
+
+local function fire(u308: number) -- Line: 1670
+    -- upvalues: u15 (copy), u10 (copy), u14 (copy), u17 (copy), spawnArrow (copy), u120 (copy), Fust (copy), SoundService (copy), Debris (copy), shake (copy)
+    local workspace_CurrentCamera3 = workspace.CurrentCamera;
+    local Shoot = u15.Shoot;
+
+    if not (workspace_CurrentCamera3 and Shoot) then
+        return;
+    end;
+
+    local LookVector = workspace_CurrentCamera3.CFrame.LookVector;
+    local u309 = workspace_CurrentCamera3.CFrame.Position + LookVector * u10.MUZZLE;
+    local v310 = u14;
+    v310.shotId = v310.shotId + 1;
+    local shotId = u14.shotId;
+    local os_clock_ret = os.clock();
+    u14.lastShot = os_clock_ret;
+    local v311 = u14;
+    v311.pendingSpent = v311.pendingSpent + 1;
+    u14.lastSpentAt = os_clock_ret;
+    pcall(function() -- Line: 1684
+        -- upvalues: Shoot (copy), u309 (copy), LookVector (copy), u308 (copy), shotId (copy)
+        Shoot:FireServer({
+            origin = u309,
+            dir = LookVector,
+            charge = u308,
+            shotId = shotId
+        });
+    end);
+    local math_clamp_ret = math.clamp(u308, u10.MIN_CHARGE, 1);
+    local v312 = u10.SPEED_BASE + u10.SPEED_CHARGE;
+    local GRAVITY = u10.GRAVITY;
+    local v313 = u17.spec();
+
+    if v313 then
+        math_clamp_ret = v313.loaded == true and 1 or math_clamp_ret;
+        local speedBase = v313.speedBase;
+        local v314;
+
+        if type(speedBase) == "number" and (speedBase == speedBase and speedBase > (-1 / 0)) then
+            v314 = speedBase < (1 / 0);
+        else
+            v314 = false;
+        end;
+
+        local v315;
+
+        if v314 then
+            v315 = math.clamp(v313.speedBase, 20, 600);
+        else
+            v315 = u10.SPEED_BASE;
+        end;
+
+        local speedCharge = v313.speedCharge;
+        local v316;
+
+        if type(speedCharge) == "number" and (speedCharge == speedCharge and speedCharge > (-1 / 0)) then
+            v316 = speedCharge < (1 / 0);
+        else
+            v316 = false;
+        end;
+
+        local v317;
+
+        if v316 then
+            v317 = math.clamp(v313.speedCharge, 0, 600);
+        else
+            v317 = u10.SPEED_CHARGE;
+        end;
+
+        v312 = v315 + v317;
+        local gravity = v313.gravity;
+        local v318;
+
+        if type(gravity) == "number" and (gravity == gravity and gravity > (-1 / 0)) then
+            v318 = gravity < (1 / 0);
+        else
+            v318 = false;
+        end;
+
+        if v318 then
+            GRAVITY = math.clamp(v313.gravity, 0, 200);
+        else
+            GRAVITY = u10.GRAVITY;
+        end;
+    end;
+
+    local v319 = u17.bd();
+    local v320, v321;
+
+    if v319 then
+        local v322;
+        v320, v322, v321 = pcall(v319.scale, math_clamp_ret);
+    else
+        v320 = false;
+        v321 = nil;
+    end;
+
+    local v323;
+
+    if v320 then
+        local v324;
+
+        if type(v321) == "number" and (v321 == v321 and v321 > (-1 / 0)) then
+            v324 = v321 < (1 / 0);
+        else
+            v324 = false;
+        end;
+
+        if v324 then
+            v323 = v312 * math.clamp(v321, 0, 1);
+        else
+            v323 = v312 * (math_clamp_ret * 125 + 95) / 220;
+        end;
+    else
+        v323 = v312 * (math_clamp_ret * 125 + 95) / 220;
+    end;
+
+    local v325 = spawnArrow(u309, LookVector * v323, Vector3.new(0, -GRAVITY, 0), true, { u14.character });
+
+    if v325 then
+        v325.shotId = shotId;
+        u120[shotId] = v325;
+    end;
+
+    local v326 = 0.96 + math.random() * 0.08;
+    local Sounds = Fust:FindFirstChild("Sounds");
+
+    if Sounds then
+        Sounds = Sounds:FindFirstChild("BowRelease");
+    end;
+
+    if not (Sounds and Sounds:IsA("Sound")) then
+        Sounds = nil;
+    end;
+
+    if Sounds then
+        local v327 = Sounds:Clone();
+
+        if v326 then
+            v327.PlaybackSpeed = v327.PlaybackSpeed * v326;
+        end;
+
+        v327.Parent = SoundService;
+        v327:Play();
+        Debris:AddItem(v327, 6);
+    end;
+
+    shake(math_clamp_ret * 0.006 + 0.006, 0.1);
+end;
+
+function u16.blocked(p328: number) -- Line: 1718
+    -- upvalues: u16 (copy), u14 (copy), u57 (copy), u152 (ref)
+    local gc = u16.gc;
+    local humanoid = u14.humanoid;
+
+    if not (gc and humanoid) then
+        return false;
+    end;
+
+    local v329 = type(gc.AIR) ~= "table" and {} or gc.AIR;
+    local success2, result2 = pcall(gc.Airborne, humanoid, humanoid.RootPart, false);
+
+    if success2 and result2 == true then
+        if (type(v329.HINT_GAP) ~= "number" and 4 or v329.HINT_GAP) <= p328 - u16.hintAt then
+            u16.hintAt = p328;
+            local v330 = type(v329.HINT) ~= "string" and "CAN\'T SHOOT WHILE JUMPING" or v329.HINT;
+            local os_clock_ret = os.clock();
+
+            if os_clock_ret - u14.lastHintAt >= 0.6 then
+                u14.lastHintAt = os_clock_ret;
+                u14.hintUntil = os_clock_ret + 1.3;
+                u57.hint.Text = v330;
+                u57.hint.TextTransparency = 0;
+                u57.hint.TextStrokeTransparency = 0.5;
+                u57.hint.Visible = true;
+                u152();
+            end;
+        end;
+
+        return true;
+    end;
+
+    if type(gc.Landed) == "function" then
+        local v331, v332, v333 = pcall(gc.Landed, humanoid, p328);
+        local v334 = type(v329.SERVER_GRACE) ~= "number" and 0.25 or v329.SERVER_GRACE;
+        local v335 = type(v329.LAND_GRACE) ~= "number" and 0.1 or v329.LAND_GRACE;
+
+        if v331 and (type(v332) == "number" and (type(v333) == "number" and (v334 < v333 and v332 < v335))) then
+            return true;
+        end;
+    end;
+
+    return false;
+end;
+
+local function releaseDraw() -- Line: 1750
+    -- upvalues: u14 (copy), u17 (copy), u10 (copy), u152 (ref), u16 (copy), LocalPlayer (copy), panelOpen (copy), u57 (copy), fire (copy)
+    if not u14.drawing then
+        return;
+    end;
+
+    local os_clock_ret = os.clock();
+    local v336 = os_clock_ret - u14.drawStart;
+
+    if v336 < u17.minDraw() then
+        if u14.drawing then
+            u14.drawing = false;
+            u14.fireQueuedAt = nil;
+            local drawSound = u14.drawSound;
+            u14.drawSound = nil;
+
+            if drawSound then
+                pcall(function() -- Line: 1588
+                    -- upvalues: drawSound (copy)
+                    drawSound:Stop();
+                    drawSound:Destroy();
+                end);
+            end;
+        end;
+
+        u14.wantDraw = false;
+        u14.fireQueuedAt = nil;
+
+        return;
+    end;
+
+    if os_clock_ret - u14.lastShot < u10.SHOT_GAP then
+        u14.fireQueuedAt = u14.fireQueuedAt or os_clock_ret;
+        u152();
+
+        return;
+    end;
+
+    if u16.blocked(os_clock_ret) then
+        u14.fireQueuedAt = u14.fireQueuedAt or os_clock_ret;
+        u152();
+
+        return;
+    end;
+
+    u14.drawing = false;
+    u14.fireQueuedAt = nil;
+    local drawSound = u14.drawSound;
+    u14.drawSound = nil;
+
+    if drawSound then
+        pcall(function() -- Line: 1588
+            -- upvalues: drawSound (copy)
+            drawSound:Stop();
+            drawSound:Destroy();
+        end);
+    end;
+
+    local humanoid = u14.humanoid;
+    local v337;
+
+    if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+        v337 = false;
+    else
+        v337 = LocalPlayer:GetAttribute("Dead") ~= true;
+    end;
+
+    local v338 = v337 and not panelOpen() and LocalPlayer:GetAttribute("InvLoaded") == true;
+
+    if not v338 then
+        return;
+    end;
+
+    local bowDef = u14.bowDef;
+    local v339;
+
+    if bowDef and type(bowDef.ammo) == "string" then
+        v339 = bowDef.ammo;
+    else
+        v339 = nil;
+    end;
+
+    local v340;
+
+    if v339 then
+        if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+            u14.pendingSpent = 0;
+        end;
+
+        v340 = math.max(0, (u14.counts[v339] or 0) - u14.pendingSpent);
+    else
+        v340 = 0;
+    end;
+
+    if v340 >= 1 then
+        local v341 = v336 / u17.drawTime();
+        fire((math.clamp(v341, 0, 1)));
+
+        if u14.aimMouse or (u14.aimPad or u14.aimTouch) then
+            u14.wantDraw = true;
+            u152();
+        end;
+
+        return;
+    end;
+
+    local os_clock_ret2 = os.clock();
+
+    if os_clock_ret2 - u14.lastHintAt < 0.6 then
+        return;
+    end;
+
+    u14.lastHintAt = os_clock_ret2;
+    u14.hintUntil = os_clock_ret2 + 1.3;
+    u57.hint.Text = "NO ARROWS";
+    u57.hint.TextTransparency = 0;
+    u57.hint.TextStrokeTransparency = 0.5;
+    u57.hint.Visible = true;
+    u152();
+end;
+
+local function aimHintText() -- Line: 1785
+    -- upvalues: UserInputService (copy), u1 (copy)
+    return UserInputService:GetLastInputType().Name:find("Gamepad") and "HOLD L2 TO AIM" or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled and "TAP AIM FIRST" or (u1.kb and u1.kb.aimToggle() and "RIGHT CLICK TO AIM" or "HOLD RIGHT CLICK TO AIM"));
+end;
+
+function u17.hint(p342: string, p343: number) -- Line: 1799
+    -- upvalues: u17 (copy), u14 (copy), u57 (copy), u152 (ref)
+    if p343 - u17.hintAt >= 1.2 then
+        u17.hintAt = p343;
+        local os_clock_ret = os.clock();
+
+        if os_clock_ret - u14.lastHintAt < 0.6 then
+            return;
+        end;
+
+        u14.lastHintAt = os_clock_ret;
+        u14.hintUntil = os_clock_ret + 1.3;
+        u57.hint.Text = p342;
+        u57.hint.TextTransparency = 0;
+        u57.hint.TextStrokeTransparency = 0.5;
+        u57.hint.Visible = true;
+        u152();
+    end;
+end;
+
+function u17.fireXbow() -- Line: 1805
+    -- upvalues: u14 (copy), LocalPlayer (copy), panelOpen (copy), u17 (copy), u57 (copy), u152 (ref), u10 (copy), u16 (copy), fire (copy)
+    local os_clock_ret = os.clock();
+    local humanoid = u14.humanoid;
+    local v344;
+
+    if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+        v344 = false;
+    else
+        v344 = LocalPlayer:GetAttribute("Dead") ~= true;
+    end;
+
+    local v345 = v344 and not panelOpen() and LocalPlayer:GetAttribute("InvLoaded") == true;
+
+    if not v345 then
+        return;
+    end;
+
+    if not u17.loaded then
+        local hint = u17.hint;
+        local bowDef = u14.bowDef;
+        local v346;
+
+        if bowDef and type(bowDef.ammo) == "string" then
+            v346 = bowDef.ammo;
+        else
+            v346 = nil;
+        end;
+
+        local v347;
+
+        if v346 then
+            if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+                u14.pendingSpent = 0;
+            end;
+
+            v347 = math.max(0, (u14.counts[v346] or 0) - u14.pendingSpent);
+        else
+            v347 = 0;
+        end;
+
+        hint(v347 < 1 and not u17.reloadAt and "NO ARROWS" or (u17.reloadAt and "LOADING" or u17.loadHintText()), os_clock_ret);
+
+        return;
+    end;
+
+    local bowDef = u14.bowDef;
+    local v348;
+
+    if bowDef and type(bowDef.ammo) == "string" then
+        v348 = bowDef.ammo;
+    else
+        v348 = nil;
+    end;
+
+    local v349;
+
+    if v348 then
+        if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+            u14.pendingSpent = 0;
+        end;
+
+        v349 = math.max(0, (u14.counts[v348] or 0) - u14.pendingSpent);
+    else
+        v349 = 0;
+    end;
+
+    if v349 >= 1 then
+        if os_clock_ret - u14.lastShot < u10.SHOT_GAP or u16.blocked(os_clock_ret) then
+            return;
+        end;
+
+        fire(1);
+        u17.loaded = false;
+        u17.reloadAt = nil;
+        u152();
+
+        return;
+    end;
+
+    local os_clock_ret2 = os.clock();
+
+    if os_clock_ret2 - u14.lastHintAt < 0.6 then
+        return;
+    end;
+
+    u14.lastHintAt = os_clock_ret2;
+    u14.hintUntil = os_clock_ret2 + 1.3;
+    u57.hint.Text = "NO ARROWS";
+    u57.hint.TextTransparency = 0;
+    u57.hint.TextStrokeTransparency = 0.5;
+    u57.hint.Visible = true;
+    u152();
+end;
+
+function u17.loadHintText() -- Line: 1827
+    -- upvalues: UserInputService (copy)
+    return UserInputService:GetLastInputType().Name:find("Gamepad") and "PRESS L2 TO LOAD" or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled and "TAP AIM TO LOAD" or "RIGHT CLICK TO LOAD");
+end;
+
+function u17.startReload(p350: number) -- Line: 1836
+    -- upvalues: u17 (copy), u14 (copy), LocalPlayer (copy), panelOpen (copy), Fust (copy), SoundService (copy), Debris (copy), u152 (ref)
+    if not (u17.loaded or u17.reloadAt) then
+        local humanoid = u14.humanoid;
+        local v351;
+
+        if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+            v351 = false;
+        else
+            v351 = LocalPlayer:GetAttribute("Dead") ~= true;
+        end;
+
+        local v352 = v351 and not panelOpen() and LocalPlayer:GetAttribute("InvLoaded") == true;
+
+        if v352 then
+            local bowDef = u14.bowDef;
+            local v353;
+
+            if bowDef and type(bowDef.ammo) == "string" then
+                v353 = bowDef.ammo;
+            else
+                v353 = nil;
+            end;
+
+            local v354;
+
+            if v353 then
+                if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+                    u14.pendingSpent = 0;
+                end;
+
+                v354 = math.max(0, (u14.counts[v353] or 0) - u14.pendingSpent);
+            else
+                v354 = 0;
+            end;
+
+            if v354 < 1 then
+                u17.hint("NO ARROWS", p350);
+
+                return;
+            end;
+
+            u17.reloadAt = p350;
+            local Sounds = Fust:FindFirstChild("Sounds");
+
+            if Sounds then
+                Sounds = Sounds:FindFirstChild("BowDraw");
+            end;
+
+            if not (Sounds and Sounds:IsA("Sound")) then
+                Sounds = nil;
+            end;
+
+            if Sounds then
+                local v355 = Sounds:Clone();
+                v355.PlaybackSpeed = v355.PlaybackSpeed * 0.75;
+                v355.Parent = SoundService;
+                v355:Play();
+                Debris:AddItem(v355, 6);
+            end;
+
+            u152();
+        end;
+    end;
+end;
+
+function u17.stepXbow(p356: number) -- Line: 1850
+    -- upvalues: u17 (copy), Fust (copy), SoundService (copy), Debris (copy)
+    if u17.loaded then
+        u17.reloadAt = nil;
+
+        return;
+    end;
+
+    if u17.reloadAt and p356 - u17.reloadAt >= u17.reloadLen() then
+        u17.loaded = true;
+        u17.reloadAt = nil;
+        local Sounds = Fust:FindFirstChild("Sounds");
+
+        if Sounds then
+            Sounds = Sounds:FindFirstChild("BowRelease");
+        end;
+
+        if not (Sounds and Sounds:IsA("Sound")) then
+            Sounds = nil;
+        end;
+
+        if not Sounds then
+            return;
+        end;
+
+        local v357 = Sounds:Clone();
+        v357.PlaybackSpeed = v357.PlaybackSpeed * 1.6;
+        v357.Parent = SoundService;
+        v357:Play();
+        Debris:AddItem(v357, 6);
+    end;
+end;
+
+local function firePressed() -- Line: 1862
+    -- upvalues: u14 (copy), u17 (copy), releaseDraw (copy), LocalPlayer (copy), panelOpen (copy), UserInputService (copy), u1 (copy), u57 (copy), u152 (ref)
+    if not u14.bowDef then
+        return;
+    end;
+
+    if u17.xbow() then
+        u17.fireXbow();
+
+        return;
+    end;
+
+    if u14.drawing then
+        releaseDraw();
+
+        return;
+    end;
+
+    if not (u14.aimMouse or (u14.aimPad or u14.aimTouch)) then
+        local humanoid = u14.humanoid;
+        local v358;
+
+        if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+            v358 = false;
+        else
+            v358 = LocalPlayer:GetAttribute("Dead") ~= true;
+        end;
+
+        local v359 = v358 and not panelOpen() and LocalPlayer:GetAttribute("InvLoaded") == true;
+
+        if v359 and not u14.aimHintShown then
+            u14.aimHintShown = true;
+            local v360 = UserInputService:GetLastInputType().Name:find("Gamepad") and "HOLD L2 TO AIM" or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled and "TAP AIM FIRST" or (u1.kb and u1.kb.aimToggle() and "RIGHT CLICK TO AIM" or "HOLD RIGHT CLICK TO AIM"));
+            local os_clock_ret = os.clock();
+
+            if os_clock_ret - u14.lastHintAt < 0.6 then
+                return;
+            end;
+
+            u14.lastHintAt = os_clock_ret;
+            u14.hintUntil = os_clock_ret + 1.3;
+            u57.hint.Text = v360;
+            u57.hint.TextTransparency = 0;
+            u57.hint.TextStrokeTransparency = 0.5;
+            u57.hint.Visible = true;
+            u152();
+        end;
+    end;
+end;
+
+local function aimChanged() -- Line: 1878
+    -- upvalues: u14 (copy), tryDraw (copy)
+    if u14.aimMouse or (u14.aimPad or u14.aimTouch) then
+        tryDraw();
+
+        return;
+    end;
+
+    if u14.drawing then
+        u14.drawing = false;
+        u14.fireQueuedAt = nil;
+        local drawSound = u14.drawSound;
+        u14.drawSound = nil;
+
+        if drawSound then
+            pcall(function() -- Line: 1588
+                -- upvalues: drawSound (copy)
+                drawSound:Stop();
+                drawSound:Destroy();
+            end);
+        end;
+    end;
+
+    u14.wantDraw = false;
+    u14.fireQueuedAt = nil;
+end;
+
+local function onFireAction(p361: string, p362: any, p363: userdata) -- Line: 1886
+    -- upvalues: firePressed (copy)
+    if p362 == Enum.UserInputState.Begin then
+        firePressed();
+    end;
+
+    return Enum.ContextActionResult.Sink;
+end;
+
+local function onAimAction(p364: string, p365: any, p366: userdata) -- Line: 1893
+    -- upvalues: u14 (copy), tryDraw (copy), u11 (ref), u10 (copy)
+    if p366 and p366.UserInputType == Enum.UserInputType.Touch then
+        if p365 == Enum.UserInputState.Begin then
+            u14.aimTouch = not u14.aimTouch;
+
+            if u14.aimMouse or (u14.aimPad or u14.aimTouch) then
+                tryDraw();
+            else
+                if u14.drawing then
+                    u14.drawing = false;
+                    u14.fireQueuedAt = nil;
+                    local drawSound = u14.drawSound;
+                    u14.drawSound = nil;
+
+                    if drawSound then
+                        pcall(function() -- Line: 1588
+                            -- upvalues: drawSound (copy)
+                            drawSound:Stop();
+                            drawSound:Destroy();
+                        end);
+                    end;
+                end;
+
+                u14.wantDraw = false;
+                u14.fireQueuedAt = nil;
+            end;
+
+            if u14.aimTouch and not (u14.drawing or u14.wantDraw) then
+                u14.aimTouch = false;
+            end;
+
+            local aimTouch = u14.aimTouch;
+
+            if u11 then
+                u11.setActive(u10.AIM_ACTION, aimTouch);
+            end;
+        end;
+    elseif p365 == Enum.UserInputState.Begin then
+        u14.aimPad = true;
+
+        if u14.aimMouse or (u14.aimPad or u14.aimTouch) then
+            tryDraw();
+        else
+            if u14.drawing then
+                u14.drawing = false;
+                u14.fireQueuedAt = nil;
+                local drawSound = u14.drawSound;
+                u14.drawSound = nil;
+
+                if drawSound then
+                    pcall(function() -- Line: 1588
+                        -- upvalues: drawSound (copy)
+                        drawSound:Stop();
+                        drawSound:Destroy();
+                    end);
+                end;
+            end;
+
+            u14.wantDraw = false;
+            u14.fireQueuedAt = nil;
+        end;
+    elseif p365 == Enum.UserInputState.End or p365 == Enum.UserInputState.Cancel then
+        u14.aimPad = false;
+
+        if u14.aimMouse or (u14.aimPad or u14.aimTouch) then
+            tryDraw();
+        else
+            if u14.drawing then
+                u14.drawing = false;
+                u14.fireQueuedAt = nil;
+                local drawSound = u14.drawSound;
+                u14.drawSound = nil;
+
+                if drawSound then
+                    pcall(function() -- Line: 1588
+                        -- upvalues: drawSound (copy)
+                        drawSound:Stop();
+                        drawSound:Destroy();
+                    end);
+                end;
+            end;
+
+            u14.wantDraw = false;
+            u14.fireQueuedAt = nil;
+        end;
+    end;
+
+    return Enum.ContextActionResult.Sink;
+end;
+
+local function setActionsBound(p367: boolean) -- Line: 1914
+    -- upvalues: u14 (copy), ContextActionService (copy), u10 (copy), onFireAction (copy), onAimAction (copy), u11 (ref)
+    if p367 == u14.actionsBound then
+        return;
+    end;
+
+    u14.actionsBound = p367;
+
+    if p367 then
+        ContextActionService:BindAction(u10.FIRE_ACTION, onFireAction, true, Enum.KeyCode.ButtonR2);
+        ContextActionService:BindAction(u10.AIM_ACTION, onAimAction, true, Enum.KeyCode.ButtonL2);
+        pcall(function() -- Line: 1922
+            -- upvalues: ContextActionService (ref), u10 (ref), u11 (ref)
+            ContextActionService:SetTitle(u10.FIRE_ACTION, "FIRE");
+            ContextActionService:SetTitle(u10.AIM_ACTION, "AIM");
+
+            if u11 then
+                u11.place(u10.FIRE_ACTION, "primary", "FIRE");
+                u11.place(u10.AIM_ACTION, "secondary", "AIM");
+
+                return;
+            end;
+
+            ContextActionService:SetPosition(u10.FIRE_ACTION, UDim2.new(0.15, 0, 0.4, 0));
+            ContextActionService:SetPosition(u10.AIM_ACTION, UDim2.new(0.5, 0, 0.1, 0));
+        end);
+
+        if u11 then
+            u11.setActive(u10.AIM_ACTION, false);
+        end;
+    else
+        ContextActionService:UnbindAction(u10.FIRE_ACTION);
+        ContextActionService:UnbindAction(u10.AIM_ACTION);
+        u14.aimPad = false;
+        u14.aimTouch = false;
+
+        if u11 then
+            u11.setActive(u10.AIM_ACTION, false);
+        end;
+    end;
+end;
+
+UserInputService.InputBegan:Connect(function(p368, p369) -- Line: 1944
+    -- upvalues: u1 (copy), firePressed (copy), u14 (copy), tryDraw (copy)
+    if not u1.lmb(p368, p369) then
+        if u1.rmb(p368, p369) then
+            if p369 then
+                return;
+            end;
+
+            local aimMouse = u14.aimMouse;
+            u14.aimMouse = u1.aim(u14.aimMouse, true);
+
+            if u14.bowDef and u14.aimMouse ~= aimMouse then
+                if u14.aimMouse or (u14.aimPad or u14.aimTouch) then
+                    tryDraw();
+
+                    return;
+                end;
+
+                if u14.drawing then
+                    u14.drawing = false;
+                    u14.fireQueuedAt = nil;
+                    local drawSound = u14.drawSound;
+                    u14.drawSound = nil;
+
+                    if drawSound then
+                        pcall(function() -- Line: 1588
+                            -- upvalues: drawSound (copy)
+                            drawSound:Stop();
+                            drawSound:Destroy();
+                        end);
+                    end;
+                end;
+
+                u14.wantDraw = false;
+                u14.fireQueuedAt = nil;
+            end;
+        end;
+
+        return;
+    end;
+
+    if p369 then
+        return;
+    end;
+
+    firePressed();
+end);
+UserInputService.InputEnded:Connect(function(p370) -- Line: 1962
+    -- upvalues: u1 (copy), u14 (copy), tryDraw (copy)
+    if u1.rmb(p370) and u14.aimMouse then
+        u14.aimMouse = u1.aim(u14.aimMouse, false);
+
+        if u14.bowDef and not u14.aimMouse then
+            if u14.aimMouse or (u14.aimPad or u14.aimTouch) then
+                tryDraw();
+
+                return;
+            end;
+
+            if u14.drawing then
+                u14.drawing = false;
+                u14.fireQueuedAt = nil;
+                local drawSound = u14.drawSound;
+                u14.drawSound = nil;
+
+                if drawSound then
+                    pcall(function() -- Line: 1588
+                        -- upvalues: drawSound (copy)
+                        drawSound:Stop();
+                        drawSound:Destroy();
+                    end);
+                end;
+            end;
+
+            u14.wantDraw = false;
+            u14.fireQueuedAt = nil;
+        end;
+    end;
+end);
+
+local function spawnNumber(p371: number, p372, p373: number) -- Line: 1975
+    -- upvalues: u57 (copy), u10 (copy), u152 (ref)
+    local v374 = u57.numbers[u57.nextNumber];
+    u57.nextNumber = u57.nextNumber % u10.MAX_NUMBERS + 1;
+    v374.born = os.clock();
+    v374.x = 20 + math.random() * 10;
+    v374.size = p373;
+    v374.active = true;
+    local label = v374.label;
+    local math_floor_ret = math.floor(p371 + 0.5);
+    local math_max_ret = math.max(0, math_floor_ret);
+    label.Text = tostring(math_max_ret);
+    v374.label.TextColor3 = p372;
+    v374.label.Position = UDim2.fromOffset(v374.x, -16);
+    v374.label.TextSize = p373 + 4;
+    v374.label.TextTransparency = 0;
+    v374.label.TextStrokeTransparency = 0.35;
+    v374.label.Visible = true;
+    u152();
+end;
+
+local function addIndicator(p375: vector) -- Line: 1992
+    -- upvalues: u57 (copy), u152 (ref)
+    local v376 = (1 / 0);
+    local v377 = nil;
+
+    for _, v in ipairs(u57.indicators) do
+        if not v.active then
+            v377 = v;
+            break;
+        end;
+
+        if v.born < v376 then
+            v376 = v.born;
+            v377 = v;
+        end;
+    end;
+
+    if not v377 then
+        return;
+    end;
+
+    v377.from = p375;
+    v377.born = os.clock();
+    v377.active = true;
+    u152();
+end;
+
+local function onCombatFX(p378) -- Line: 2014
+    -- upvalues: PlayerGui (copy), u14 (copy), Fust (copy), SoundService (copy), Debris (copy), LocalPlayer (copy), spawnNumber (copy), u13 (copy), u152 (ref), addIndicator (copy), shake (copy)
+    if type(p378) ~= "table" then
+        return;
+    end;
+
+    local damage = p378.damage;
+    local v379;
+
+    if type(damage) == "number" and (damage == damage and damage > (-1 / 0)) then
+        v379 = damage < (1 / 0);
+    else
+        v379 = false;
+    end;
+
+    local v380 = not v379 and 0 or p378.damage;
+
+    if p378.kind ~= "hit" then
+        if p378.kind == "hurt" then
+            if LocalPlayer:GetAttribute("OptDmgFx") ~= false then
+                local math_max_ret = math.max(u14.hurtAlpha, 0.28 + v380 / 70);
+                u14.hurtAlpha = math.min(0.8, math_max_ret);
+                u14.hurtHoldUntil = os.clock() + 0.08;
+            end;
+
+            local from = p378.from;
+            local v381;
+
+            if typeof(from) == "Vector3" then
+                local X = from.X;
+
+                if type(X) == "number" and (X == X and X > (-1 / 0)) then
+                    v381 = X < (1 / 0);
+                else
+                    v381 = false;
+                end;
+
+                if v381 then
+                    local Y = from.Y;
+
+                    if type(Y) == "number" and (Y == Y and Y > (-1 / 0)) then
+                        v381 = Y < (1 / 0);
+                    else
+                        v381 = false;
+                    end;
+
+                    if v381 then
+                        local Z = from.Z;
+
+                        if type(Z) == "number" and (Z == Z and Z > (-1 / 0)) then
+                            v381 = Z < (1 / 0);
+                        else
+                            v381 = false;
+                        end;
+                    end;
+                end;
+            else
+                v381 = false;
+            end;
+
+            if v381 and not PlayerGui:FindFirstChild("FustDamageDir") then
+                addIndicator(p378.from);
+            end;
+
+            local Attribute = LocalPlayer:GetAttribute("OptCamShake");
+            local v382 = (type(Attribute) ~= "number" or Attribute ~= Attribute) and 0.5 or math.clamp(Attribute, 0, 1);
+
+            if v382 > 0 then
+                shake(math.min(0.05, 0.012 + v380 * 0.0007) * v382, p378.region == "head" and 0.28 or 0.2);
+            end;
+
+            u152();
+        end;
+
+        return;
+    end;
+
+    if PlayerGui:FindFirstChild("FustHitFX") then
+        return;
+    end;
+
+    local v383 = p378.kill == true;
+    local v384 = p378.region == "head";
+    u14.hitBorn = os.clock();
+    u14.hitKind = v383 and "kill" or (v384 and "head" or "body");
+    u14.hitHead = v384;
+
+    if v384 then
+        local Sounds = Fust:FindFirstChild("Sounds");
+
+        if Sounds then
+            Sounds = Sounds:FindFirstChild("HeadshotMarker");
+        end;
+
+        if not (Sounds and Sounds:IsA("Sound")) then
+            Sounds = nil;
+        end;
+
+        local v385;
+
+        if Sounds then
+            v385 = Sounds:Clone();
+            v385.Parent = SoundService;
+            v385:Play();
+            Debris:AddItem(v385, 6);
+        else
+            v385 = nil;
+        end;
+
+        if not v385 then
+            local Sounds2 = Fust:FindFirstChild("Sounds");
+
+            if Sounds2 then
+                Sounds2 = Sounds2:FindFirstChild("Hitmarker");
+            end;
+
+            if not (Sounds2 and Sounds2:IsA("Sound")) then
+                Sounds2 = nil;
+            end;
+
+            if Sounds2 then
+                local v386 = Sounds2:Clone();
+                v386.PlaybackSpeed = v386.PlaybackSpeed * 1.12;
+                v386.Parent = SoundService;
+                v386:Play();
+                Debris:AddItem(v386, 6);
+            end;
+        end;
+    end;
+
+    if v383 then
+        local Sounds = Fust:FindFirstChild("Sounds");
+
+        if Sounds then
+            Sounds = Sounds:FindFirstChild("KillMarker");
+        end;
+
+        if not (Sounds and Sounds:IsA("Sound")) then
+            Sounds = nil;
+        end;
+
+        local v387;
+
+        if Sounds then
+            v387 = Sounds:Clone();
+            v387.Parent = SoundService;
+            v387:Play();
+            Debris:AddItem(v387, 6);
+        else
+            v387 = nil;
+        end;
+
+        if not v387 then
+            local Sounds2 = Fust:FindFirstChild("Sounds");
+
+            if Sounds2 then
+                Sounds2 = Sounds2:FindFirstChild("Hitmarker");
+            end;
+
+            if not (Sounds2 and Sounds2:IsA("Sound")) then
+                Sounds2 = nil;
+            end;
+
+            if Sounds2 then
+                local v388 = Sounds2:Clone();
+                v388.PlaybackSpeed = v388.PlaybackSpeed * 0.8;
+                v388.Parent = SoundService;
+                v388:Play();
+                Debris:AddItem(v388, 6);
+            end;
+        end;
+    elseif not v384 then
+        local Sounds = Fust:FindFirstChild("Sounds");
+
+        if Sounds then
+            Sounds = Sounds:FindFirstChild("Hitmarker");
+        end;
+
+        if not (Sounds and Sounds:IsA("Sound")) then
+            Sounds = nil;
+        end;
+
+        if Sounds then
+            local v389 = Sounds:Clone();
+            v389.Parent = SoundService;
+            v389:Play();
+            Debris:AddItem(v389, 6);
+        end;
+    end;
+
+    if LocalPlayer:GetAttribute("DamageNumbers") == true then
+        local v390;
+
+        if v383 then
+            v390 = u13.kill;
+        elseif v384 then
+            v390 = u13.head;
+        else
+            v390 = u13.text;
+        end;
+
+        spawnNumber(v380, v390, (v384 or v383) and 19 or 16);
+    end;
+
+    u152();
+end;
+
+local function onArrowFX(p391) -- Line: 2067
+    -- upvalues: LocalPlayer (copy), u120 (copy), u119 (copy), u10 (copy), Players (copy), spawnArrow (copy)
+    if type(p391) ~= "table" or type(p391.id) ~= "number" and type(p391.id) ~= "string" then
+        return;
+    end;
+
+    if p391.kind ~= nil and p391.kind ~= "arrow" then
+        return;
+    end;
+
+    if p391.shooter == LocalPlayer.UserId then
+        local v392;
+
+        if type(p391.shotId) == "number" then
+            v392 = u120[p391.shotId];
+        else
+            v392 = nil;
+        end;
+
+        if v392 then
+            v392.serverId = p391.id;
+            u119[p391.id] = v392;
+        end;
+
+        return;
+    end;
+
+    local origin = p391.origin;
+    local v393;
+
+    if typeof(origin) == "Vector3" then
+        local X = origin.X;
+
+        if type(X) == "number" and (X == X and X > (-1 / 0)) then
+            v393 = X < (1 / 0);
+        else
+            v393 = false;
+        end;
+
+        if v393 then
+            local Y = origin.Y;
+
+            if type(Y) == "number" and (Y == Y and Y > (-1 / 0)) then
+                v393 = Y < (1 / 0);
+            else
+                v393 = false;
+            end;
+
+            if v393 then
+                local Z = origin.Z;
+
+                if type(Z) == "number" and (Z == Z and Z > (-1 / 0)) then
+                    v393 = Z < (1 / 0);
+                else
+                    v393 = false;
+                end;
+            end;
+        end;
+    else
+        v393 = false;
+    end;
+
+    if v393 then
+        local velocity = p391.velocity;
+        local v394;
+
+        if typeof(velocity) == "Vector3" then
+            local X = velocity.X;
+
+            if type(X) == "number" and (X == X and X > (-1 / 0)) then
+                v394 = X < (1 / 0);
+            else
+                v394 = false;
+            end;
+
+            if v394 then
+                local Y = velocity.Y;
+
+                if type(Y) == "number" and (Y == Y and Y > (-1 / 0)) then
+                    v394 = Y < (1 / 0);
+                else
+                    v394 = false;
+                end;
+
+                if v394 then
+                    local Z = velocity.Z;
+
+                    if type(Z) == "number" and (Z == Z and Z > (-1 / 0)) then
+                        v394 = Z < (1 / 0);
+                    else
+                        v394 = false;
+                    end;
+                end;
+            end;
+        else
+            v394 = false;
+        end;
+
+        if v394 then
+            local workspace_CurrentCamera3 = workspace.CurrentCamera;
+
+            if workspace_CurrentCamera3 and (p391.origin - workspace_CurrentCamera3.CFrame.Position).Magnitude > u10.FX_RANGE then
+                return;
+            end;
+
+            local Vector3_new_ret = Vector3.new(0, -u10.GRAVITY, 0);
+            local gravity = p391.gravity;
+            local v395;
+
+            if type(gravity) == "number" and (gravity == gravity and gravity > (-1 / 0)) then
+                v395 = gravity < (1 / 0);
+            else
+                v395 = false;
+            end;
+
+            if v395 then
+                local v396 = -math.abs(p391.gravity);
+                Vector3_new_ret = Vector3.new(0, v396, 0);
+            else
+                local gravity2 = p391.gravity;
+                local v397;
+
+                if typeof(gravity2) == "Vector3" then
+                    local X = gravity2.X;
+
+                    if type(X) == "number" and (X == X and X > (-1 / 0)) then
+                        v397 = X < (1 / 0);
+                    else
+                        v397 = false;
+                    end;
+
+                    if v397 then
+                        local Y = gravity2.Y;
+
+                        if type(Y) == "number" and (Y == Y and Y > (-1 / 0)) then
+                            v397 = Y < (1 / 0);
+                        else
+                            v397 = false;
+                        end;
+
+                        if v397 then
+                            local Z = gravity2.Z;
+
+                            if type(Z) == "number" and (Z == Z and Z > (-1 / 0)) then
+                                v397 = Z < (1 / 0);
+                            else
+                                v397 = false;
+                            end;
+                        end;
+                    end;
+                else
+                    v397 = false;
+                end;
+
+                if v397 then
+                    Vector3_new_ret = p391.gravity;
+                end;
+            end;
+
+            local v398;
+
+            if type(p391.shooter) == "number" then
+                v398 = Players:GetPlayerByUserId(p391.shooter);
+            else
+                v398 = nil;
+            end;
+
+            if v398 then
+                v398 = v398.Character;
+            end;
+
+            if p391.shooter == 0 then
+                v398 = workspace:FindFirstChild("Npcs");
+            end;
+
+            local v399 = spawnArrow(p391.origin, p391.velocity, Vector3_new_ret, false, { v398 });
+
+            if v399 then
+                v399.serverId = p391.id;
+                u119[p391.id] = v399;
+            end;
+        end;
+    end;
+end;
+
+local OverlapParams_new_ret = OverlapParams.new();
+OverlapParams_new_ret.FilterType = Enum.RaycastFilterType.Exclude;
+OverlapParams_new_ret.FilterDescendantsInstances = { Folder };
+OverlapParams_new_ret.MaxParts = 16;
+
+local function bodyNear(u400: vector) -- Line: 2113
+    -- upvalues: OverlapParams_new_ret (copy), bodyOf (copy)
+    local success2, result2 = pcall(function() -- Line: 2114
+        -- upvalues: u400 (copy), OverlapParams_new_ret (ref)
+        return workspace:GetPartBoundsInRadius(u400, 1.5, OverlapParams_new_ret);
+    end);
+
+    if success2 and type(result2) == "table" then
+        for _, v in ipairs(result2) do
+            if bodyOf(v) then
+                return true;
+            end;
+        end;
+    end;
+
+    return false;
+end;
+
+local function onArrowHit(p401) -- Line: 2127
+    -- upvalues: u119 (copy), u10 (copy), bodyNear (copy), play3D (copy), stopArrow (copy), u152 (ref)
+    if type(p401) == "table" then
+        local pos = p401.pos;
+        local v402;
+
+        if typeof(pos) == "Vector3" then
+            local X = pos.X;
+
+            if type(X) == "number" and (X == X and X > (-1 / 0)) then
+                v402 = X < (1 / 0);
+            else
+                v402 = false;
+            end;
+
+            if v402 then
+                local Y = pos.Y;
+
+                if type(Y) == "number" and (Y == Y and Y > (-1 / 0)) then
+                    v402 = Y < (1 / 0);
+                else
+                    v402 = false;
+                end;
+
+                if v402 then
+                    local Z = pos.Z;
+
+                    if type(Z) == "number" and (Z == Z and Z > (-1 / 0)) then
+                        v402 = Z < (1 / 0);
+                    else
+                        v402 = false;
+                    end;
+                end;
+            end;
+        else
+            v402 = false;
+        end;
+
+        if v402 then
+            if p401.kind ~= nil and p401.kind ~= "arrow" then
+                return;
+            end;
+
+            local pos2 = p401.pos;
+            local v403 = p401.stuck == true;
+            local v404;
+
+            if p401.id == nil then
+                v404 = nil;
+            else
+                v404 = u119[p401.id];
+            end;
+
+            local workspace_CurrentCamera3 = workspace.CurrentCamera;
+
+            if workspace_CurrentCamera3 and (pos2 - workspace_CurrentCamera3.CFrame.Position).Magnitude <= u10.IMPACT_SOUND_RANGE then
+                if type(p401.hitPlayer) == "number" or not v403 and (v404 ~= nil and v404.hitBody or bodyNear(pos2)) then
+                    play3D("ArrowHitFlesh", pos2);
+                elseif v403 or p401.broke == true then
+                    play3D("ArrowHitHard", pos2);
+                end;
+            end;
+
+            if not v404 then
+                return;
+            end;
+
+            local os_clock_ret = os.clock();
+
+            if v404.own then
+                if v403 then
+                    if v404.state == "fly" or (v404.stopPos == nil or (v404.stopPos - pos2).Magnitude > 1.5) then
+                        stopArrow(v404, pos2, v404.vel + v404.g * math.min(os_clock_ret - v404.t0, u10.LIFE), u10.OWN_STUCK_TIME);
+                    end;
+                else
+                    v404.endAt = math.min(v404.endAt, os_clock_ret + u10.BODY_HIDE);
+
+                    if v404.state == "fly" then
+                        stopArrow(v404, pos2, v404.vel + v404.g * (os_clock_ret - v404.t0), u10.BODY_HIDE);
+                    end;
+                end;
+            elseif v404.state == "fly" then
+                stopArrow(v404, pos2, v404.vel + v404.g * math.min(os_clock_ret - v404.t0, u10.LIFE), not v403 and 0 or u10.OTHER_STUCK_TIME);
+            else
+                v404.endAt = os_clock_ret + (not v403 and 0 or u10.OTHER_STUCK_TIME);
+            end;
+
+            u152();
+        end;
+    end;
+end;
+
+local function clearBow() -- Line: 2173
+    -- upvalues: u1 (copy), u14 (copy), u186 (copy), RunService (copy), u185 (copy), u187 (copy), resetPose (copy), u17 (copy), ContextActionService (copy), u10 (copy), u11 (ref)
+    if u1.kb and u1.kb.aimToggle() then
+        u14.aimMouse = false;
+    end;
+
+    if u14.drawing then
+        u14.drawing = false;
+        u14.fireQueuedAt = nil;
+        local drawSound = u14.drawSound;
+        u14.drawSound = nil;
+
+        if drawSound then
+            pcall(function() -- Line: 1588
+                -- upvalues: drawSound (copy)
+                drawSound:Stop();
+                drawSound:Destroy();
+            end);
+        end;
+    end;
+
+    u14.wantDraw = false;
+    u14.fireQueuedAt = nil;
+
+    if u186.shown then
+        u186.shown = false;
+        RunService:UnbindFromRenderStep(u185.STEP);
+
+        for _, v in ipairs(u186.hidden) do
+            if v.Parent then
+                v.LocalTransparencyModifier = 0;
+            end;
+        end;
+
+        table.clear(u186.hidden);
+
+        if u186.model then
+            u186.model.Parent = nil;
+        end;
+
+        if u187.model then
+            u187.model.Parent = nil;
+        end;
+
+        if u187.upper then
+            u187.upper.Parent = nil;
+        end;
+
+        if u187.lower then
+            u187.lower.Parent = nil;
+        end;
+    end;
+
+    if u186.model then
+        u186.model:Destroy();
+        u186.model = nil;
+    end;
+
+    u186.tool = nil;
+    resetPose();
+    u14.bowTool = nil;
+    u14.bowDef = nil;
+    u14.wristFix = nil;
+    u14.aim = 0;
+    u14.drawVis = 0;
+    u186.aimV = 0;
+    u17.reloadAt = nil;
+
+    if u14.actionsBound == false then
+        return;
+    end;
+
+    u14.actionsBound = false;
+    ContextActionService:UnbindAction(u10.FIRE_ACTION);
+    ContextActionService:UnbindAction(u10.AIM_ACTION);
+    u14.aimPad = false;
+    u14.aimTouch = false;
+
+    if u11 then
+        u11.setActive(u10.AIM_ACTION, false);
+    end;
+end;
+
+local function refreshBow() -- Line: 2186
+    -- upvalues: u14 (copy), Items (copy), clearBow (copy), findJoints (copy), setActionsBound (copy), u152 (ref)
+    local v405 = nil;
+    local v406 = nil;
+    local character = u14.character;
+
+    if character then
+        for _, child in ipairs(character:GetChildren()) do
+            if child:IsA("Tool") then
+                local Attribute = child:GetAttribute("ItemId");
+                local v407;
+
+                if type(Attribute) == "string" then
+                    v407 = Items.Get(Attribute);
+                else
+                    v407 = nil;
+                end;
+
+                if v407 then
+                    if v407.weapon == "bow" then
+                        v406 = v407;
+                        v405 = child;
+                    end;
+                end;
+
+                if v407 then
+                    break;
+                end;
+            end;
+        end;
+    end;
+
+    if v405 == u14.bowTool then
+        u14.bowDef = v406;
+
+        return;
+    end;
+
+    clearBow();
+
+    if v405 and character then
+        u14.bowTool = v405;
+        u14.bowDef = v406;
+        u14.joints = findJoints(character);
+        u14.wristFix = nil;
+        u14.lastAmmoText = "";
+        u14.aimHintShown = false;
+        setActionsBound(true);
+
+        if u152 then
+            u152();
+        end;
+    end;
+end;
+
+local function unwatchTools() -- Line: 2222
+    -- upvalues: u14 (copy)
+    for _, v in pairs(u14.toolConns) do
+        v:Disconnect();
+    end;
+
+    table.clear(u14.toolConns);
+end;
+
+local function watchTool(p408: userdata) -- Line: 2229
+    -- upvalues: u14 (copy), refreshBow (copy)
+    if not u14.toolConns[p408] then
+        u14.toolConns[p408] = p408:GetAttributeChangedSignal("ItemId"):Connect(refreshBow);
+    end;
+end;
+
+local function onCharacter(p409: userdata) -- Line: 2235
+    -- upvalues: u14 (copy), clearBow (copy), u16 (copy), refreshBow (copy)
+    for _, v in ipairs(u14.charConns) do
+        v:Disconnect();
+    end;
+
+    table.clear(u14.charConns);
+
+    for _, v in pairs(u14.toolConns) do
+        v:Disconnect();
+    end;
+
+    table.clear(u14.toolConns);
+    clearBow();
+    u14.character = p409;
+    u14.humanoid = nil;
+    u14.joints = nil;
+    local Humanoid = p409:WaitForChild("Humanoid", 10);
+
+    if u14.character ~= p409 then
+        return;
+    end;
+
+    u14.humanoid = Humanoid;
+
+    if u16.gc and Humanoid then
+        pcall(u16.gc.AirFor, Humanoid);
+    end;
+
+    table.insert(u14.charConns, p409.ChildAdded:Connect(function(p410) -- Line: 2253
+        -- upvalues: u14 (ref), refreshBow (ref)
+        if p410:IsA("Tool") then
+            if not u14.toolConns[p410] then
+                u14.toolConns[p410] = p410:GetAttributeChangedSignal("ItemId"):Connect(refreshBow);
+            end;
+
+            refreshBow();
+        end;
+    end));
+    table.insert(u14.charConns, p409.ChildRemoved:Connect(function(p411) -- Line: 2259
+        -- upvalues: u14 (ref), refreshBow (ref)
+        if p411:IsA("Tool") then
+            local v412 = u14.toolConns[p411];
+
+            if v412 then
+                v412:Disconnect();
+                u14.toolConns[p411] = nil;
+            end;
+
+            refreshBow();
+        end;
+    end));
+
+    if Humanoid then
+        table.insert(u14.charConns, Humanoid.Died:Connect(clearBow));
+    end;
+
+    for _, child in ipairs(p409:GetChildren()) do
+        if child:IsA("Tool") and not u14.toolConns[child] then
+            u14.toolConns[child] = child:GetAttributeChangedSignal("ItemId"):Connect(refreshBow);
+        end;
+    end;
+
+    refreshBow();
+end;
+
+LocalPlayer.CharacterAdded:Connect(onCharacter);
+LocalPlayer.CharacterRemoving:Connect(function() -- Line: 2281
+    -- upvalues: u14 (copy), clearBow (copy), u17 (copy)
+    for _, v in ipairs(u14.charConns) do
+        v:Disconnect();
+    end;
+
+    table.clear(u14.charConns);
+
+    for _, v in pairs(u14.toolConns) do
+        v:Disconnect();
+    end;
+
+    table.clear(u14.toolConns);
+    clearBow();
+    u17.loaded = false;
+    u17.reloadAt = nil;
+    u14.character = nil;
+    u14.humanoid = nil;
+    u14.joints = nil;
+end);
+
+if LocalPlayer.Character then
+    task.defer(onCharacter, LocalPlayer.Character);
+end;
+
+local function updateRing(p413: boolean) -- Line: 2297
+    -- upvalues: u57 (copy), u14 (copy), u10 (copy), u17 (copy), u13 (copy)
+    if not p413 then
+        if u57.ring.Visible then
+            u57.ring.Visible = false;
+        end;
+
+        return;
+    end;
+
+    local RING_R_OPEN = u10.RING_R_OPEN;
+    local v414 = RING_R_OPEN + (u10.RING_R_FULL - RING_R_OPEN) * u14.drawVis;
+    u57.ring.Size = UDim2.fromOffset(v414 * 2, v414 * 2);
+    u57.ring.Visible = true;
+    local v415 = u17.xbow();
+    local v416;
+
+    if v415 then
+        v416 = u17.progress(os.clock());
+    elseif u14.drawing then
+        local v417 = (os.clock() - u14.drawStart) / u17.drawTime();
+        v416 = math.clamp(v417, 0, 1);
+    else
+        v416 = 0;
+    end;
+
+    local math_floor_ret = math.floor(v416 * u10.RING_DOTS + 0.5);
+    local v418;
+
+    if u14.drawing or v415 then
+        v418 = u10.RING_DOTS <= math_floor_ret;
+    else
+        v418 = v415;
+    end;
+
+    local v419;
+
+    if v415 then
+        v419 = nil;
+    else
+        v419 = u17.bd();
+    end;
+
+    local v420;
+
+    if v419 == nil then
+        v420 = false;
+    else
+        v420 = u14.drawing and v416 < v419.minFrac;
+    end;
+
+    if math_floor_ret ~= u14.ringLit or (v418 ~= u14.ringFull or v420 ~= u14.ringEarly379) then
+        u14.ringLit = math_floor_ret;
+        u14.ringFull = v418;
+        u14.ringEarly379 = v420;
+        local v421 = (not v419 or v418) and 0.08 or 0.6 - math.clamp(math_floor_ret / u10.RING_DOTS, 0, 1) * 0.45;
+
+        for i, v in ipairs(u57.dots) do
+            if i <= math_floor_ret and v420 then
+                v.BackgroundColor3 = u13.text;
+                v.BackgroundTransparency = 0.7;
+            elseif i <= math_floor_ret then
+                local v422;
+
+                if v418 then
+                    v422 = u13.rust;
+                else
+                    v422 = u13.white;
+                end;
+
+                v.BackgroundColor3 = v422;
+                v.BackgroundTransparency = v418 and 0 or v421;
+            else
+                v.BackgroundColor3 = u13.black;
+                v.BackgroundTransparency = 0.55;
+            end;
+        end;
+    end;
+
+    if v418 and not v415 then
+        local v423 = 1 - (os.clock() - u14.drawStart - u17.drawTime()) / 0.18;
+        local v424 = math.max(0, v423) * 0.12 + 1;
+        u57.ring.Size = UDim2.fromOffset(v414 * 2 * v424, v414 * 2 * v424);
+    end;
+end;
+
+function u57.ammoHud() -- Line: 2341
+    -- upvalues: u57 (copy), Fust (copy)
+    if u57.AH == nil or u57.AH == false and os.clock() - (u57.ahAt or 0) > 5 then
+        u57.AH = false;
+        u57.ahAt = os.clock();
+        local AmmoHud = Fust:FindFirstChild("AmmoHud");
+        local success2, result2 = pcall(function() -- Line: 2346
+            -- upvalues: AmmoHud (copy)
+            if AmmoHud and AmmoHud:IsA("ModuleScript") then
+                return require(AmmoHud);
+            end;
+
+            return nil;
+        end);
+
+        if success2 and (type(result2) == "table" and type(result2.set) == "function") then
+            u57.AH = result2;
+        end;
+    end;
+
+    return u57.AH or nil;
+end;
+
+local function updateAmmo(p425: boolean) -- Line: 2356
+    -- upvalues: u57 (copy), u14 (copy), Items (copy), u17 (copy), u13 (copy)
+    local v426 = u57.ammoHud();
+
+    if not v426 then
+        if not p425 then
+            if u57.ammo.Visible then
+                u57.ammo.Visible = false;
+            end;
+
+            return;
+        end;
+
+        local bowDef = u14.bowDef;
+        local v427;
+
+        if bowDef and type(bowDef.ammo) == "string" then
+            v427 = bowDef.ammo;
+        else
+            v427 = nil;
+        end;
+
+        local v428;
+
+        if v427 then
+            if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+                u14.pendingSpent = 0;
+            end;
+
+            v428 = math.max(0, (u14.counts[v427] or 0) - u14.pendingSpent);
+        else
+            v428 = 0;
+        end;
+
+        local string_format_ret = string.format("%d ▸", v428);
+
+        if string_format_ret ~= u14.lastAmmoText then
+            u14.lastAmmoText = string_format_ret;
+            u57.ammo.Text = string_format_ret;
+            local v429;
+
+            if v428 > 0 then
+                v429 = u13.text;
+            else
+                v429 = u13.rustLight;
+            end;
+
+            u57.ammo.TextColor3 = v429;
+        end;
+
+        u57.ammo.Visible = true;
+
+        return;
+    end;
+
+    if u57.ammo.Visible then
+        u57.ammo.Visible = false;
+    end;
+
+    if not p425 then
+        v426.hide("bow");
+
+        return;
+    end;
+
+    local bowDef = u14.bowDef;
+    local bowDef2 = u14.bowDef;
+    local v430;
+
+    if bowDef2 and type(bowDef2.ammo) == "string" then
+        v430 = bowDef2.ammo;
+    else
+        v430 = nil;
+    end;
+
+    local v431;
+
+    if v430 then
+        v431 = Items.Get(v430);
+    else
+        v431 = nil;
+    end;
+
+    local bowDef3 = u14.bowDef;
+    local v432;
+
+    if bowDef3 and type(bowDef3.ammo) == "string" then
+        v432 = bowDef3.ammo;
+    else
+        v432 = nil;
+    end;
+
+    local v433;
+
+    if v432 then
+        if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+            u14.pendingSpent = 0;
+        end;
+
+        v433 = math.max(0, (u14.counts[v432] or 0) - u14.pendingSpent);
+    else
+        v433 = 0;
+    end;
+
+    if not u17.xbow() then
+        if bowDef then
+            bowDef = bowDef.name;
+        end;
+
+        v426.set("bow", bowDef, (not v431 or type(v431.name) ~= "string") and "" or v431.name, v433, nil, nil, v433 <= 3, v433 <= 0 and "NO ARROWS" or nil);
+
+        return;
+    end;
+
+    local v434 = u17.loaded and v433 >= 1 and 1 or 0;
+    local v435;
+
+    if v433 <= 0 then
+        v435 = "NO ARROWS";
+    elseif u17.reloadAt then
+        v435 = "LOADING";
+    elseif u17.loaded then
+        v435 = nil;
+    else
+        v435 = u17.loadHintText();
+    end;
+
+    if bowDef then
+        bowDef = bowDef.name;
+    end;
+
+    v426.set("bow", bowDef, (not v431 or type(v431.name) ~= "string") and "" or v431.name, v434, v433 - v434, 1, v433 <= 3, v435);
+end;
+
+local function updateHitmarker(p436: number) -- Line: 2396
+    -- upvalues: u14 (copy), u10 (copy), u57 (copy), u13 (copy)
+    local v437 = p436 - u14.hitBorn;
+    local hitKind = u14.hitKind;
+    local v438;
+
+    if hitKind == "kill" then
+        v438 = u10.KILL_TIME;
+    else
+        v438 = u10.HIT_TIME;
+    end;
+
+    if v438 < v437 or v437 < 0 then
+        if u57.hit.Visible then
+            u57.hit.Visible = false;
+        end;
+
+        return false;
+    end;
+
+    local v439 = hitKind == "body" and 6 or (hitKind == "head" and 8 or 7);
+    local v440 = hitKind == "body" and 7 or (hitKind == "head" and 11 or 12);
+    local v441 = hitKind == "body" and 2 or 3;
+    local v442;
+
+    if hitKind == "kill" then
+        v442 = u13.kill;
+    elseif hitKind == "head" then
+        v442 = u13.head;
+    else
+        v442 = u13.white;
+    end;
+
+    local v443 = (hitKind == "body" and 0.35 or 0.55) * math.max(0, 1 - v437 / 0.07) + 1;
+    local v444 = hitKind == "kill" and 0.3 or 0.12;
+    local v445 = v437 < v444 and 0 or (v437 - v444) / (v438 - v444);
+
+    for _, v in ipairs(u57.ticks) do
+        local frame = v.frame;
+        local v446 = (v439 + v440 / 2) * v443;
+        frame.Position = UDim2.fromOffset(math.cos(v.angle) * v446, math.sin(v.angle) * v446);
+        frame.Size = UDim2.fromOffset(v440 * v443, v441);
+        frame.BackgroundColor3 = v442;
+        frame.BackgroundTransparency = v445;
+        v.stroke.Transparency = 0.55 + 0.45 * v445;
+    end;
+
+    local v447 = hitKind == "kill";
+    local v448 = math.min(1, v437 / 0.18) * 0.6 + 1;
+
+    for _, v in ipairs(u57.killTicks) do
+        local frame = v.frame;
+
+        if v447 then
+            local v449 = (v439 + v440 + 4 + 3) * v448;
+            frame.Position = UDim2.fromOffset(math.cos(v.angle) * v449, math.sin(v.angle) * v449);
+            frame.Size = UDim2.fromOffset(6, 2);
+            local v450;
+
+            if u14.hitHead then
+                v450 = u13.head;
+            else
+                v450 = u13.kill;
+            end;
+
+            frame.BackgroundColor3 = v450;
+            frame.BackgroundTransparency = v445;
+            v.stroke.Transparency = 0.55 + 0.45 * v445;
+        end;
+
+        if frame.Visible ~= v447 then
+            frame.Visible = v447;
+        end;
+    end;
+
+    u57.hit.Visible = true;
+
+    return true;
+end;
+
+local function updateNumbers(p451: number) -- Line: 2444
+    -- upvalues: u57 (copy), u10 (copy)
+    local v452 = false;
+
+    for _, v in ipairs(u57.numbers) do
+        if v.active then
+            local v453 = p451 - v.born;
+
+            if u10.NUMBER_TIME <= v453 then
+                v.active = false;
+                v.label.Visible = false;
+            else
+                local v454 = v453 / u10.NUMBER_TIME;
+                local v455 = v453 < 0.45 and 0 or (v453 - 0.45) / (u10.NUMBER_TIME - 0.45);
+                v.label.Position = UDim2.fromOffset(v.x, -16 - 30 * (1 - (1 - v454) * (1 - v454)));
+                v.label.TextSize = v.size + math.max(0, 1 - v453 / 0.08) * 4;
+                v.label.TextTransparency = v455;
+                v.label.TextStrokeTransparency = 0.35 + 0.65 * v455;
+                v452 = true;
+            end;
+        end;
+    end;
+
+    return v452;
+end;
+
+local function updateIndicators(p456: number, p457: userdata) -- Line: 2467
+    -- upvalues: u57 (copy), u10 (copy), u96 (copy)
+    local CFrame2 = p457.CFrame;
+    local v458 = false;
+
+    for _, v in ipairs(u57.indicators) do
+        if v.active then
+            local v459 = p456 - v.born;
+            local v460 = CFrame2:VectorToObjectSpace(v.from - CFrame2.Position);
+            local Vector2_new_ret = Vector2.new(v460.X, -v460.Z);
+
+            if u10.INDICATOR_TIME <= v459 or Vector2_new_ret.Magnitude < 0.3 then
+                v.active = false;
+
+                for _, v2 in ipairs(v.segs) do
+                    v2.Visible = false;
+                end;
+            else
+                local math_atan2_ret = math.atan2(Vector2_new_ret.X, Vector2_new_ret.Y);
+                local v461 = v459 / u10.INDICATOR_TIME;
+                local v462 = 0.05 + 0.95 * v461 * v461;
+                v458 = true;
+
+                for i, v2 in ipairs(v.segs) do
+                    local v463 = math_atan2_ret + u96[i];
+                    v2.Position = UDim2.fromOffset(math.sin(v463) * u10.INDICATOR_R, -math.cos(v463) * u10.INDICATOR_R);
+                    v2.Rotation = math.deg(v463);
+                    v2.BackgroundTransparency = v462;
+                    v2.Visible = true;
+                end;
+            end;
+        end;
+    end;
+
+    return v458;
+end;
+
+local function updateHurt(p464: number, p465: number) -- Line: 2498
+    -- upvalues: u14 (copy), u57 (copy)
+    if u14.hurtAlpha <= 0 then
+        if u57.hurt.Visible then
+            u57.hurt.Visible = false;
+        end;
+
+        return false;
+    end;
+
+    if u14.hurtHoldUntil <= p464 then
+        u14.hurtAlpha = math.max(0, u14.hurtAlpha - p465 * 1.6);
+    end;
+
+    local v466 = 1 - u14.hurtAlpha;
+
+    for _, v in ipairs(u57.hurtEdges) do
+        v.BackgroundTransparency = v466;
+    end;
+
+    u57.hurt.Visible = u14.hurtAlpha > 0;
+
+    return u14.hurtAlpha > 0;
+end;
+
+local function updateHint(p467: number) -- Line: 2516
+    -- upvalues: u57 (copy), u14 (copy)
+    if not u57.hint.Visible then
+        return false;
+    end;
+
+    local v468 = u14.hintUntil - p467;
+
+    if v468 <= 0 then
+        u57.hint.Visible = false;
+
+        return false;
+    end;
+
+    local v469 = v468 > 0.3 and 0 or 1 - v468 / 0.3;
+    u57.hint.TextTransparency = v469;
+    u57.hint.TextStrokeTransparency = 0.5 + 0.5 * v469;
+
+    return true;
+end;
+
+local function optFov() -- Line: 2533
+    -- upvalues: LocalPlayer (copy)
+    local Attribute = LocalPlayer:GetAttribute("OptFov");
+
+    if type(Attribute) == "number" and (Attribute >= 40 and Attribute <= 120) then
+        return Attribute;
+    end;
+
+    return nil;
+end;
+
+local function zoomFov(p470: number, p471: number) -- Line: 2538
+    if math.abs(p470 - 70) < 1e-6 then
+        return p471;
+    end;
+
+    local v472 = math.rad(p471) / 2;
+    local v473 = math.tan(v472) / 0.7002075382097097;
+    local math_clamp_ret = math.clamp(p470, 1, 120);
+    local v474 = math.rad(math_clamp_ret) / 2;
+    local v475 = math.tan(v474) * v473;
+    local v476 = math.atan(v475) * 2;
+    local math_deg_ret = math.deg(v476);
+
+    return math.min(p470, math_deg_ret);
+end;
+
+local function updateFov(p477: userdata) -- Line: 2547
+    -- upvalues: u14 (copy), LocalPlayer (copy), u10 (copy)
+    local math_max_ret = math.max(u14.drawVis, u14.aim * 0.5);
+
+    if u14.fovBase == nil then
+        if math_max_ret <= 0 then
+            return false;
+        end;
+
+        local Attribute = LocalPlayer:GetAttribute("OptFov");
+
+        if type(Attribute) ~= "number" or (Attribute < 40 or Attribute > 120) then
+            Attribute = nil;
+        end;
+
+        u14.fovBase = Attribute or p477.FieldOfView;
+    end;
+
+    local fovBase = u14.fovBase;
+    local Attribute = LocalPlayer:GetAttribute("OptFov");
+
+    if type(Attribute) ~= "number" or (Attribute < 40 or Attribute > 120) then
+        Attribute = nil;
+    end;
+
+    if Attribute then
+        u14.fovBase = Attribute;
+    elseif u14.fovApplied and math.abs(p477.FieldOfView - u14.fovApplied) > 0.01 then
+        Attribute = p477.FieldOfView;
+        u14.fovBase = Attribute;
+    else
+        Attribute = fovBase;
+    end;
+
+    local FOV_DRAWN = u10.FOV_DRAWN;
+
+    if math.abs(Attribute - 70) >= 1e-6 then
+        local v478 = math.rad(FOV_DRAWN) / 2;
+        local v479 = math.tan(v478) / 0.7002075382097097;
+        local math_clamp_ret = math.clamp(Attribute, 1, 120);
+        local v480 = math.rad(math_clamp_ret) / 2;
+        local v481 = math.tan(v480) * v479;
+        local v482 = math.atan(v481) * 2;
+        local math_deg_ret = math.deg(v482);
+        FOV_DRAWN = math.min(Attribute, math_deg_ret);
+    end;
+
+    local v483 = Attribute + (math.min(Attribute, FOV_DRAWN) - Attribute) * (math_max_ret * math_max_ret * (3 - math_max_ret * 2));
+    p477.FieldOfView = v483;
+    u14.fovApplied = v483;
+
+    if math_max_ret > 0 then
+        return true;
+    end;
+
+    p477.FieldOfView = Attribute;
+    u14.fovBase = nil;
+    u14.fovApplied = nil;
+
+    return false;
+end;
+
+local function step(p484: number) -- Line: 2578
+    -- upvalues: u14 (copy), LocalPlayer (copy), panelOpen (copy), tryDraw (copy), u10 (copy), u17 (copy), releaseDraw (copy), u186 (copy), applyPose (copy), setViewmodel (copy), resetPose (copy), RunService (copy), u185 (copy), u187 (copy), updateFov (copy), updateRing (copy), u57 (copy), updateAmmo (copy), updateHitmarker (copy), updateNumbers (copy), updateIndicators (copy), updateHurt (copy), u118 (copy), stepArrows (copy)
+    local os_clock_ret = os.clock();
+    local workspace_CurrentCamera3 = workspace.CurrentCamera;
+
+    if not workspace_CurrentCamera3 then
+        return;
+    end;
+
+    local LookVector = workspace_CurrentCamera3.CFrame.LookVector;
+    local v485;
+
+    if u14.bowDef == nil or u14.bowTool == nil then
+        v485 = false;
+    else
+        v485 = u14.bowTool.Parent == u14.character;
+    end;
+
+    local v486;
+
+    if v485 then
+        local humanoid = u14.humanoid;
+        local v487;
+
+        if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+            v487 = false;
+        else
+            v487 = LocalPlayer:GetAttribute("Dead") ~= true;
+        end;
+
+        v486 = v487 and not panelOpen() and LocalPlayer:GetAttribute("InvLoaded") == true;
+    else
+        v486 = v485;
+    end;
+
+    if u14.drawing and not v486 then
+        if u14.drawing then
+            u14.drawing = false;
+            u14.fireQueuedAt = nil;
+            local drawSound = u14.drawSound;
+            u14.drawSound = nil;
+
+            if drawSound then
+                pcall(function() -- Line: 1588
+                    -- upvalues: drawSound (copy)
+                    drawSound:Stop();
+                    drawSound:Destroy();
+                end);
+            end;
+        end;
+
+        u14.wantDraw = false;
+        u14.fireQueuedAt = nil;
+    end;
+
+    if v485 and v486 and ((u14.aimMouse or (u14.aimPad or u14.aimTouch)) and not u14.drawing) then
+        if u14.wantDraw then
+            tryDraw();
+        else
+            local bowDef = u14.bowDef;
+            local v488;
+
+            if bowDef and type(bowDef.ammo) == "string" then
+                v488 = bowDef.ammo;
+            else
+                v488 = nil;
+            end;
+
+            local v489;
+
+            if v488 then
+                if u14.pendingSpent > 0 and os.clock() - u14.lastSpentAt > 1.5 then
+                    u14.pendingSpent = 0;
+                end;
+
+                v489 = math.max(0, (u14.counts[v488] or 0) - u14.pendingSpent);
+            else
+                v489 = 0;
+            end;
+
+            if v489 >= 1 then
+                tryDraw();
+            elseif u14.wantDraw and not (u14.aimMouse or (u14.aimPad or u14.aimTouch)) then
+                u14.wantDraw = false;
+            end;
+        end;
+    elseif u14.wantDraw and not (u14.aimMouse or (u14.aimPad or u14.aimTouch)) then
+        u14.wantDraw = false;
+    end;
+
+    local fireQueuedAt = u14.fireQueuedAt;
+
+    if fireQueuedAt and u14.drawing then
+        if os_clock_ret - fireQueuedAt > u10.FIRE_BUFFER then
+            u14.fireQueuedAt = nil;
+        elseif os_clock_ret - u14.drawStart >= u17.minDraw() and os_clock_ret - u14.lastShot >= u10.SHOT_GAP then
+            releaseDraw();
+        end;
+    end;
+
+    if v485 and u17.xbow() then
+        u17.stepXbow(os_clock_ret);
+        local v490 = u17.progress(os_clock_ret);
+        u14.drawVis = 1 - (1 - v490) * (1 - v490);
+    elseif u14.drawing then
+        local v491 = (os_clock_ret - u14.drawStart) / u17.drawTime();
+        local math_clamp_ret = math.clamp(v491, 0, 1);
+        u14.drawVis = 1 - (1 - math_clamp_ret) * (1 - math_clamp_ret);
+    else
+        local drawVis = u14.drawVis;
+        local v492 = p484 * 9;
+        local v493;
+
+        if drawVis < 0 then
+            v493 = math.min(0, drawVis + v492);
+        else
+            v493 = math.max(0, drawVis - v492);
+        end;
+
+        u14.drawVis = v493;
+    end;
+
+    local v494 = u14.drawing or u14.wantDraw and ((u14.aimMouse or (u14.aimPad or u14.aimTouch)) and v486);
+    local Attribute = LocalPlayer:GetAttribute("SprintBlockBow");
+    local v495;
+
+    if v486 then
+        v495 = u14.aimMouse or (u14.aimPad or u14.aimTouch) or u14.drawing;
+    else
+        v495 = v486;
+    end;
+
+    if Attribute ~= v495 then
+        local v496;
+
+        if v486 then
+            v496 = u14.aimMouse or (u14.aimPad or u14.aimTouch) or u14.drawing;
+        else
+            v496 = v486;
+        end;
+
+        LocalPlayer:SetAttribute("SprintBlockBow", v496);
+    end;
+
+    if LocalPlayer:GetAttribute("FustAimBow") ~= (v485 and v494 and true or false) then
+        LocalPlayer:SetAttribute("FustAimBow", v485 and v494 and true or false);
+    end;
+
+    local v497 = v494 and 1 or 0;
+    local v498;
+
+    if v494 then
+        v498 = u10.AIM_TIME;
+    else
+        v498 = u10.AIM_OUT_TIME;
+    end;
+
+    local v499 = 4.74 / v498;
+    local math_clamp_ret = math.clamp(p484, 0, 0.1);
+    local math_exp_ret = math.exp(-v499 * math_clamp_ret);
+    local v500 = u14.aim - v497;
+    local v501 = u186.aimV or 0;
+    local v502 = (v501 + v500 * v499) * math_clamp_ret;
+    local math_clamp_ret2 = math.clamp(v497 + (v500 + v502) * math_exp_ret, 0, 1);
+    u14.aim = math_clamp_ret2;
+    u186.aimV = (v501 - v502 * v499) * math_exp_ret;
+
+    if math.abs(u14.aim - v497) < 0.0005 and math.abs(u186.aimV) < 0.02 then
+        u14.aim = v497;
+        u186.aimV = 0;
+    end;
+
+    if v485 then
+        local humanoid = u14.humanoid;
+        local v503;
+
+        if u14.character == nil or (u14.character.Parent == nil or (humanoid == nil or humanoid.Health <= 0)) then
+            v503 = false;
+        else
+            v503 = LocalPlayer:GetAttribute("Dead") ~= true;
+        end;
+
+        if v503 then
+            applyPose(LookVector);
+            setViewmodel(u14.aim > 0.001 and true or u14.drawing);
+        else
+            resetPose();
+
+            if u186.shown then
+                u186.shown = false;
+                RunService:UnbindFromRenderStep(u185.STEP);
+
+                for _, v in ipairs(u186.hidden) do
+                    if v.Parent then
+                        v.LocalTransparencyModifier = 0;
+                    end;
+                end;
+
+                table.clear(u186.hidden);
+
+                if u186.model then
+                    u186.model.Parent = nil;
+                end;
+
+                if u187.model then
+                    u187.model.Parent = nil;
+                end;
+
+                if u187.upper then
+                    u187.upper.Parent = nil;
+                end;
+
+                if u187.lower then
+                    u187.lower.Parent = nil;
+                end;
+            end;
+        end;
+    else
+        resetPose();
+
+        if u186.shown then
+            u186.shown = false;
+            RunService:UnbindFromRenderStep(u185.STEP);
+
+            for _, v in ipairs(u186.hidden) do
+                if v.Parent then
+                    v.LocalTransparencyModifier = 0;
+                end;
+            end;
+
+            table.clear(u186.hidden);
+
+            if u186.model then
+                u186.model.Parent = nil;
+            end;
+
+            if u187.model then
+                u187.model.Parent = nil;
+            end;
+
+            if u187.upper then
+                u187.upper.Parent = nil;
+            end;
+
+            if u187.lower then
+                u187.lower.Parent = nil;
+            end;
+        end;
+    end;
+
+    local v504 = updateFov(workspace_CurrentCamera3);
+    local v505;
+
+    if v485 and u17.xbow() then
+        v505 = u14.drawing or u17.reloadAt ~= nil;
+    else
+        v505 = u14.drawing or u14.drawVis > 0.01;
+    end;
+
+    if v486 then
+        if v505 then
+            v505 = u57.cross303;
+        end;
+    else
+        v505 = v486;
+    end;
+
+    updateRing(v505);
+    updateAmmo(v486);
+    local v506;
+
+    if u57.hint.Visible then
+        local v507 = u14.hintUntil - os_clock_ret;
+
+        if v507 <= 0 then
+            u57.hint.Visible = false;
+            v506 = false;
+        else
+            local v508 = v507 > 0.3 and 0 or 1 - v507 / 0.3;
+            u57.hint.TextTransparency = v508;
+            u57.hint.TextStrokeTransparency = 0.5 + 0.5 * v508;
+            v506 = true;
+        end;
+    else
+        v506 = false;
+    end;
+
+    local v509 = updateHitmarker(os_clock_ret);
+    local v510 = updateNumbers(os_clock_ret);
+    local v511 = updateIndicators(os_clock_ret, workspace_CurrentCamera3);
+    local v512 = updateHurt(os_clock_ret, p484);
+
+    if #u118 > 0 then
+        stepArrows(os_clock_ret);
+    end;
+
+    if not (v485 or (#u118 > 0 or (v504 or (v506 or (v509 or (v510 or (v511 or (v512 or u14.posed))))) or (u14.drawVis > 0 or u14.aim > 0)))) and u14.loop then
+        u14.loop:Disconnect();
+        u14.loop = nil;
+
+        if u57.ring.Visible then
+            u57.ring.Visible = false;
+        end;
+
+        local v513 = u57.ammoHud();
+
+        if v513 then
+            if u57.ammo.Visible then
+                u57.ammo.Visible = false;
+            end;
+
+            v513.hide("bow");
+
+            return;
+        end;
+
+        if u57.ammo.Visible then
+            u57.ammo.Visible = false;
+        end;
+    end;
+end;
+
+u152 = function() -- Line: 2665
+    -- upvalues: u14 (copy), RunService (copy), step (copy)
+    if not u14.loop then
+        u14.loop = RunService.PreSimulation:Connect(function(p514) -- Line: 2667
+            -- upvalues: step (ref)
+            local success2, result2 = pcall(step, p514);
+
+            if not success2 then
+                warn("[Fust] FustCombat: step failed:", result2);
+            end;
+        end);
+    end;
+end;
+
+local u515 = {
+    ArrowFX = onArrowFX,
+    ArrowHit = onArrowHit,
+    CombatFX = onCombatFX
+};
+
+for _, v in ipairs({ "Shoot", "ArrowFX", "ArrowHit", "CombatFX" }) do
+    task.spawn(function() -- Line: 2685
+        -- upvalues: Remotes (copy), v (copy), u15 (copy), u515 (copy)
+        local v516 = Remotes:WaitForChild(v, 60);
+
+        if not (v516 and v516:IsA("RemoteEvent")) then
+            warn("[Fust] FustCombat: Remotes." .. v .. " missing - run the installer");
+
+            return;
+        end;
+
+        u15[v] = v516;
+        local u517 = u515[v];
+
+        if u517 then
+            v516.OnClientEvent:Connect(function(p518) -- Line: 2694
+                -- upvalues: u517 (copy), v (ref)
+                local success2, result2 = pcall(u517, p518);
+
+                if not success2 then
+                    warn("[Fust] FustCombat: " .. v .. " failed:", result2);
+                end;
+            end);
+        end;
+    end);
+end;
+
+task.spawn(function() -- Line: 2704
+    -- upvalues: Remotes (copy), onInventory (copy)
+    local InventorySync = Remotes:WaitForChild("InventorySync", 60);
+
+    if InventorySync and InventorySync:IsA("RemoteEvent") then
+        InventorySync.OnClientEvent:Connect(function(p519) -- Line: 2707
+            -- upvalues: onInventory (ref)
+            local success2, result2 = pcall(onInventory, p519);
+
+            if not success2 then
+                warn("[Fust] FustCombat: inventory sync failed:", result2);
+            end;
+        end);
+        local InventoryAction = Remotes:FindFirstChild("InventoryAction");
+
+        if InventoryAction and InventoryAction:IsA("RemoteEvent") then
+            InventoryAction:FireServer({
+                op = "sync"
+            });
+        end;
+    end;
+end);
+
+if RunService:IsStudio() then
+    LocalPlayer:GetAttributeChangedSignal("DevAim"):Connect(function() -- Line: 2723
+        -- upvalues: u14 (copy), LocalPlayer (copy), tryDraw (copy)
+        u14.aimMouse = LocalPlayer:GetAttribute("DevAim") == true;
+
+        if u14.bowDef then
+            if u14.aimMouse or (u14.aimPad or u14.aimTouch) then
+                tryDraw();
+
+                return;
+            end;
+
+            if u14.drawing then
+                u14.drawing = false;
+                u14.fireQueuedAt = nil;
+                local drawSound = u14.drawSound;
+                u14.drawSound = nil;
+
+                if drawSound then
+                    pcall(function() -- Line: 1588
+                        -- upvalues: drawSound (copy)
+                        drawSound:Stop();
+                        drawSound:Destroy();
+                    end);
+                end;
+            end;
+
+            u14.wantDraw = false;
+            u14.fireQueuedAt = nil;
+        end;
+    end);
+end;
