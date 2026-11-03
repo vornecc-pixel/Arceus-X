@@ -2,9 +2,9 @@
 
 A dark, purple-accent Roblox UI library with an animated intro.
 
-- Draggable window, tabs, two-column groups, mobile auto-scaling
+- Draggable window, touch-friendly controls, responsive single/two-column layouts, rotation support, and floating reopen button
 - Controls: Toggle (+ keybind + color swatches), Slider, Dropdown, Textbox, Button, Label, Keybind, Color picker
-- **13 built-in themes**, live theme switching, per-color editing, theme export/import (all in the Settings tab)
+- **19 built-in themes**, plus NH palettes, live theme switching, per-color editing, theme export/import (all in the Settings tab)
 - **ESP preview**: an animated mock player that reacts live to your ESP toggles and colors
 - **Auto-load**: pick a config and it loads itself the next time the script runs
 - **Customizable appearance**: edit every theme color, save your own named themes, change font, UI scale and window opacity (all remembered between sessions)
@@ -71,6 +71,8 @@ Window:AddSettingsTab()
 | `Library.LogoUrl` | Direct PNG link (e.g. GitHub raw); downloaded and cached when the environment supports it |
 | `Library.Accent` | Accent `Color3` (change at runtime with `Library:SetAccent(color)`) |
 | `Library.MenuKey` | `Enum.KeyCode` that shows/hides the window (default `Insert`) |
+| `Library:DetectDevice()` | Detects input capabilities, platform (when exposed), and orientation |
+| `Library.Device` | Latest detected device profile; refreshed when the viewport changes |
 | `Library.Parent` | Optional custom parent for the ScreenGui (set before `CreateWindow`) |
 | `Library.ExtraChecks` | Extra intro checks: `{ {"Name", function() return "ok"/"warn"/"fail", "detail" end} }` |
 | `Library.Flags` | `flag -> value` table |
@@ -188,11 +190,13 @@ The intro runs real checks and prints the results: platform, screen size, client
 
 ## Full script with separate ESP
 
-The main script loads `scripts/esp.lua` into the same window, using the shared `scripts/ui_bootstrap.lua` to load the library, embedded logo, and NH mix. The stock animated intro plays before the NH Classic mix and HUD are applied; choose other appearances in the Mixes tab. The loader and all of its dependencies point to the session branch:
+The main script loads `scripts/esp.lua` into the same window, using the shared `scripts/ui_bootstrap.lua` to load the library, embedded logo, and NH mix. The animated intro reports the detected device, input capabilities, orientation, and chosen layout before the NH Classic mix and HUD are applied. Choose from 11 mixes, including Sakura, Aurora, Obsidian, Copper, Solarized, and Violet Ice, in the Mixes tab. The loader and all of its dependencies point to the session branch:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/main.lua"))()
 ```
+
+On touch devices, the window uses larger touch targets; narrow screens use a vertically scrollable single-column layout, and rotating or resizing the screen updates the layout. Tap the × in the title bar to hide the menu, then tap the floating logo to reopen it. The classification uses platform information when available and input capabilities otherwise; a touch-enabled desktop may be reported as a hybrid. Detection does not guarantee that executor-only features are supported on a particular device.
 
 The embedded logo needs file APIs (`isfolder`, `makefolder`, `isfile`, `writefile`) and `getcustomasset` or `getsynasset`. Without them, the menu and intro still open but the logo falls back to the library's configured Roblox asset (by default a blank placeholder). If the mix cannot load, startup falls back to the stock UI. The settings tab's **Unload Menu** and the system unload button both clean up the ESP and combat loops.
 

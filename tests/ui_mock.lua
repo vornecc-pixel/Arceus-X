@@ -43,7 +43,11 @@ local v3meta = { __sub = function(a,b) return setmetatable({X=a.X-b.X,Y=a.Y-b.Y,
     __index = function(a,k) if k == "Magnitude" then return math.sqrt(a.X*a.X+a.Y*a.Y+a.Z*a.Z) end end }
 Vector3 = { new = function(x,y,z) return setmetatable({X=x,Y=y,Z=z},v3meta) end }
 local udmeta = { __add = function(a,b) return a end }
-UDim2 = { new = function(...) return setmetatable({ ... },udmeta) end, fromOffset = function(...) return setmetatable({...},udmeta) end, fromScale = function(...) return setmetatable({...},udmeta) end }
+local function udim2(xs,xo,ys,yo)
+    xs,xo,ys,yo=xs or 0,xo or 0,ys or 0,yo or 0
+    return setmetatable({xs,xo,ys,yo,X={Scale=xs,Offset=xo},Y={Scale=ys,Offset=yo}},udmeta)
+end
+UDim2 = { new = udim2, fromOffset = function(x,y) return udim2(0,x,0,y) end, fromScale = function(x,y) return udim2(x,0,y,0) end }
 UDim = { new = function(...) return {...} end }
 TweenInfo = { new = function(...) return {...} end }
 CFrame = { new = function(p) return { Position = p } end }
@@ -93,7 +97,8 @@ local render,heartbeat=signal(),signal()
 local run={RenderStepped=render,Heartbeat=heartbeat}
 local tween={}
 function tween:Create(o,_,props) return {Play=function() for k,v in pairs(props) do o[k]=v end end} end
-local input={TouchEnabled=false, KeyboardEnabled=true, GamepadEnabled=false, InputBegan=signal(), InputChanged=signal(), InputEnded=signal()}
+local input={TouchEnabled=false, KeyboardEnabled=true, MouseEnabled=true, GamepadEnabled=false, InputBegan=signal(), InputChanged=signal(), InputEnded=signal()}
+function input:GetPlatform() return {Name = self.platformName or "Windows"} end
 local http={JSONEncode=function() return "{}" end,JSONDecode=function() return {} end}
 local debris={AddItem=function(_,o,seconds) task.delay(seconds, function() o:Destroy() end) end}
 local rep=object("ReplicatedStorage"); function rep:WaitForChild() return nil end
@@ -212,4 +217,80 @@ assert(guis==1 and type(environment.ARC3USX_ESP_UNLOAD)=="function", "reinjectio
 environment.ARC3USX_MAIN_UNLOAD()
 step(1)
 assert(#failures==0, table.concat(failures,"; "))
-print("Real UI, logo, intro, mix, controls, reinjection, unload and fallback mock integration passed")
+
+-- iOS portrait: show a touch profile and a readable single-column layout.
+input.TouchEnabled, input.KeyboardEnabled, input.MouseEnabled, input.platformName = true, false, false, "IOS"
+root.CurrentCamera.ViewportSize = Vector2.new(390, 844)
+schedule(assert(loadfile("scripts/main.lua")), 0)
+step(8)
+local mobileGui = pg:FindFirstChild("ARC3USX")
+local reportedMobile = false
+for _, o in ipairs(objects) do
+    if o:IsDescendantOf(mobileGui) and type(o.Text)=="string" and o.Text:find("Mobile IOS",1,true) then reportedMobile=true end
+end
+assert(reportedMobile, "intro displays detected device")
+step(52)
+local mobileWindow = loadedLibrary._windows[1]
+assert(loadedLibrary.Device.Kind=="Mobile" and loadedLibrary.Device.Touch and loadedLibrary.Device.Orientation=="Portrait", "iOS touch device detected")
+input.platformName="Android"
+assert(loadedLibrary:DetectDevice().Kind=="Mobile", "Android detected")
+input.platformName="Windows"; input.KeyboardEnabled=true; input.MouseEnabled=true
+assert(loadedLibrary:DetectDevice().Kind=="Hybrid", "touch desktop detected as hybrid")
+input.platformName="XboxOne"; input.TouchEnabled=false; input.KeyboardEnabled=false; input.MouseEnabled=false; input.GamepadEnabled=true
+assert(loadedLibrary:DetectDevice().Kind=="Console", "gamepad console detected")
+input.platformName="IOS"; input.TouchEnabled=true; input.KeyboardEnabled=false; input.MouseEnabled=false; input.GamepadEnabled=false
+assert(mobileWindow.Touch and mobileWindow.SingleColumn and mobileWindow._logicalWidth==374 and mobileWindow.Scale.Scale==1, "portrait uses full-size one-column layout")
+assert(mobileWindow.Tabs[1].Left.Size[1]==1 and mobileWindow.Tabs[1].Right.Size[1]==1, "portrait stacks full-width columns")
+local hide
+for _, o in ipairs(objects) do if o.Name=="HideMenu" and o:IsDescendantOf(mobileGui) then hide=o end end
+assert(hide, "touch close button exists")
+hide.MouseButton1Click:Fire()
+assert(not mobileWindow.Root.Visible and mobileWindow.Fab.Visible, "touch close shows floating reopen button")
+mobileWindow.Fab.MouseButton1Click:Fire()
+assert(mobileWindow.Root.Visible and not mobileWindow.Fab.Visible, "floating button reopens menu")
+mobileWindow.Root.AbsolutePosition=Vector2.new(20,100)
+mobileWindow.Root.AbsoluteSize=Vector2.new(300,500)
+local dragTouch={UserInputType=Enum.UserInputType.Touch,Position=Vector3.new(30,110,0)}
+hide.Parent.InputBegan:Fire(dragTouch)
+dragTouch.Position=Vector3.new(1000,1000,0)
+input.InputChanged:Fire(dragTouch)
+assert(mobileWindow.Root.Position.X.Offset==70 and mobileWindow.Root.Position.Y.Offset==244, "touch dragging keeps the menu on screen")
+input.InputEnded:Fire(dragTouch)
+local bar
+for _, o in ipairs(objects) do
+    if o.ClassName=="TextLabel" and o.Text=="Max Distance" and o:IsDescendantOf(mobileWindow.Tabs[1].Left) then
+        bar=o.Parent:FindFirstChild("SliderBar"); if bar then break end
+    end
+end
+assert(bar and bar.Active, "touch slider has an active hit target")
+local first={UserInputType=Enum.UserInputType.Touch, Position=Vector3.new(150,100,0)}
+local second={UserInputType=Enum.UserInputType.Touch, Position=Vector3.new(450,100,0)}
+bar.InputBegan:Fire(first)
+local initialValue=loadedLibrary.Options.plr_max_dist.Value
+input.InputChanged:Fire(second)
+assert(loadedLibrary.Options.plr_max_dist.Value==initialValue, "other finger does not move slider")
+first.Position=Vector3.new(350,100,0)
+input.InputChanged:Fire(first)
+assert(loadedLibrary.Options.plr_max_dist.Value~=initialValue, "original finger moves slider")
+input.InputEnded:Fire(first)
+
+root.CurrentCamera.ViewportSize=Vector2.new(844,390)
+root.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Fire()
+assert(not mobileWindow.SingleColumn and loadedLibrary.Device.Orientation=="Landscape", "rotation switches to landscape layout")
+assert(mobileWindow.Tabs[1].Left.Size[1]==0.5, "landscape restores two columns")
+local oldCamera=root.CurrentCamera
+local newCamera=object("Camera"); newCamera.Parent=root; newCamera.ViewportSize=Vector2.new(390,844); newCamera.CFrame={Position=Vector3.new(0,0,0)}
+function newCamera:WorldToViewportPoint() return {X=500,Y=300,Z=10} end
+root.CurrentCamera=newCamera
+root:GetPropertyChangedSignal("CurrentCamera"):Fire()
+assert(mobileWindow.SingleColumn and loadedLibrary.Device.Orientation=="Portrait", "camera replacement updates layout")
+oldCamera.ViewportSize=Vector2.new(1000,600)
+oldCamera:GetPropertyChangedSignal("ViewportSize"):Fire()
+assert(mobileWindow.SingleColumn, "old camera no longer drives layout")
+loadedLibrary.Options.NH_Mix:Set("Sakura")
+step(0.2)
+assert(loadedLibrary.ThemeName=="Sakura", "new mix is selectable")
+environment.ARC3USX_MAIN_UNLOAD()
+step(1)
+assert(#failures==0, table.concat(failures,"; "))
+print("Real UI, mobile layout, device checks, controls, themes, intro, reinjection, unload and fallback mock integration passed")

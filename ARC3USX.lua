@@ -74,8 +74,14 @@ Library.Themes = {
     ["Nord"] = mk(C(40, 45, 56), C(46, 52, 64), C(59, 66, 82), C(67, 76, 94), C(76, 86, 106), C(67, 76, 94), C(94, 105, 128), C(229, 233, 240), C(140, 152, 176), C(136, 192, 208)),
     ["Cyberpunk"] = mk(C(10, 8, 18), C(16, 13, 30), C(24, 19, 44), C(28, 22, 52), C(60, 45, 110), C(44, 34, 84), C(80, 60, 150), C(230, 225, 255), C(130, 115, 185), C(255, 230, 0)),
     ["Arctic Light"] = mk(C(232, 234, 240), C(244, 245, 249), C(224, 227, 235), C(255, 255, 255), C(188, 193, 208), C(255, 255, 255), C(160, 167, 188), C(36, 40, 52), C(100, 108, 130), C(98, 80, 235)),
+    ["Sakura"] = mk(C(20, 12, 18), C(28, 17, 25), C(39, 23, 33), C(43, 27, 37), C(66, 39, 53), C(48, 29, 40), C(90, 54, 72), C(244, 219, 230), C(165, 116, 140), C(255, 146, 184)),
+    ["Aurora"] = mk(C(8, 17, 18), C(11, 23, 25), C(15, 32, 34), C(19, 38, 40), C(33, 59, 62), C(24, 47, 50), C(45, 78, 82), C(205, 238, 231), C(100, 151, 146), C(91, 232, 190)),
+    ["Obsidian"] = mk(C(7, 8, 11), C(13, 14, 19), C(21, 22, 29), C(25, 26, 33), C(37, 39, 50), C(28, 30, 38), C(56, 58, 72), C(220, 222, 232), C(117, 120, 137), C(157, 166, 255)),
+    ["Copper"] = mk(C(18, 12, 10), C(27, 18, 15), C(38, 25, 20), C(43, 29, 23), C(65, 44, 34), C(52, 35, 27), C(83, 56, 41), C(236, 218, 201), C(159, 127, 105), C(232, 146, 93)),
+    ["Solarized"] = mk(C(0, 30, 38), C(0, 43, 54), C(7, 54, 66), C(10, 60, 72), C(30, 75, 86), C(14, 63, 75), C(48, 95, 104), C(220, 225, 201), C(131, 148, 150), C(181, 137, 0)),
+    ["Violet Ice"] = mk(C(13, 13, 22), C(19, 19, 31), C(27, 28, 44), C(30, 33, 50), C(45, 48, 69), C(35, 38, 57), C(62, 66, 91), C(222, 224, 244), C(128, 134, 165), C(180, 166, 255)),
 }
-Library.ThemeOrder = { "Purple", "Midnight", "Crimson", "Emerald", "Ocean", "Sunset", "Rose", "Monochrome", "Gold", "Dracula", "Nord", "Cyberpunk", "Arctic Light" }
+Library.ThemeOrder = { "Purple", "Midnight", "Crimson", "Emerald", "Ocean", "Sunset", "Rose", "Monochrome", "Gold", "Dracula", "Nord", "Cyberpunk", "Arctic Light", "Sakura", "Aurora", "Obsidian", "Copper", "Solarized", "Violet Ice" }
 Library.ThemeName = "Purple"
 
 local Theme = {}
@@ -83,6 +89,43 @@ for k, v in pairs(Library.Themes["Purple"]) do
     Theme[k] = v
 end
 Library.Accent = Theme.Accent
+
+-- Capabilities are more reliable than guessing a phone model from screen size.
+function Library:DetectDevice()
+    local touch = UserInputService.TouchEnabled == true
+    local keyboard = UserInputService.KeyboardEnabled == true
+    local mouse = UserInputService.MouseEnabled == true
+    local gamepad = UserInputService.GamepadEnabled == true
+    local ok, platform = pcall(function() return UserInputService:GetPlatform() end)
+    local platformName = ok and platform and platform.Name or nil
+    local kind
+    if platformName == "IOS" or platformName == "Android" then
+        kind = "Mobile"
+    elseif platformName and (platformName:find("Xbox") or platformName:find("PS") or platformName:find("PlayStation")) then
+        kind = "Console"
+    elseif touch and not keyboard then
+        kind = "Mobile"
+    elseif touch and keyboard then
+        kind = "Hybrid"
+    elseif gamepad and not keyboard and not mouse then
+        kind = "Console"
+    else
+        kind = "Desktop"
+    end
+    local inputs = {}
+    if touch then inputs[#inputs + 1] = "Touch" end
+    if keyboard then inputs[#inputs + 1] = "Keyboard" end
+    if mouse then inputs[#inputs + 1] = "Mouse" end
+    if gamepad then inputs[#inputs + 1] = "Gamepad" end
+    local camera = workspace.CurrentCamera
+    local vp = camera and camera.ViewportSize
+    return {
+        Kind = kind, Platform = platformName or "Unknown", Touch = touch,
+        Keyboard = keyboard, Mouse = mouse, Gamepad = gamepad,
+        Input = #inputs > 0 and table.concat(inputs, "+") or "Unknown",
+        Orientation = vp and (vp.X >= vp.Y and "Landscape" or "Portrait") or "Unknown",
+    }
+end
 
 -- T.<Key> is a marker: New() resolves it to the current theme color and registers
 -- the property so it is re-colored whenever the theme changes.
@@ -159,7 +202,8 @@ local function Stroke(color, thickness)
 end
 
 local function Drag(frame, fn)
-    local dragging = false
+    local dragging, touchInput = false, nil
+    frame.Active = true
     local conns = {}
     local function update(pos)
         local a, s = frame.AbsolutePosition, frame.AbsoluteSize
@@ -169,19 +213,20 @@ local function Drag(frame, fn)
         return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
     end
     table.insert(conns, Connect(frame.InputBegan, function(i)
-        if isPress(i) then
+        if isPress(i) and not dragging then
             dragging = true
+            touchInput = i.UserInputType == Enum.UserInputType.Touch and i or nil
             update(i.Position)
         end
     end))
     table.insert(conns, Connect(UserInputService.InputChanged, function(i)
-        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+        if dragging and ((touchInput and i == touchInput) or (not touchInput and i.UserInputType == Enum.UserInputType.MouseMovement)) then
             update(i.Position)
         end
     end))
     table.insert(conns, Connect(UserInputService.InputEnded, function(i)
-        if isPress(i) then
-            dragging = false
+        if dragging and ((touchInput and i == touchInput) or (not touchInput and i.UserInputType == Enum.UserInputType.MouseButton1)) then
+            dragging, touchInput = false, nil
         end
     end))
     return conns
@@ -766,6 +811,11 @@ function Group:_o()
 end
 
 local function Row(self, height)
+    if self.Window.Touch then
+        if height == 20 then height = 34
+        elseif height == 34 then height = 46
+        elseif height == 44 then height = 56 end
+    end
     return New("Frame", {
         Size = UDim2.new(1, 0, 0, height),
         BackgroundTransparency = 1,
@@ -797,7 +847,7 @@ local function Swatch(win, parent, default, cb)
     local st = { Value = default }
     local b = New("TextButton", {
         Text = "",
-        Size = UDim2.fromOffset(22, 10),
+        Size = win.Touch and UDim2.fromOffset(30, 26) or UDim2.fromOffset(22, 10),
         BackgroundColor3 = default,
         BackgroundTransparency = 0,
         Parent = parent,
@@ -820,17 +870,18 @@ end
 function Group:AddToggle(o)
     local flag = o.Flag or o.Name
     local row = Row(self, 20)
+    local boxSize = self.Window.Touch and 14 or 10
     local box = New("Frame", {
-        Size = UDim2.fromOffset(10, 10),
-        Position = UDim2.new(0, 0, 0.5, -5),
+        Size = UDim2.fromOffset(boxSize, boxSize),
+        Position = UDim2.new(0, 0, 0.5, -boxSize / 2),
         BackgroundColor3 = T.Box,
         BackgroundTransparency = 0,
         Parent = row,
     }, { Stroke(T.BoxLine) })
     New("TextLabel", {
         Text = o.Name,
-        Position = UDim2.fromOffset(18, 0),
-        Size = UDim2.new(1, -18, 1, 0),
+        Position = UDim2.fromOffset(boxSize + 8, 0),
+        Size = UDim2.new(1, -(boxSize + 8), 1, 0),
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = row,
     })
@@ -914,8 +965,9 @@ function Group:AddSlider(o)
         Parent = row,
     })
     local bar = New("Frame", {
+        Name = "SliderBar",
         Position = UDim2.fromOffset(12, 21),
-        Size = UDim2.new(1, -12, 0, 6),
+        Size = UDim2.new(1, -12, 0, self.Window.Touch and 18 or 6),
         BackgroundColor3 = T.Box,
         BackgroundTransparency = 0,
         Parent = row,
@@ -959,7 +1011,7 @@ function Group:AddDropdown(o)
     local btn = New("TextButton", {
         Text = "",
         Position = UDim2.fromOffset(12, 20),
-        Size = UDim2.new(1, -12, 0, 22),
+        Size = UDim2.new(1, -12, 0, self.Window.Touch and 32 or 22),
         BackgroundColor3 = T.Input,
         BackgroundTransparency = 0,
         Parent = row,
@@ -1017,7 +1069,7 @@ function Group:AddTextbox(o)
         PlaceholderColor3 = T.Mute,
         ClearTextOnFocus = false,
         Position = UDim2.fromOffset(12, 20),
-        Size = UDim2.new(1, -12, 0, 22),
+        Size = UDim2.new(1, -12, 0, self.Window.Touch and 32 or 22),
         BackgroundColor3 = T.Input,
         BackgroundTransparency = 0,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -1043,7 +1095,7 @@ end
 function Group:AddButton(o)
     local b = New("TextButton", {
         Text = o.Name,
-        Size = UDim2.new(1, 0, 0, 24),
+        Size = UDim2.new(1, 0, 0, self.Window.Touch and 34 or 24),
         BackgroundColor3 = T.P2,
         BackgroundTransparency = 0,
         LayoutOrder = self:_o(),
@@ -1450,10 +1502,17 @@ function Window:_list(anchor, opts, cur, cb)
     local sc = self.Scale.Scale
     local pos = (anchor.AbsolutePosition - self.Root.AbsolutePosition) / sc
     local w = anchor.AbsoluteSize.X / sc
+    local rowHeight = self.Touch and 32 or 20
+    local rootWidth = self._logicalWidth or self.Root.AbsoluteSize.X / sc
+    local rootHeight = self._logicalHeight or self.Root.AbsoluteSize.Y / sc
+    local height = math.min(math.min(#opts, 6) * rowHeight, math.max(32, rootHeight - 8))
+    local below = pos.Y + anchor.AbsoluteSize.Y / sc + 1
+    local y = below + height <= rootHeight - 4 and below or math.max(4, pos.Y - height - 1)
+    local x = math.clamp(pos.X, 4, math.max(4, rootWidth - w - 4))
     local f = New("ScrollingFrame", {
-        Position = UDim2.fromOffset(pos.X, pos.Y + anchor.AbsoluteSize.Y / sc + 1),
-        Size = UDim2.fromOffset(w, math.min(#opts, 6) * 20),
-        CanvasSize = UDim2.fromOffset(0, #opts * 20),
+        Position = UDim2.fromOffset(x, y),
+        Size = UDim2.fromOffset(w, height),
+        CanvasSize = UDim2.fromOffset(0, #opts * rowHeight),
         BackgroundColor3 = T.Input,
         BackgroundTransparency = 0,
         ScrollBarThickness = 2,
@@ -1465,7 +1524,7 @@ function Window:_list(anchor, opts, cur, cb)
             Text = "  " .. tostring(opt),
             TextXAlignment = Enum.TextXAlignment.Left,
             TextColor3 = (opt == cur) and Library.Accent or Theme.Text,
-            Size = UDim2.new(1, 0, 0, 20),
+            Size = UDim2.new(1, 0, 0, rowHeight),
             LayoutOrder = i,
             Parent = f,
         })
@@ -1480,7 +1539,7 @@ end
 local function Bar(parent, y, val, grad, fn, conns)
     local f = New("Frame", {
         Position = UDim2.fromOffset(10, y),
-        Size = UDim2.new(1, -20, 0, 12),
+        Size = UDim2.new(1, -20, 0, Library.Device and Library.Device.Touch and 18 or 12),
         BackgroundColor3 = Color3.new(1, 1, 1),
         BackgroundTransparency = 0,
         ZIndex = 61,
@@ -1510,8 +1569,12 @@ function Window:_picker(anchor, color, cb)
     local h, s, v = color:ToHSV()
     local sc = self.Scale.Scale
     local pos = (anchor.AbsolutePosition - self.Root.AbsolutePosition) / sc
+    local rootWidth = self._logicalWidth or self.Root.AbsoluteSize.X / sc
+    local rootHeight = self._logicalHeight or self.Root.AbsoluteSize.Y / sc
+    local x = math.clamp(pos.X - 128, 4, math.max(4, rootWidth - 154))
+    local y = math.clamp(pos.Y + 16, 4, math.max(4, rootHeight - 92))
     local p = New("Frame", {
-        Position = UDim2.fromOffset(math.max(4, pos.X - 128), pos.Y + 16),
+        Position = UDim2.fromOffset(x, y),
         Size = UDim2.fromOffset(150, 88),
         BackgroundColor3 = T.P2,
         BackgroundTransparency = 0,
@@ -1603,6 +1666,21 @@ function Window:AddTab(name)
             New("UIPadding", { PaddingTop = UDim.new(0, 8) }) })
     end
     tab.Left, tab.Right = column("Left"), column("Right")
+    function tab:Relayout()
+        if self.Window.SingleColumn then
+            self.Left.Position = UDim2.new()
+            self.Left.Size = UDim2.new(1, 0, 0, 0)
+            self.Right.Position = UDim2.new(0, 0, 0, self.Left.AbsoluteSize.Y / self.Window.Scale.Scale + 14)
+            self.Right.Size = UDim2.new(1, 0, 0, 0)
+        else
+            self.Left.Position = UDim2.new()
+            self.Left.Size = UDim2.new(0.5, -6, 0, 0)
+            self.Right.Position = UDim2.new(0.5, 6, 0, 0)
+            self.Right.Size = UDim2.new(0.5, -6, 0, 0)
+        end
+    end
+    Connect(tab.Left:GetPropertyChangedSignal("AbsoluteSize"), function() tab:Relayout() end)
+    tab:Relayout()
 
     function tab:AddGroup(title, side)
         local parent = (side == "Right") and self.Right or self.Left
@@ -1642,6 +1720,9 @@ function Window:AddTab(name)
     table.insert(self.Tabs, tab)
     for _, t in ipairs(self.Tabs) do
         t.Button.Size = UDim2.new(1 / #self.Tabs, -1, 1, 0)
+        local short = { ["ESP / World"] = "ESP", Settings = "Config" }
+        t.Button.Text = self.SingleColumn and (short[t.Name] or t.Name) or t.Name
+        t.Button.TextSize = self.SingleColumn and 12 or 15
     end
     Connect(tab.Button.MouseButton1Click, function()
         self:SelectTab(tab)
@@ -1920,7 +2001,8 @@ function Library:CreateWindow(opts)
     self:_init()
 
     local size = opts.Size or Vector2.new(560, 500)
-    local win = setmetatable({ Tabs = {} }, Window)
+    self.Device = self:DetectDevice()
+    local win = setmetatable({ Tabs = {}, Touch = self.Device.Touch }, Window)
 
     local root = New("Frame", {
         Name = "Window",
@@ -1933,25 +2015,59 @@ function Library:CreateWindow(opts)
     }, { Stroke(T.Line) })
     win.Root = root
     win.Scale = New("UIScale", { Parent = root })
+    local lastWidth, lastHeight
     local function rescale()
-        local vp = workspace.CurrentCamera.ViewportSize
-        win.Scale.Scale = math.min(self.UIScale, (vp.X - 16) / size.X, (vp.Y - 16) / size.Y)
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local vp = camera.ViewportSize
+        if vp.X <= 0 or vp.Y <= 0 then return end
+        self.Device = self:DetectDevice()
+        local availableX, availableY = math.max(1, vp.X - 16), math.max(1, vp.Y - 16)
+        local scale = math.max(0.05, math.min(self.UIScale, availableX / 280, availableY / 180))
+        local desiredHeight = win.Touch and vp.Y > vp.X and math.max(size.Y, availableY / scale) or size.Y
+        local width = math.min(size.X, availableX / scale)
+        local height = math.min(desiredHeight, availableY / scale)
+        win.Scale.Scale = scale
+        win._logicalWidth, win._logicalHeight = width, height
+        win.SingleColumn = width < 560
+        root.Size = UDim2.fromOffset(width, height)
+        if lastWidth ~= vp.X or lastHeight ~= vp.Y then
+            root.Position = UDim2.fromScale(0.5, 0.5)
+            lastWidth, lastHeight = vp.X, vp.Y
+        end
+        local short = { ["ESP / World"] = "ESP", Settings = "Config" }
+        for _, tab in ipairs(win.Tabs) do
+            tab.Button.Text = win.SingleColumn and (short[tab.Name] or tab.Name) or tab.Name
+            tab.Button.TextSize = win.SingleColumn and 12 or 15
+            if tab.Relayout then tab:Relayout() end
+        end
     end
     rescale()
     win._rescale = rescale
-    Connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), rescale)
+    local cameraConnection
+    local function watchCamera()
+        if cameraConnection then cameraConnection:Disconnect() end
+        if workspace.CurrentCamera then
+            cameraConnection = Connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), rescale)
+        end
+        rescale()
+    end
+    Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), watchCamera)
+    watchCamera()
 
     -- title bar
+    local titleHeight = win.Touch and 34 or 26
     local top = New("Frame", {
         Position = UDim2.fromOffset(10, 4),
-        Size = UDim2.new(1, -20, 0, 26),
+        Size = UDim2.new(1, -20, 0, titleHeight),
         BackgroundTransparency = 1,
+        Active = true,
         Parent = root,
     })
     win.LogoImg = New("ImageLabel", {
         Image = self.Logo,
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromOffset(9, 13),
+        Position = UDim2.fromOffset(9, titleHeight / 2),
         Size = UDim2.fromOffset(18, 18),
         BackgroundColor3 = Color3.fromRGB(232, 232, 238),
         BackgroundTransparency = 0,
@@ -1960,10 +2076,20 @@ function Library:CreateWindow(opts)
     local title = New("TextLabel", {
         RichText = true,
         Position = UDim2.fromOffset(26, 0),
-        Size = UDim2.new(1, -26, 1, 0),
+        Size = UDim2.new(1, -62, 1, 0),
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Parent = top,
     })
+    local close = New("TextButton", {
+        Name = "HideMenu",
+        Text = "×",
+        Size = UDim2.fromOffset(titleHeight, titleHeight),
+        Position = UDim2.new(1, win.Touch and -34 or -26, 0, 0),
+        TextColor3 = T.Mute,
+        Parent = top,
+    })
+    Connect(close.MouseButton1Click, function() win:Toggle() end)
     local function retitle()
         local c = self.Accent
         title.Text = string.format('<font color="rgb(%d,%d,%d)">%s</font> | %s',
@@ -1972,7 +2098,7 @@ function Library:CreateWindow(opts)
     retitle()
     self:OnAccent(retitle)
     local line = New("Frame", {
-        Position = UDim2.fromOffset(10, 31),
+        Position = UDim2.fromOffset(10, titleHeight + 5),
         Size = UDim2.new(1, -20, 0, 1),
         BackgroundTransparency = 0,
         Parent = root,
@@ -1980,33 +2106,39 @@ function Library:CreateWindow(opts)
     Acc(line, "BackgroundColor3")
 
     -- drag
-    local dragging, start, origin
+    local dragging, start, origin, startAbsolute, touchInput
     Connect(top.InputBegan, function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            dragging, start, origin = true, i.Position, root.Position
+        if not dragging and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging, start, origin, startAbsolute = true, i.Position, root.Position, root.AbsolutePosition
+            touchInput = i.UserInputType == Enum.UserInputType.Touch and i or nil
         end
     end)
     Connect(UserInputService.InputChanged, function(i)
-        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-            local d = (i.Position - start) / win.Scale.Scale
-            root.Position = UDim2.new(origin.X.Scale, origin.X.Offset + d.X, origin.Y.Scale, origin.Y.Offset + d.Y)
+        if dragging and ((touchInput and i == touchInput) or (not touchInput and i.UserInputType == Enum.UserInputType.MouseMovement)) then
+            local camera = workspace.CurrentCamera
+            if not camera then return end
+            local viewport = camera.ViewportSize
+            local x = math.clamp(startAbsolute.X + i.Position.X - start.X, 0, math.max(0, viewport.X - root.AbsoluteSize.X))
+            local y = math.clamp(startAbsolute.Y + i.Position.Y - start.Y, 0, math.max(0, viewport.Y - root.AbsoluteSize.Y))
+            local dx, dy = (x - startAbsolute.X) / win.Scale.Scale, (y - startAbsolute.Y) / win.Scale.Scale
+            root.Position = UDim2.new(origin.X.Scale, origin.X.Offset + dx, origin.Y.Scale, origin.Y.Offset + dy)
         end
     end)
     Connect(UserInputService.InputEnded, function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
+        if dragging and ((touchInput and i == touchInput) or (not touchInput and i.UserInputType == Enum.UserInputType.MouseButton1)) then
+            dragging, touchInput = false, nil
         end
     end)
 
     win.TabBar = New("Frame", {
-        Position = UDim2.fromOffset(10, 40),
-        Size = UDim2.new(1, -20, 0, 28),
+        Position = UDim2.fromOffset(10, titleHeight + 14),
+        Size = UDim2.new(1, -20, 0, win.Touch and 34 or 28),
         BackgroundTransparency = 1,
         Parent = root,
     }, { New("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 1), SortOrder = Enum.SortOrder.LayoutOrder }) })
     win.Pages = New("Frame", {
-        Position = UDim2.fromOffset(10, 76),
-        Size = UDim2.new(1, -20, 1, -86),
+        Position = UDim2.fromOffset(10, titleHeight + (win.Touch and 56 or 50)),
+        Size = UDim2.new(1, -20, 1, -(titleHeight + (win.Touch and 66 or 60))),
         BackgroundColor3 = T.P1,
         BackgroundTransparency = 0,
         ClipsDescendants = true,
@@ -2018,7 +2150,7 @@ function Library:CreateWindow(opts)
         Image = self.Logo,
         AnchorPoint = Vector2.new(1, 1),
         Position = UDim2.new(1, -14, 1, -14),
-        Size = UDim2.fromOffset(44, 44),
+        Size = UDim2.fromOffset(win.Touch and 52 or 44, win.Touch and 52 or 44),
         BackgroundColor3 = Color3.fromRGB(232, 232, 238),
         BackgroundTransparency = 0,
         Visible = false,
@@ -2188,9 +2320,14 @@ function Library:_RunIntro(win)
         return frames / (os.clock() - t0)
     end
     local checks = {
-        { "Platform", function()
-            local t, k, g = UserInputService.TouchEnabled, UserInputService.KeyboardEnabled, UserInputService.GamepadEnabled
-            return "ok", (t and not k) and "Mobile" or ((g and not k) and "Console" or "Desktop")
+        { "Device", function()
+            local device = self:DetectDevice()
+            self.Device = device
+            return "ok", device.Platform ~= "Unknown" and (device.Kind .. " " .. device.Platform) or device.Kind
+        end },
+        { "Layout", function()
+            local device = self:DetectDevice()
+            return "ok", device.Orientation .. (win.SingleColumn and " / 1 col" or " / 2 col")
         end },
         { "Screen size", function()
             local v = workspace.CurrentCamera.ViewportSize
@@ -2225,7 +2362,8 @@ function Library:_RunIntro(win)
             return p < 250 and "ok" or "warn", math.floor(p) .. " ms"
         end },
         { "Input", function()
-            return "ok", UserInputService.KeyboardEnabled and "Keyboard + mouse" or "Touch"
+            local device = self:DetectDevice()
+            return device.Input ~= "Unknown" and "ok" or "warn", device.Input
         end },
     }
     for _, c in ipairs(self.ExtraChecks) do

@@ -46,8 +46,14 @@ Mix.Mixes = {
     ["Blood Eye"]    = { Theme = "NH Blood Eye", Font = "Gotham",    Opacity = 1,    Watermark = true, Keybinds = false },
     ["Frost Glass"]  = { Theme = "NH Frost",     Font = "RobotoMono", Opacity = 0.88, Watermark = false, Keybinds = true },
     ["Terminal"]     = { Theme = "NH Terminal",  Font = "Code",      Opacity = 1,    Watermark = true, Keybinds = true },
+    ["Sakura"]       = { Theme = "Sakura",       Font = "Gotham",    Opacity = 1,    Watermark = true, Keybinds = true },
+    ["Aurora"]       = { Theme = "Aurora",       Font = "Code",      Opacity = 1,    Watermark = true, Keybinds = true },
+    ["Obsidian"]     = { Theme = "Obsidian",     Font = "SourceSans", Opacity = 1,  Watermark = true, Keybinds = true },
+    ["Copper"]       = { Theme = "Copper",       Font = "Gotham",    Opacity = 1,    Watermark = true, Keybinds = true },
+    ["Solarized"]    = { Theme = "Solarized",    Font = "Code",      Opacity = 1,    Watermark = true, Keybinds = true },
+    ["Violet Ice"]   = { Theme = "Violet Ice",   Font = "RobotoMono", Opacity = 1, Watermark = true, Keybinds = true },
 }
-Mix.Order = { "NH Classic", "Arceus Purple", "Blood Eye", "Frost Glass", "Terminal" }
+Mix.Order = { "NH Classic", "Arceus Purple", "Blood Eye", "Frost Glass", "Terminal", "Sakura", "Aurora", "Obsidian", "Copper", "Solarized", "Violet Ice" }
 
 --------------------------------------------------------------------
 -- HUD (watermark + keybind list), recolors with the library theme

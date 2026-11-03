@@ -6,7 +6,13 @@
     'Arceus Purple': { accent:'#a43cff', bg:'#0d0d0f', panel:'#141416', item:'#1a1a1d', line:'#2b2b31', border:'#34343a', text:'#c9c9d0', mute:'#72727d', font:'Arial,sans-serif', watermark:true, keys:true },
     'Blood Eye': { accent:'#ff3232', bg:'#0e0a0b', panel:'#140e0f', item:'#1c1416', line:'#302225', border:'#463034', text:'#c8bebe', mute:'#766264', font:'Arial,sans-serif', watermark:true, keys:false },
     'Frost Glass': { accent:'#8cd2ff', bg:'#0c1016', panel:'#11161e', item:'#181f2a', line:'#283446', border:'#3a4a62', text:'#cddceb', mute:'#70829b', font:"'Courier New',monospace", watermark:false, keys:true },
-    'Terminal': { accent:'#4cd37b', bg:'#080b09', panel:'#0c110e', item:'#121914', line:'#1e3426', border:'#284834', text:'#96e1af', mute:'#467858', font:"'Courier New',monospace", watermark:true, keys:true }
+    'Terminal': { accent:'#4cd37b', bg:'#080b09', panel:'#0c110e', item:'#121914', line:'#1e3426', border:'#284834', text:'#96e1af', mute:'#467858', font:"'Courier New',monospace", watermark:true, keys:true },
+    'Sakura': {accent:'#ff92b8',bg:'#140c12',panel:'#1c1119',item:'#271721',line:'#422735',border:'#5a3648',text:'#f4dbe6',mute:'#a5748c',font:'Arial,sans-serif',watermark:true,keys:true},
+    'Aurora': {accent:'#5be8be',bg:'#081112',panel:'#0b1719',item:'#0f2022',line:'#213b3e',border:'#2d4e52',text:'#cdeee7',mute:'#649792',font:"'Courier New',monospace",watermark:true,keys:true},
+    'Obsidian': {accent:'#9da6ff',bg:'#07080b',panel:'#0d0e13',item:'#15161d',line:'#252732',border:'#383a48',text:'#dcdee8',mute:'#757889',font:'Arial,sans-serif',watermark:true,keys:true},
+    'Copper': {accent:'#e8925d',bg:'#120c0a',panel:'#1b120f',item:'#261914',line:'#412c22',border:'#533829',text:'#ecdac9',mute:'#9f7f69',font:'Arial,sans-serif',watermark:true,keys:true},
+    'Solarized': {accent:'#b58900',bg:'#001e26',panel:'#002b36',item:'#073642',line:'#1e4b56',border:'#305f68',text:'#dce1c9',mute:'#839496',font:"'Courier New',monospace",watermark:true,keys:true},
+    'Violet Ice': {accent:'#b4a6ff',bg:'#0d0d16',panel:'#13131f',item:'#1b1c2c',line:'#2d3045',border:'#3e425b',text:'#dee0f4',mute:'#8086a5',font:"'Courier New',monospace",watermark:true,keys:true}
   };
   const T = (label, flag, on = false, colors = []) => ({type:'toggle',label,flag,on,colors});
   const S = (label, flag, options, value) => ({type:'select',label,flag,options,value});
@@ -82,12 +88,22 @@
     $('#watermark').style.display=m.watermark?'':'none';$('#keybinds').style.display=m.keys?'':'none';$('#current-theme').textContent=name.toUpperCase();
   }
   function showMenu(show){menuShown=show; menuWrap.style.display=show?'':'none'; $('#floating').style.display=show?'none':'block';}
-  function fit(){const w=stage.clientWidth,h=stage.clientHeight; menuWrap.style.setProperty('--scale',Math.min(1,(w-24)/750,(h-24)/600));}
+  function fit(){
+    const w=stage.clientWidth,h=stage.clientHeight;
+    const width=Math.min(750,Math.max(280,w-24)),height=Math.min(600,Math.max(180,h-24));
+    menuWrap.style.width=width+'px';menuWrap.style.height=height+'px';
+    menuWrap.style.setProperty('--scale',Math.min(1,(w-24)/width,(h-24)/height));
+    menuWrap.classList.toggle('compact',width<560);
+  }
   function stopIntro(){introTimers.forEach(clearTimeout);introTimers=[];$('#intro').hidden=true;$('#intro').classList.remove('smash');$('#intro-checks').hidden=false;$('#intro-reveal').hidden=true;}
   function later(fn,ms){introTimers.push(setTimeout(fn,ms));}
   function playIntro(){
     stopIntro();showMenu(true); const overlay=$('#intro'); overlay.hidden=false;
-    const checks=[['Platform','Desktop'],['Screen size','1280x720'],['Client version','Loaded'],['Game loaded','Loaded'],['Local player','Found'],['PlayerGui','Found'],['Frame rate','60 FPS'],['Network ping','42 ms'],['Input','Keyboard + mouse']];
+    const touch=(navigator.maxTouchPoints||0)>0, agent=navigator.userAgent||'';
+    const mobile=/Android|iPhone|iPad|iPod/i.test(agent) || (/Macintosh/i.test(agent)&&touch);
+    const device=mobile?'Mobile':touch?'Hybrid':'Desktop';
+    const orientation=window.innerWidth>=window.innerHeight?'Landscape':'Portrait';
+    const checks=[['Device',device],['Layout',orientation+(menuWrap.classList.contains('compact')?' / 1 col':' / 2 col')],['Screen size',window.innerWidth+'x'+window.innerHeight],['Client version','Simulated'],['Game loaded','Simulated'],['Local player','Simulated'],['PlayerGui','Simulated'],['Frame rate','60 FPS'],['Network ping','42 ms'],['Input',touch?'Touch':'Keyboard / mouse']];
     $('#check-list').innerHTML='';$('#terminal').textContent='';$('#intro-progress').style.width='0%';$('#intro-status').textContent='Starting up...';
     const terminal=['ARC3USX.EXE boot v1.0.0','init compat scanner ...','resolve sym_4c1 = 0xa5b702','chunk[142] crc 0xe14b09 ok','stack.check 0xf3a728 ok'];
     checks.forEach(([key,val],i)=>later(()=>{ $('#check-list').insertAdjacentHTML('beforeend',`<div class="check-line"><span>${esc(key)}</span><span>${esc(val)} &nbsp; OK</span></div>`); $('#intro-progress').style.width=((i+1)/checks.length*100)+'%';$('#intro-status').textContent='Checking '+key.toLowerCase()+'...';terminal.push('$ check '+key.toLowerCase()+' ...','  [OK] '+val,'alloc 1a8e bytes @ 0x54ac2f');$('#terminal').textContent=terminal.join('\n');},250+i*240));
