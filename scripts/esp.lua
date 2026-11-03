@@ -88,8 +88,6 @@ local ORE_COLORS = {
     SulfurNode = Color3.fromRGB(255, 230, 0), Tree = Color3.fromRGB(120, 70, 30),
     Meteor = Color3.fromRGB(180, 80, 255), StoneNode = Color3.fromRGB(160, 160, 160),
 }
--- ItemIcons.lua identifies these inventory IDs. Node-to-drop mappings are fallbacks;
--- a replicated drop attribute takes priority, and unknown drops are not guessed.
 local ORE_DROPS = { MetalNode = "metal_ore", SulfurNode = "sulfur_ore", StoneNode = "stones", Tree = "wood" }
 local ORE_ABBR = { metal_ore = "MO", sulfur_ore = "SO", stones = "ST", wood = "WD", cloth = "CL" }
 local function colorToggle(group, name, flag, defaults, callback, default)
@@ -325,7 +323,7 @@ local function draw(entry, key, class)
     -- Register before configuring so an error still gets cleaned up.
     table.insert(entry.drawings, object)
     object.Visible = false
-    object.Transparency = 1
+    object.Transparency = 0
     if class == "Text" then
         object.Size = 14
         object.Center = true
@@ -648,7 +646,6 @@ local function consider(object)
     if topLevelIn(object, "Loot") then newEntry("loot", object) end
     if topLevelIn(object, "Deployables") then newEntry("dep", object) end
     if (object:IsA("Model") or object:IsA("BasePart")) and ORE_COLORS[object.Name] then
-        -- Avoid duplicate labels for a same-named part inside its node model.
         local parent = object.Parent
         if not (parent and parent.Name == object.Name and (parent:IsA("Model") or parent:IsA("BasePart"))) then newEntry("ore", object) end
     end
@@ -753,7 +750,6 @@ local function scanStaff()
     staffLabel:SetText((flags.staff_monitor or flags.staff_esp) and (#labels > 0 and table.concat(labels, "\n") or "No staff detected.") or "Staff scan inactive.")
 end
 staffGroup:AddButton({ Name = "Scan Now", Callback = function()
-    -- Manual scan reports roles even while automatic monitoring is disabled.
     local names = {}
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
@@ -794,7 +790,6 @@ connect(RunService.RenderStepped, function(dt)
                         entry.retryAt, entry.reportedError = nil, nil
                     else
                         hide(entry)
-                        -- Release partially constructed drawings and back off on persistent errors.
                         destroy(entry)
                         entry.drawings, entry.parts, entry.highlight = {}, {}, nil
                         entry.retryAt = os.clock() + 2
