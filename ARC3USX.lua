@@ -1666,7 +1666,7 @@ function Window:SelectTab(tab)
 end
 
 function Window:AddTab(name)
-    local tab = { Name = name, Window = self }
+    local tab = { Name = name, Window = self, _groupOrder = { Left = 0, Right = 0 } }
     tab.Button = New("TextButton", {
         Text = name,
         BackgroundColor3 = T.P2,
@@ -1718,8 +1718,11 @@ function Window:AddTab(name)
     tab:Relayout()
 
     function tab:AddGroup(title, side)
-        local parent = (side == "Right") and self.Right or self.Left
+        local columnName = side == "Right" and "Right" or "Left"
+        local parent = self[columnName]
+        self._groupOrder[columnName] = self._groupOrder[columnName] + 1
         local box = New("Frame", {
+            LayoutOrder = self._groupOrder[columnName],
             Size = UDim2.new(1, 0, 0, 0),
             AutomaticSize = Enum.AutomaticSize.Y,
             BackgroundTransparency = 1,

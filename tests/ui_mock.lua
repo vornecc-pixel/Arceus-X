@@ -163,6 +163,17 @@ for _,o in ipairs(objects) do
     end
 end
 assert(foundHud and foundLogo and foundIntroLogo, "mix HUD, title logo and intro logo applied")
+local silentGroup, gunGroup, recoilGroup
+local combatTab=loadedLibrary._windows[1].Tabs[2]
+for _, o in ipairs(objects) do
+    if o.ClassName=="TextLabel" and o:IsDescendantOf(combatTab.Page) then
+        if o.Text=="Silent Aim" then silentGroup=o.Parent end
+        if o.Text=="Gun Master" then gunGroup=o.Parent end
+        if o.Text=="Recoil & Bloom" then recoilGroup=o.Parent end
+    end
+end
+assert(silentGroup and gunGroup and recoilGroup, "combat groups exist")
+assert(silentGroup.LayoutOrder < gunGroup.LayoutOrder and gunGroup.LayoutOrder==2 and recoilGroup.LayoutOrder==1, "groups have explicit per-column order, with silent aim first")
 for _, flag in ipairs({ "plr_enabled", "npc_enabled", "ore_enabled", "heli_enabled", "staff_monitor", "staff_esp", "silent_enabled", "silent_enabled_bind", "silent_fov", "silent_prediction", "silent_visibility", "silent_ignore_team", "silent_range", "silent_players", "silent_npcs", "gunmods_enabled", "bowmods_enabled", "universal_ammo", "universal_noair", "weakspot_enabled", "NH_Mix" }) do
     assert(loadedLibrary.Options[flag], "control missing: "..flag)
 end

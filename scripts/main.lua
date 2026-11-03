@@ -524,6 +524,8 @@ local function stopSilent()
 end
 
 local SA = Combat:AddGroup("Silent Aim", "Left")
+-- Keep this first even if an executor still has an older UI library cached.
+if SA.Inner and SA.Inner.Parent then SA.Inner.Parent.LayoutOrder = -1 end
 SA:AddToggle({ Name = "Enable Silent Aim", Flag = "silent_enabled", Default = false, Bind = true, BindDefault = Enum.KeyCode.F })
 SA:AddSlider({ Name = "FOV (screen pixels)", Flag = "silent_fov", Min = 10, Max = 1000, Default = 250 })
 SA:AddToggle({ Name = "Prediction + drop compensation", Flag = "silent_prediction", Default = true })
