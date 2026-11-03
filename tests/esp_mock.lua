@@ -66,7 +66,7 @@ workspace = world
 world.DescendantAdded, world.DescendantRemoving = signal(), signal()
 world.CurrentCamera = { CFrame = { Position = v3.new(0, 0, 0) }, ViewportSize = { X = 800, Y = 600 } }
 function world.CurrentCamera:WorldToViewportPoint(p) return { X = 400 + p.X * 10, Y = 300 - p.Y * 10, Z = p.Z } end
-function world:Raycast() return nil end
+function world:Raycast() return self.obstruction end
 function world:GetDescendants()
     local result = {}
     for _, n in ipairs(nodes) do if n:IsDescendantOf(self) then table.insert(result, n) end end
@@ -74,8 +74,12 @@ function world:GetDescendants()
 end
 local gui = node("CoreGui", "CoreGui")
 Instance = { new = function(class) return node(class, class) end }
-local drawings = {}
+local drawings, failAfter = {}, nil
 Drawing = { new = function(class)
+    if failAfter then
+        failAfter = failAfter - 1
+        if failAfter <= 0 then error("simulated drawing failure") end
+    end
     local d = { class = class, Visible = false, removed = false }
     function d:Remove() self.removed = true; self.Visible = false end
     table.insert(drawings, d)
@@ -145,7 +149,9 @@ local function visible()
     for _, d in ipairs(drawings) do if d.Visible and not d.removed then n = n + 1 end end
     return n
 end
-local function tick() run.RenderStepped:Fire(1/30) end
+local mockClock = 0
+os.clock = function() return mockClock end
+local function tick() mockClock=mockClock+1/30;run.RenderStepped:Fire(1/30) end
 
 dofile("scripts/esp.lua")
 assert(type(env.ARC3USX_ESP_UNLOAD) == "function", "unload registered")
@@ -157,6 +163,44 @@ target.Character = model
 target.CharacterAdded:Fire(model)
 tick()
 assert(visible() > 0, "new player produces drawings")
+library.Flags.esp_master=false;tick();assert(visible()==0, "global toggle hides overlays")
+library.Flags.esp_master=true;tick();assert(visible()>0, "global toggle restores overlays")
+target.attributes={AdminRole="mod"};library.Flags.staff_esp=true
+for _=1,35 do tick() end
+local staffHighlight
+for _,o in ipairs(nodes) do if o.Name=="ARC3USX_Staff" and o.Parent then staffHighlight=o end end
+assert(staffHighlight and staffHighlight.Enabled, "staff highlight is created")
+library.Flags.esp_master=false;tick();assert(not staffHighlight.Enabled, "global toggle also hides staff highlights")
+library.Flags.esp_master=true;library.Flags.staff_esp=false
+for _=1,35 do tick() end
+assert(staffHighlight.Destroyed, "disabled staff highlight is cleaned up")
+players.LocalPlayer.Team="blue";target.Team="blue";library.Flags.plr_ignore_team=true;tick()
+assert(visible()==0, "team filter hides teammates")
+target.Team="red";tick();assert(visible()>0, "team filter leaves enemies visible")
+library.Flags.plr_ignore_team=false
+local beforeTracer=visible();library.Flags.plr_tracer=true;tick();assert(visible()==beforeTracer+1, "player tracer appears")
+library.Flags.plr_tracer=false;tick();assert(visible()==beforeTracer, "player tracer hides")
+local oldCamera=world.CurrentCamera
+world.obstruction={Instance=node("BasePart","Wall",world)}
+world.CurrentCamera={CFrame=oldCamera.CFrame,ViewportSize=oldCamera.ViewportSize,WorldToViewportPoint=oldCamera.WorldToViewportPoint}
+library.Flags.plr_visible_only=true;tick();assert(visible()==0, "visible-only filter hides occluded target")
+world.obstruction=nil;world.CurrentCamera=oldCamera;tick();assert(visible()>0, "camera replacement refreshes visibility")
+library.Flags.plr_visible_only=false
+local broken=player("Broken")
+players.PlayerAdded:Fire(broken)
+broken.Character=character("BrokenCharacter",world)
+broken.CharacterAdded:Fire(broken.Character)
+local firstDraw=#drawings+1
+failAfter=4;tick()
+assert(#drawings==firstDraw+2, "failure happens after partially constructing an overlay")
+for i=firstDraw,#drawings do assert(drawings[i].removed, "partial drawings are removed on error") end
+local afterFailure=#drawings
+for _=1,30 do tick() end
+assert(#drawings==afterFailure, "failed overlay backs off instead of allocating each frame")
+failAfter=nil
+for _=1,32 do tick() end
+assert(#drawings>afterFailure, "failed overlay retries and recovers")
+players.PlayerRemoving:Fire(broken)
 humanoid.Health = 0
 tick()
 assert(visible() == 0, "death hides drawings")
@@ -182,7 +226,11 @@ local ore = node("BasePart", "MetalNode", world)
 ore.Position = v3.new(0, 0, 10)
 world.DescendantAdded:Fire(ore)
 tick()
-assert(visible() > 0, "new basepart resource draws")
+assert(visible() == 3, "resource marker, name and distance draw")
+library.Flags.ore_marker=false;library.Flags.ore_name=false;tick()
+assert(visible()==1, "resource name and marker can be disabled independently")
+library.Flags.ore_dist=false;tick();assert(visible()==0, "resource distance can be disabled")
+library.Flags.ore_marker=true;library.Flags.ore_name=true;library.Flags.ore_dist=true
 world.DescendantRemoving:Fire(ore)
 ore.Parent = nil
 assert(visible() == 0, "resource removal cleans up")
@@ -193,6 +241,14 @@ world.DescendantAdded:Fire(npc)
 library.Flags.npc_enabled = true
 tick()
 assert(visible() > 0, "NPC under Npcs folder draws")
+local withHealth=visible();library.Flags.npc_health=false;tick();assert(visible()==withHealth-2, "NPC health bar toggles")
+library.Flags.npc_health=true;tick()
+local beforeNpcTracer=visible();library.Flags.npc_tracer=true;tick();assert(visible()==beforeNpcTracer+1, "NPC tracer toggles")
+library.Flags.npc_tracer=false;tick()
+local head=node("BasePart","Head",npc);head.Position=v3.new(0,2,10)
+local torso=node("BasePart","Torso",npc);torso.Position=v3.new(0,1,10)
+local beforeBones=visible();tick();assert(visible()==beforeBones+1, "NPC skeleton draws for supported rigs")
+library.Flags.npc_skel=false;tick();assert(visible()==beforeBones, "NPC skeleton toggles")
 npcHumanoid.Health = 0
 tick()
 assert(visible() == 0, "NPC death hides drawings")

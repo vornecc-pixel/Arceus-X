@@ -23,13 +23,14 @@
   const human = prefix => {
     const p = prefix === 'plr', name = p ? 'Players' : 'NPCs';
     const list = [T(`Master Enable (${name})`,`${prefix}_master`,true),T(`${name} ESP Toggle`,`${prefix}_enabled`),R('Max Distance',`${prefix}_max_dist`,10,2000,500,'m'),S('Box Style',`${prefix}_style`,['Corners','Full'],'Corners'),T('Box',`${prefix}_box`,true,['#ffffff']),T('Name',`${prefix}_name`,true,['#ffffff']),T('Distance',`${prefix}_dist`,true,['#ffffff']),T('Weapon',`${prefix}_weapon`,true,[p?'#00ffff':'#ffb43c'])];
-    if(p) list.push(T('Health Bar','plr_health',true,['#00ff00','#ff0000']),T('Skeleton','plr_skel',true,['#ffffff']));
+    list.push(T('Health Bar',`${prefix}_health`,true,['#00ff00','#ff0000']),T('Skeleton',`${prefix}_skel`,true,['#ffffff']),T('Tracers',`${prefix}_tracer`,false,[p?'#98bcff':'#ffb43c']),T('Visible Only',`${prefix}_visible_only`));
+    if(p) list.push(T('Hide Teammates','plr_ignore_team'));
     list.push(T('Chams',`${prefix}_chams`,true,[p?'#00ffff':'#3cff78','#ff3250'])); return list;
   };
   const slider = (label, flag, value=0) => R(label,flag,0,1,value);
   const layout = {
     'ESP / World': [
-      [group('Player ESP',human('plr')),group('Ore ESP',[T('Master Enable (Ores)','ore_master',true),T('Ores ESP Toggle','ore_enabled'),R('Max Distance','ore_max_dist',10,2000,300,'m'),T('Show Distance','ore_dist',true),...['Cactus','MetalNode','SulfurNode','Tree','Meteor','StoneNode'].map(x=>T(x,'ore_'+x,true))])],
+      [group('Overlay Settings',[T('Show ESP','esp_master',true),R('Updates Per Second','esp_rate',5,60,30,' Hz')]),group('Player ESP',human('plr')),group('Ore ESP',[T('Master Enable (Ores)','ore_master',true),T('Ores ESP Toggle','ore_enabled'),R('Max Distance','ore_max_dist',10,2000,300,'m'),T('Show Name','ore_name',true),T('Show Marker','ore_marker',true),T('Show Distance','ore_dist',true),...['Cactus','MetalNode','SulfurNode','Tree','Meteor','StoneNode'].map(x=>T(x,'ore_'+x,true))])],
       [group('NPC ESP',human('npc')),group('Heli ESP',[T('Master Enable (Heli)','heli_master',true),T('Heli ESP Toggle','heli_enabled'),R('Max Distance','heli_max_dist',10,5000,2000,'m'),S('Box Style','heli_style',['Corners','Full'],'Full'),T('Chams','heli_chams',true),T('Show Distance','heli_dist',true)]),group('ESP Preview',[{type:'preview'}])]
     ],
     'Combat': [
@@ -65,7 +66,7 @@
     if(r.type==='range'){const pct=(state[r.flag]-r.min)/(r.max-r.min)*100;return `<div class="slider-row"><div class="control-heading"><span>${esc(r.label)}</span><span data-value="${esc(r.flag)}">${state[r.flag]}${esc(r.suffix||'')}</span></div><div class="slider-controls"><button class="slider-step" data-step="-1" aria-label="Decrease ${esc(r.label)}">−</button><input type="range" data-range="${esc(r.flag)}" data-suffix="${esc(r.suffix||'')}" min="${r.min}" max="${r.max}" step="${r.max<=1?'.001':'1'}" value="${state[r.flag]}" style="--pct:${pct}%" aria-label="${esc(r.label)}"><button class="slider-step" data-step="1" aria-label="Increase ${esc(r.label)}">+</button></div></div>`;}
     if(r.type==='button') return `<button class="ui-button" data-action="${esc(r.action)}">${esc(r.label)}</button>`;
     if(r.type==='label') return `<p class="label-text">${esc(r.label)}</p>`;
-    if(r.type==='preview') return `<div class="preview-stage"><div class="figure"><div class="part head"></div><div class="part torso"></div><div class="part arm1"></div><div class="part arm2"></div><div class="part leg1"></div><div class="part leg2"></div><svg class="skeleton" viewBox="0 0 60 130" fill="none" stroke="white" stroke-width="1.5"><path d="M30 10V68 M16 28H44 M16 28L9 64 M44 28L51 64 M30 68L22 98V124 M30 68L38 98V124"/></svg><div class="esp-frame"></div><div class="health"><i></i></div><div class="figure-label name">Target</div><div class="figure-label distance">42m</div><div class="figure-label weapon">Sword</div></div></div>`;
+    if(r.type==='preview') return `<div class="preview-stage"><div class="tracer-preview"></div><div class="figure"><div class="part head"></div><div class="part torso"></div><div class="part arm1"></div><div class="part arm2"></div><div class="part leg1"></div><div class="part leg2"></div><svg class="skeleton" viewBox="0 0 60 130" fill="none" stroke="white" stroke-width="1.5"><path d="M30 10V68 M16 28H44 M16 28L9 64 M44 28L51 64 M30 68L22 98V124 M30 68L38 98V124"/></svg><div class="esp-frame"></div><div class="health"><i></i></div><div class="figure-label name">Target</div><div class="figure-label distance">42m</div><div class="figure-label weapon">Sword</div></div></div>`;
     return '';
   }
   function render(){
@@ -75,7 +76,7 @@
   }
   function updateFigure(){
     const fig=$('.figure'); if(!fig)return;
-    fig.classList.toggle('chams',!!state.plr_chams);
+    fig.classList.toggle('chams',!!state.plr_chams);const tracer=$('.tracer-preview');tracer.style.display=state.plr_tracer?'':'none';if(colors.plr_tracer)tracer.style.background=colors.plr_tracer[0];
     $('.esp-frame',fig).style.display=state.plr_box?'':'none'; $('.esp-frame',fig).classList.toggle('corners',state.plr_style==='Corners');
     $('.name',fig).style.display=state.plr_name?'':'none'; $('.distance',fig).style.display=state.plr_dist?'':'none'; $('.weapon',fig).style.display=state.plr_weapon?'':'none'; $('.health',fig).style.display=state.plr_health?'':'none'; $('.skeleton',fig).style.display=state.plr_skel?'':'none';
     const partColor=colors.plr_chams?.[0]; if(partColor) fig.style.setProperty('--chams',partColor);

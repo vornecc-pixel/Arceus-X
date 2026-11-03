@@ -10,7 +10,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
 local STUD_TO_METER = 0.28
-local UPDATE_INTERVAL = 1 / 30
 
 local function report(message)
     warn("[ARC3USX ESP] " .. tostring(message))
@@ -80,7 +79,9 @@ local Colors = {
     plr_occ = Color3.fromRGB(255, 50, 80), npc_box = Color3.new(1, 1, 1),
     npc_name = Color3.new(1, 1, 1), npc_dist = Color3.new(1, 1, 1),
     npc_weapon = Color3.fromRGB(255, 180, 60), npc_vis = Color3.fromRGB(60, 255, 120),
-    npc_occ = Color3.fromRGB(255, 50, 80),
+    npc_occ = Color3.fromRGB(255, 50, 80), npc_skel = Color3.new(1, 1, 1),
+    npc_hp_high = Color3.fromRGB(0, 255, 0), npc_hp_low = Color3.fromRGB(255, 0, 0),
+    plr_tracer = Color3.fromRGB(152, 188, 255), npc_tracer = Color3.fromRGB(255, 180, 60),
 }
 local ORE_COLORS = {
     Cactus = Color3.fromRGB(0, 200, 80), MetalNode = Color3.fromRGB(180, 180, 180),
@@ -103,20 +104,26 @@ local function humanGroup(group, prefix, title)
         local colorKey = prefix .. "_" .. key
         colorToggle(group, label, colorKey, { Colors[colorKey] }, function(_, color) Colors[colorKey] = color end)
     end
-    if prefix == "plr" then
-        colorToggle(group, "Health Bar", "plr_health", { Colors.plr_hp_high, Colors.plr_hp_low }, function(i, c)
-            if i == 1 then Colors.plr_hp_high = c else Colors.plr_hp_low = c end
-        end)
-        colorToggle(group, "Skeleton", "plr_skel", { Colors.plr_skel }, function(_, c) Colors.plr_skel = c end)
-    end
+    colorToggle(group, "Health Bar", prefix .. "_health", { Colors[prefix .. "_hp_high"], Colors[prefix .. "_hp_low"] }, function(i, c)
+        Colors[prefix .. (i == 1 and "_hp_high" or "_hp_low")] = c
+    end)
+    colorToggle(group, "Skeleton", prefix .. "_skel", { Colors[prefix .. "_skel"] }, function(_, c) Colors[prefix .. "_skel"] = c end)
+    colorToggle(group, "Tracers", prefix .. "_tracer", { Colors[prefix .. "_tracer"] }, function(_, c) Colors[prefix .. "_tracer"] = c end, false)
+    group:AddToggle({ Name = "Visible Only", Flag = prefix .. "_visible_only", Default = false })
+    if prefix == "plr" then group:AddToggle({ Name = "Hide Teammates", Flag = "plr_ignore_team", Default = false }) end
     colorToggle(group, "Chams", prefix .. "_chams", { Colors[prefix .. "_vis"], Colors[prefix .. "_occ"] }, function(i, c)
         Colors[prefix .. (i == 1 and "_vis" or "_occ")] = c
     end)
 end
+local globalGroup = Visuals:AddGroup("Overlay Settings", "Left")
+globalGroup:AddToggle({ Name = "Show ESP", Flag = "esp_master", Default = true })
+globalGroup:AddSlider({ Name = "Updates Per Second", Flag = "esp_rate", Min = 5, Max = 60, Default = 30, Suffix = " Hz" })
 humanGroup(Visuals:AddGroup("Player ESP", "Left"), "plr", "Players")
 humanGroup(Visuals:AddGroup("NPC ESP", "Right"), "npc", "NPCs")
 local oreGroup = Visuals:AddGroup("Ore ESP", "Left")
 commonGroup(oreGroup, "ore", "Ores", 2000, 300)
+oreGroup:AddToggle({ Name = "Show Name", Flag = "ore_name", Default = true })
+oreGroup:AddToggle({ Name = "Show Marker", Flag = "ore_marker", Default = true })
 oreGroup:AddToggle({ Name = "Show Distance", Flag = "ore_dist", Default = true })
 for _, name in ipairs({ "Cactus", "MetalNode", "SulfurNode", "Tree", "Meteor", "StoneNode" }) do
     oreGroup:AddToggle({ Name = name, Flag = "ore_" .. name, Default = true })
@@ -290,7 +297,19 @@ end
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 rayParams.IgnoreWater = true
-local function updateHighlight(entry, camera, root, enabled, visibleColor, occludedColor)
+local function visibleFromCamera(entry, camera, root)
+    if entry.visibilityCamera ~= camera or os.clock() >= entry.visibleAt then
+        entry.visibilityCamera = camera
+        entry.visibleAt = os.clock() + 0.2
+        local ignore = { entry.model }
+        if LocalPlayer.Character then table.insert(ignore, LocalPlayer.Character) end
+        rayParams.FilterDescendantsInstances = ignore
+        local direction = root.Position - camera.CFrame.Position
+        entry.visible = direction.Magnitude < 0.1 or not workspace:Raycast(camera.CFrame.Position, direction, rayParams)
+    end
+    return entry.visible
+end
+local function updateHighlight(entry, enabled, visibleColor, occludedColor, isVisible)
     if not enabled then
         if entry.highlight then entry.highlight.Enabled = false end
         return
@@ -303,15 +322,7 @@ local function updateHighlight(entry, camera, root, enabled, visibleColor, occlu
         highlight.Parent = CoreGui
         entry.highlight = highlight
     end
-    if os.clock() >= entry.visibleAt then
-        entry.visibleAt = os.clock() + 0.2
-        local ignore = { entry.model }
-        if LocalPlayer.Character then table.insert(ignore, LocalPlayer.Character) end
-        rayParams.FilterDescendantsInstances = ignore
-        local direction = root.Position - camera.CFrame.Position
-        entry.visible = direction.Magnitude < 0.1 or not workspace:Raycast(camera.CFrame.Position, direction, rayParams)
-    end
-    local color = entry.visible and visibleColor or occludedColor
+    local color = isVisible and visibleColor or occludedColor
     entry.highlight.FillColor, entry.highlight.OutlineColor = color, color
     entry.highlight.Enabled = true
 end
@@ -325,7 +336,10 @@ local function renderEntry(kind, entry, camera, flags)
     if kind == "plr" or kind == "npc" then
         humanoid = model:FindFirstChildOfClass("Humanoid")
         if not humanoid or humanoid.Health <= 0 then return hide(entry) end
-        if kind == "plr" and (not entry.player or entry.player.Character ~= model) then return hide(entry) end
+        if kind == "plr" then
+            if not entry.player or entry.player.Character ~= model then return hide(entry) end
+            if flags.plr_ignore_team and LocalPlayer.Team and entry.player.Team == LocalPlayer.Team then return hide(entry) end
+        end
         if kind == "npc" then
             local folder = workspace:FindFirstChild("Npcs")
             if not folder or not model:IsDescendantOf(folder) or Players:GetPlayerFromCharacter(model) then return hide(entry) end
@@ -342,8 +356,8 @@ local function renderEntry(kind, entry, camera, flags)
         if z <= 0 or x < 0 or y < 0 or x > viewport.X or y > viewport.Y then return hide(entry) end
         local color = ORE_COLORS[model.Name]
         if not color then return hide(entry) end
-        square(entry, "box", x - 3, y - 3, 6, 6, color, true)
-        text(entry, "name", model.Name, color, x, y - 18)
+        if flags.ore_marker then square(entry, "box", x - 3, y - 3, 6, 6, color, true) else setHidden(entry, "box") end
+        if flags.ore_name then text(entry, "name", model.Name, color, x, y - 18) else setHidden(entry, "name") end
         if flags.ore_dist then text(entry, "distance", string.format("%.0fm", distance), Color3.new(1, 1, 1), x, y + 6) else setHidden(entry, "distance") end
         return
     end
@@ -352,12 +366,18 @@ local function renderEntry(kind, entry, camera, flags)
     local cx, height = (left + right) / 2, bottom - top
     if kind == "heli" then
         local color = Color3.fromRGB(255, 170, 0)
-        updateHighlight(entry, camera, root, flags.heli_chams, color, color)
+        updateHighlight(entry, flags.heli_chams, color, color, true)
         box(entry, left, top, right, bottom, flags.heli_style, color)
         if flags.heli_dist then text(entry, "distance", string.format("%.0fm", distance), Color3.new(1, 1, 1), cx, bottom + 2) else setHidden(entry, "distance") end
         return
     end
-    updateHighlight(entry, camera, root, flags[kind .. "_chams"], Colors[kind .. "_vis"], Colors[kind .. "_occ"])
+    local isVisible = true
+    if flags[kind .. "_visible_only"] or flags[kind .. "_chams"] then isVisible = visibleFromCamera(entry, camera, root) end
+    if flags[kind .. "_visible_only"] and not isVisible then return hide(entry) end
+    updateHighlight(entry, flags[kind .. "_chams"], Colors[kind .. "_vis"], Colors[kind .. "_occ"], isVisible)
+    if flags[kind .. "_tracer"] then
+        line(entry, "tracer", camera.ViewportSize.X / 2, camera.ViewportSize.Y, cx, bottom, Colors[kind .. "_tracer"])
+    else setHidden(entry, "tracer") end
     if flags[kind .. "_box"] then box(entry, left, top, right, bottom, flags[kind .. "_style"], Colors[kind .. "_box"]) else hideBox(entry) end
     if flags[kind .. "_name"] then text(entry, "name", entry.player and entry.player.Name or model.Name, Colors[kind .. "_name"], cx, top - 17) else setHidden(entry, "name") end
     if flags[kind .. "_dist"] then text(entry, "distance", string.format("%.0fm", distance), Colors[kind .. "_dist"], cx, bottom + 2) else setHidden(entry, "distance") end
@@ -365,23 +385,21 @@ local function renderEntry(kind, entry, camera, flags)
         local tool = model:FindFirstChildWhichIsA("Tool")
         text(entry, "weapon", tool and tool.Name or "Unarmed", Colors[kind .. "_weapon"], cx, bottom + (flags[kind .. "_dist"] and 18 or 2))
     else setHidden(entry, "weapon") end
-    if kind == "plr" then
-        if flags.plr_health then
-            local health = humanoid.MaxHealth > 0 and math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1) or 0
-            square(entry, "healthBg", left - 7, top, 4, height, Color3.new(0, 0, 0), true)
-            square(entry, "healthFill", left - 6, top + height * (1 - health), 2, height * health, Colors.plr_hp_low:Lerp(Colors.plr_hp_high, health), true)
-        else setHidden(entry, "healthBg"); setHidden(entry, "healthFill") end
-        local bones = model:FindFirstChild("UpperTorso") and bonesR15 or bonesR6
-        for i = 1, #bonesR15 do
-            local bone = bones[i]
-            local a = bone and model:FindFirstChild(bone[1])
-            local b = bone and model:FindFirstChild(bone[2])
-            if flags.plr_skel and a and b and a:IsA("BasePart") and b:IsA("BasePart") then
-                local x1, y1, z1 = project(camera, a.Position)
-                local x2, y2, z2 = project(camera, b.Position)
-                if z1 > 0 and z2 > 0 then line(entry, "bone" .. i, x1, y1, x2, y2, Colors.plr_skel) else setHidden(entry, "bone" .. i) end
-            else setHidden(entry, "bone" .. i) end
-        end
+    if flags[kind .. "_health"] then
+        local health = humanoid.MaxHealth > 0 and math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1) or 0
+        square(entry, "healthBg", left - 7, top, 4, height, Color3.new(0, 0, 0), true)
+        square(entry, "healthFill", left - 6, top + height * (1 - health), 2, height * health, Colors[kind .. "_hp_low"]:Lerp(Colors[kind .. "_hp_high"], health), true)
+    else setHidden(entry, "healthBg"); setHidden(entry, "healthFill") end
+    local bones = model:FindFirstChild("UpperTorso") and bonesR15 or bonesR6
+    for i = 1, #bonesR15 do
+        local bone = bones[i]
+        local a = bone and model:FindFirstChild(bone[1])
+        local b = bone and model:FindFirstChild(bone[2])
+        if flags[kind .. "_skel"] and a and b and a:IsA("BasePart") and b:IsA("BasePart") then
+            local x1, y1, z1 = project(camera, a.Position)
+            local x2, y2, z2 = project(camera, b.Position)
+            if z1 > 0 and z2 > 0 then line(entry, "bone" .. i, x1, y1, x2, y2, Colors[kind .. "_skel"]) else setHidden(entry, "bone" .. i) end
+        else setHidden(entry, "bone" .. i) end
     end
 end
 
@@ -485,7 +503,7 @@ local function scanStaff()
                     if flags.staff_monitor and staffSeen[player] ~= role then print("[StaffDetector] " .. player.Name .. " — " .. tostring(label)) end
                     staffSeen[player] = role
                     local character = player.Character
-                    if flags.staff_esp and character and character:IsDescendantOf(workspace) then
+                    if flags.esp_master and flags.staff_esp and character and character:IsDescendantOf(workspace) then
                         local hl = staffHighlights[player]
                         if not hl then
                             hl = Instance.new("Highlight")
@@ -509,7 +527,7 @@ local function scanStaff()
     end
     for player in pairs(staffSeen) do if not found[player] then staffSeen[player] = nil end end
     for player, hl in pairs(staffHighlights) do
-        if not found[player] or not flags.staff_esp then hl:Destroy(); staffHighlights[player] = nil end
+        if not found[player] or not flags.staff_esp or not flags.esp_master then hl:Destroy(); staffHighlights[player] = nil end
     end
     table.sort(labels)
     staffLabel:SetText((flags.staff_monitor or flags.staff_esp) and (#labels > 0 and table.concat(labels, "\n") or "No staff detected.") or "Staff scan inactive.")
@@ -532,23 +550,37 @@ local categoryActive = {}
 connect(RunService.RenderStepped, function(dt)
     if not alive then return end
     elapsed, staffElapsed = elapsed + dt, staffElapsed + dt
-    if elapsed < UPDATE_INTERVAL then return end
-    elapsed = elapsed % UPDATE_INTERVAL
+    if not Library.Flags.esp_master then
+        for _, highlight in pairs(staffHighlights) do highlight.Enabled = false end
+    end
+    if staffElapsed >= 1 then staffElapsed = 0; scanStaff() end
+    local rate = math.clamp(tonumber(Library.Flags.esp_rate) or 30, 5, 60)
+    local interval = 1 / rate
+    if elapsed < interval then return end
+    elapsed = elapsed % interval
     local camera = workspace.CurrentCamera
     if not camera then
         for _, store in pairs(entries) do for _, entry in pairs(store) do hide(entry) end end
         return
     end
     for kind, store in pairs(entries) do
-        local active = Library.Flags[kind .. "_master"] and Library.Flags[kind .. "_enabled"]
+        local active = Library.Flags.esp_master and Library.Flags[kind .. "_master"] and Library.Flags[kind .. "_enabled"]
         if active then
             for _, entry in pairs(store) do
-                local success, err = pcall(renderEntry, kind, entry, camera, Library.Flags)
-                if not success then
-                    hide(entry)
-                    if not entry.reportedError then
-                        entry.reportedError = true
-                        warn("[ARC3USX ESP] " .. kind .. " render error: " .. tostring(err))
+                if not entry.retryAt or os.clock() >= entry.retryAt then
+                    local success, err = pcall(renderEntry, kind, entry, camera, Library.Flags)
+                    if success then
+                        entry.retryAt, entry.reportedError = nil, nil
+                    else
+                        hide(entry)
+                        -- Release partially constructed drawings and back off on persistent errors.
+                        destroy(entry)
+                        entry.drawings, entry.parts, entry.highlight = {}, {}, nil
+                        entry.retryAt = os.clock() + 2
+                        if not entry.reportedError then
+                            entry.reportedError = true
+                            warn("[ARC3USX ESP] " .. kind .. " render error: " .. tostring(err))
+                        end
                     end
                 end
             end
@@ -557,7 +589,6 @@ connect(RunService.RenderStepped, function(dt)
         end
         categoryActive[kind] = active
     end
-    if staffElapsed >= 1 then staffElapsed = 0; scanStaff() end
 end)
 local function unload()
     if not alive then return end
