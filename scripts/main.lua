@@ -254,52 +254,157 @@ local function updateCombat()
 end
 connect(RunService.Heartbeat, updateCombat)
 
+-- ═══════════════════════════════════════════════════════════════
+-- AUTO WEAKSPOT (real aim + swing)
+-- ═══════════════════════════════════════════════════════════════
 local nodeNames = { Tree = true, MetalNode = true, SulfurNode = true, StoneNode = true, Cactus = true, Meteor = true }
 local cachedNodes = {}
-local weakspotPart
-local function isNode(object) return nodeNames[object.Name] and (object:IsA("Model") or object:IsA("BasePart")) end
-connect(workspace.DescendantAdded, function(object) if isNode(object) then cachedNodes[object] = true end end)
-connect(workspace.DescendantRemoving, function(object) cachedNodes[object] = nil end)
+local weakspotMarkers = {}
+local WEAKSPOT_NAMES = {
+    "Weakspot", "WeakSpot", "WeakPoint", "Weakpoint",
+    "CriticalSpot", "CriticalPart", "Critical", "CritSpot",
+    "Hitpoint", "HitPoint", "HitSpot",
+    "Mark", "MarkSpot",
+    "Bonus", "BonusSpot",
+}
+local SWING_RANGE = 25
+local SWING_INTERVAL = 0.3
+local AIM_SPEED = 0.4
+local AIM_TOLERANCE = 0.97
+local MINING_KEYWORDS = { "pickaxe", "hatchet", "jackhammer", "chainsaw" }
+
+local function isNode(object)
+    return nodeNames[object.Name] and (object:IsA("Model") or object:IsA("BasePart"))
+end
+local function registerNode(object)
+    if isNode(object) then cachedNodes[object] = true end
+end
+local function unregisterNode(object)
+    cachedNodes[object] = nil
+    local marker = weakspotMarkers[object]
+    if marker then pcall(function() marker:Destroy() end); weakspotMarkers[object] = nil end
+end
+connect(workspace.DescendantAdded, registerNode)
+connect(workspace.DescendantRemoving, unregisterNode)
 task.spawn(function()
     for i, object in ipairs(workspace:GetDescendants()) do
         if unloaded then return end
-        if isNode(object) and object:IsDescendantOf(workspace) then cachedNodes[object] = true end
+        registerNode(object)
         if i % 300 == 0 then task.wait() end
     end
 end)
+
+local function findWeakspot(model)
+    for _, name in ipairs(WEAKSPOT_NAMES) do
+        local child = model:FindFirstChild(name, true)
+        if child and child:IsA("BasePart") then return child.Position end
+    end
+    for _, desc in ipairs(model:GetDescendants()) do
+        if desc:IsA("BasePart") then
+            local lower = desc.Name:lower()
+            if lower:find("weak") or lower:find("crit") or lower:find("hitpoint") or lower:find("markspot") or lower:find("bonus") then
+                return desc.Position
+            end
+        end
+    end
+    for _, name in ipairs({ "Weakspot", "CriticalSpot", "Hitpoint", "Mark", "WeakPoint" }) do
+        local att = model:FindFirstChild(name, true)
+        if att and att:IsA("Attachment") then return att.WorldPosition end
+    end
+    return nil
+end
+local function findNearestNode(rootPos)
+    local best, bestPos, bestDist = nil, nil, math.huge
+    for node in pairs(cachedNodes) do
+        if node:IsDescendantOf(workspace) then
+            local ok, pos = pcall(function() return node:GetPivot().Position end)
+            if ok and pos then
+                local d = (pos - rootPos).Magnitude
+                if d < bestDist then best, bestPos, bestDist = node, pos, d end
+            end
+        end
+    end
+    return best, bestPos, bestDist
+end
+local function isMiningTool(tool)
+    if not tool then return false end
+    local name = tool.Name:lower()
+    for _, keyword in ipairs(MINING_KEYWORDS) do
+        if name:find(keyword, 1, true) then return true end
+    end
+    return false
+end
+local function cleanupMarkers(keepNode)
+    for node, marker in pairs(weakspotMarkers) do
+        if node ~= keepNode then pcall(function() marker:Destroy() end); weakspotMarkers[node] = nil end
+    end
+end
+local function updateMarker(node, pos)
+    local marker = weakspotMarkers[node]
+    if not marker then
+        marker = Instance.new("Part")
+        marker.Name = "ARC3USX_Weakspot"
+        marker.Size = Vector3.new(1, 1, 1)
+        marker.Transparency = 0.4
+        marker.Color = Color3.fromRGB(255, 80, 80)
+        marker.Material = Enum.Material.Neon
+        marker.CanCollide = false
+        marker.CanQuery = false
+        marker.CanTouch = false
+        marker.Anchored = true
+        marker.Parent = workspace.CurrentCamera
+        weakspotMarkers[node] = marker
+    end
+    marker.CFrame = CFrame.new(pos)
+end
+
 local weakspotElapsed = 0
+local lastSwing = 0
 connect(RunService.Heartbeat, function(dt)
     if unloaded then return end
     weakspotElapsed = weakspotElapsed + dt
-    if weakspotElapsed < 0.2 then return end
+    if weakspotElapsed < 0.05 then return end
     weakspotElapsed = 0
+
+    local flags = Library.Flags
     local character = LocalPlayer.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
     local tool = character and character:FindFirstChildOfClass("Tool")
-    local flags = Library.Flags
-    local name = tool and tool.Name:lower() or ""
-    local valid = root and tool and (name:find("pickaxe") or name:find("hatchet") or name:find("rock") or name:find("jackhammer") or name:find("chainsaw"))
-    if not flags.weakspot_enabled or not valid then
-        if weakspotPart then weakspotPart:Destroy(); weakspotPart = nil end
-        return
-    end
-    local best, bestDistance = nil, (tonumber(flags.weakspot_max_dist) or 30) / 0.28
-    for object in pairs(cachedNodes) do
-        if object:IsDescendantOf(workspace) then
-            local position = object:GetPivot().Position
-            local distance = (position - root.Position).Magnitude
-            if distance < bestDistance then best, bestDistance = position, distance end
-        end
-    end
-    if best and workspace.CurrentCamera then
-        if not weakspotPart then
-            weakspotPart = Instance.new("Part")
-            weakspotPart.Name = "FustWeakSpot"; weakspotPart.Size = Vector3.new(1, 1, 1)
-            weakspotPart.Transparency = 1; weakspotPart.CanCollide = false; weakspotPart.Anchored = true
-        end
-        weakspotPart.Parent = workspace.CurrentCamera
-        weakspotPart.CFrame = CFrame.new(best)
-    elseif weakspotPart then weakspotPart:Destroy(); weakspotPart = nil end
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+    local shouldAct = flags.weakspot_enabled
+        and root and tool and humanoid and humanoid.Health > 0
+        and LocalPlayer:GetAttribute("Dead") ~= true
+        and isMiningTool(tool)
+
+    if not shouldAct then cleanupMarkers(nil); return end
+
+    local nearest, nearestPos, nearestDist = findNearestNode(root.Position)
+    if not nearest or nearestDist > SWING_RANGE then cleanupMarkers(nil); return end
+
+    local weakspotPos = findWeakspot(nearest) or nearestPos
+    cleanupMarkers(nearest)
+    updateMarker(nearest, weakspotPos)
+
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+
+    local camPos = cam.CFrame.Position
+    local desired = (weakspotPos - camPos).Unit
+    local current = cam.CFrame.LookVector
+    local newLook = current:Lerp(desired, AIM_SPEED).Unit
+    cam.CFrame = CFrame.lookAt(camPos, camPos + newLook)
+
+    local now = os.clock()
+    if now - lastSwing < SWING_INTERVAL then return end
+
+    local camLook = cam.CFrame.LookVector
+    local toTarget = (weakspotPos - camPos).Unit
+    if camLook:Dot(toTarget) < AIM_TOLERANCE then return end
+
+    lastSwing = now
+    pcall(function() tool:Activate() end)
+    if type(mouse1click) == "function" then pcall(mouse1click) end
 end)
 
 local function toggle(group, name, flag, state, field, default)
@@ -349,8 +454,7 @@ toggle(UG, "Infinite Ammo (every weapon)", "universal_ammo", Universal, "Infinit
 toggle(UG, "No Air Block (fire while jumping)", "universal_noair", Universal, "NoAirBlock")
 local WG = Misc:AddGroup("Auto Weakspot", "Left")
 WG:AddToggle({ Name = "Enable Auto Weakspot", Flag = "weakspot_enabled", Default = false })
-WG:AddSlider({ Name = "Max Distance", Flag = "weakspot_max_dist", Min = 5, Max = 100, Default = 30, Suffix = "m" })
-WG:AddLabel("Creates an invisible marker at the nearest node; it does not redirect hits.")
+WG:AddLabel("Aims and auto-swings at the nearest node weakspot.")
 if Mix then pcall(function() Mix.AddTab(Library, Window) end) end
 pcall(function() Window:AddSettingsTab() end)
 local System = Misc:AddGroup("System", "Right")
@@ -359,7 +463,8 @@ local function unload()
     unloaded = true
     for _, connection in ipairs(connections) do connection:Disconnect() end
     if espUnload then pcall(espUnload) end
-    if weakspotPart then weakspotPart:Destroy(); weakspotPart = nil end
+    for _, marker in pairs(weakspotMarkers) do pcall(function() marker:Destroy() end) end
+    weakspotMarkers = {}
     for tag in pairs(changes) do restore(tag) end
     pcall(function() if bowSpecTable and rawget(bowSpecTable, "BowSpec") == wrappedBowSpec then rawset(bowSpecTable, "BowSpec", originalBowSpec) end end)
     pcall(function() if u16Table and rawget(u16Table, "blocked") == wrappedBlocked then rawset(u16Table, "blocked", originalBlocked) end end)
