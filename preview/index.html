@@ -20,8 +20,16 @@
       </section>
 
       <section class="showcase" aria-label="Interactive visual simulation">
-        <div class="showcase-top"><div class="window-dots"><i></i><i></i><i></i></div><span>ARC3USX.EXE <span class="slash">/</span> LIVE UI PREVIEW</span><div class="showcase-badge"><span></span> SIMULATED VIEW</div></div>
-        <div class="stage" id="stage">
+        <div class="showcase-top"><div class="window-dots"><i></i><i></i><i></i></div><span>ARC3USX.EXE <span class="slash">/</span> INTERACTIVE PREVIEW</span><div class="showcase-badge"><span></span> SIMULATED VIEW</div></div>
+        <div class="device-toolbar" aria-label="Choose device preview">
+          <div class="device-switch" role="group" aria-label="Device">
+            <button class="device-choice active" data-device="pc" aria-pressed="true"><span aria-hidden="true">▣</span> PC</button>
+            <button class="device-choice" data-device="portrait" aria-pressed="false"><span aria-hidden="true">▯</span> Mobile</button>
+          </div>
+          <button id="rotate-device" class="rotate-device" disabled><span aria-hidden="true">↻</span> Rotate</button>
+          <div class="device-detail"><span class="device-detail-label">VIEWING</span><strong id="device-label">PC · 1280 × 720</strong><span id="device-description">Two-column desktop layout</span></div>
+        </div>
+        <div class="stage-area" id="stage-area"><div class="device-shell" id="device-shell"><div class="stage" id="stage">
           <div class="landscape" aria-hidden="true"><div class="sky"></div><div class="mountain mountain-back"></div><div class="mountain mountain-mid"></div><div class="ground"></div><div class="horizon"></div><div class="tree tree-one"></div><div class="tree tree-two"></div><div class="tree tree-three"></div><div class="vignette"></div><div class="crosshair"><i></i><b></b></div></div>
           <div id="hud" class="hud"><div id="watermark" class="hud-box">ARC3USX.EXE | 60 fps | 42 ms | <span id="hud-time">12:00</span></div><div id="keybinds" class="hud-box keys"><b>Keybinds</b><span>No active keybinds</span></div></div>
           <div id="menu-wrap" class="menu-wrap">
@@ -39,8 +47,8 @@
             <div id="intro-reveal" class="intro-reveal" hidden><div class="hero-logo"><img src="assets/logo.png" alt="ARC3USX logo"><i class="eye-glow"></i></div><div class="access-box"><strong>ACCESS GRANTED</strong><small>COMPATIBILITY VERIFIED</small></div></div>
             <button id="skip-intro" class="skip-intro">Skip intro <span>→</span></button>
           </div>
-        </div>
-        <div class="showcase-bottom"><div><span class="bottom-dot"></span> UI PREVIEW <span class="bottom-separator">/</span> <span id="current-theme">NH CLASSIC</span></div><div><kbd>RIGHT SHIFT</kbd> TOGGLE MENU <span class="bottom-separator">·</span> <span class="desktop-label">DRAG WINDOW TO MOVE</span></div></div>
+        </div></div></div>
+        <div class="showcase-bottom"><div><span class="bottom-dot"></span> UI PREVIEW <span class="bottom-separator">/</span> <span id="current-theme">NH CLASSIC</span></div><div id="device-hint"><kbd>RIGHT SHIFT</kbd> TOGGLE MENU <span class="bottom-separator">·</span> <span class="desktop-label">DRAG WINDOW TO MOVE</span></div></div>
       </section>
 
       <section class="below"><div class="below-copy"><span class="tiny-label">A NOTE ON THIS PREVIEW</span><p>Explore the tabs and controls, switch mixes, or replay the loading sequence. This is a visual simulation; it doesn’t connect to Roblox or change the game.</p></div><div class="feature-list"><div><span>01</span><b>Animated intro</b><small>Logo & compatibility sequence</small></div><div><span>02</span><b>Eleven visual mixes</b><small>Change them in the Mixes tab</small></div><div><span>03</span><b>Interactive controls</b><small>Toggles, sliders & preview</small></div></div></section>

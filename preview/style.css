@@ -2,3 +2,20 @@
 
 .menu-wrap.compact .columns{grid-template-columns:1fr;gap:20px}.menu-wrap.compact .row{min-height:34px}.menu-wrap.compact .swatch{width:30px;height:26px}.menu-wrap.compact .ui-button{height:34px}.menu-wrap.compact .select-row select{height:32px}.menu-wrap.compact .slider-row{padding-bottom:12px}.menu-wrap.compact .slider-row input{height:16px}.menu-wrap.compact .tab{font-size:12px}
 .menu-wrap.compact .tab[data-tab="ESP / World"],.menu-wrap.compact .tab[data-tab="Settings"]{font-size:0}.menu-wrap.compact .tab[data-tab="ESP / World"]:after{content:'ESP';font-size:12px}.menu-wrap.compact .tab[data-tab="Settings"]:after{content:'Config';font-size:12px}
+/* Device selector and fixed logical viewports: the screen is scaled, not the UI layout. */
+.device-toolbar{display:flex;align-items:center;gap:10px;padding:14px 17px;border-bottom:1px solid #272d35;background:#11151a}
+.device-switch{display:flex;padding:3px;background:#0d1014;border:1px solid #2b323c;gap:3px}
+.device-choice,.rotate-device{border:0;background:transparent;color:#8b96a4;height:31px;padding:0 14px;font:11px 'DM Mono',monospace;white-space:nowrap}
+.device-choice span,.rotate-device span{font-size:15px;vertical-align:-1px;margin-right:6px}
+.device-choice:hover,.rotate-device:not(:disabled):hover{color:#e7edf7;background:#252d37}
+.device-choice.active{color:#e8effb;background:#303c4d;box-shadow:inset 0 0 0 1px #47586f}
+.rotate-device{border:1px solid #343d48;background:#171c23}.rotate-device:disabled{opacity:.35;cursor:not-allowed}
+.device-detail{margin-left:auto;text-align:right;display:flex;align-items:baseline;gap:10px;color:#8491a2;font:10px 'DM Mono',monospace}
+.device-detail strong{font-weight:500;color:#c9d5e5}.device-detail-label{font-size:9px;letter-spacing:.1em;color:#657080}
+.stage-area{display:flex;justify-content:center;align-items:center;background:#171b21;min-height:200px;overflow:hidden}
+.stage-area.mobile{padding:24px 20px;background:radial-gradient(ellipse at 50% 35%,#29313c 0,#171b21 70%)}
+.device-shell{position:relative;flex:none;overflow:hidden;box-shadow:0 14px 40px #0005}
+.stage-area.mobile .device-shell{border:6px solid #282e38;border-radius:19px;box-shadow:0 20px 55px #0009,0 0 0 1px #424a56}
+.stage{position:absolute;inset:0 auto auto 0;min-height:0;max-height:none;aspect-ratio:auto;transform-origin:top left}
+.menu-wrap.touch .row{min-height:34px}.menu-wrap.touch .swatch{width:30px;height:26px}.menu-wrap.touch .ui-button{height:34px}.menu-wrap.touch .select-row select{height:32px}.menu-wrap.touch .slider-row{padding-bottom:12px}.menu-wrap.touch .slider-row input{height:16px}.menu-wrap.touch .menu-titlebar{height:34px}.menu-wrap.touch .tabs{height:34px}.menu-wrap.touch .menu-body{height:calc(100% - 85px)}
+@media(max-width:650px){.device-toolbar{flex-wrap:wrap;padding:10px}.device-detail{width:100%;margin:2px 0 0;text-align:left;gap:8px}.device-detail span:last-child{display:none}.stage-area.mobile{padding:18px 8px}.showcase-top .showcase-badge{font-size:8px}.showcase-top{gap:8px}}
