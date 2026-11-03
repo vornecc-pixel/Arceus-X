@@ -11,6 +11,16 @@
         ACCESS GRANTED, logo reveal, slice, and smash into the window
 
     Usage: see example.lua and README.md
+
+    Config auto-load:
+      Library:CreateWindow({ AutoLoad = true })   -- apply the saved auto-load config on inject
+      Library:CreateWindow({ AutoLoad = "main" }) -- force "main" as the auto-load config
+      Library:CreateWindow({ AutoLoad = false })  -- never auto-load (still manual from Settings)
+      Library:ScheduleAutoLoad(1)                 -- or schedule it yourself after building the UI
+      Library:SetAutoLoad("main")                 -- set / change it at runtime (persisted)
+      Library:ClearAutoLoad()                     -- turn it off
+      Library:AutoLoadConfig()                    -- apply it right now, returns true|false
+    The name is stored in <ConfigFolder>/autoload.cfg, so it survives re-injects.
 ]]
 
 local Players = game:GetService("Players")
@@ -31,6 +41,12 @@ local Library = {
     Parent = nil, -- optional: set a custom parent for the ScreenGui before CreateWindow
     ConfigFolder = "ARC3USX",
     ExtraChecks = {}, -- optional: { {"Name", function() return "ok"|"warn"|"fail", "detail" end} }
+    -- config auto-load
+    AutoLoad = true,      -- when true, the saved auto-load config is applied on inject
+    AutoLoadName = nil,   -- name of the auto-load config (persisted in ConfigFolder/autoload.cfg)
+    AutoLoadDelay = 0.5,  -- seconds to wait after options are registered before applying it
+    LastConfig = nil,     -- last config loaded/saved this session
+    NotifyAutoLoad = true, -- show a notification when the auto-load config is applied
     Flags = {},
     Options = {},
     Configs = {},
@@ -204,6 +220,7 @@ function Library:_init()
         return
     end
     self._inited = true
+    self:ReadAutoLoad()
     Connect(UserInputService.InputBegan, function(input, gp)
         if self._listening then
             if input.UserInputType == Enum.UserInputType.Keyboard then
@@ -338,13 +355,29 @@ function Library:LoadConfig(name)
             s = readfile(self.ConfigFolder .. "/" .. name .. ".json")
         end)
     end
-    return s and self:Deserialize(s) or false
+    if not s then
+        return false
+    end
+    local ok = self:Deserialize(s)
+    if ok then
+        self.LastConfig = name
+        if self.OnConfigLoaded then
+            pcall(self.OnConfigLoaded, name)
+        end
+    end
+    return ok
 end
 
 function Library:DeleteConfig(name)
     self.Configs[name] = nil
     if typeof(delfile) == "function" then
         pcall(delfile, self.ConfigFolder .. "/" .. name .. ".json")
+    end
+    if self.LastConfig == name then
+        self.LastConfig = nil
+    end
+    if self.AutoLoadName == name then
+        self:ClearAutoLoad()
     end
 end
 
@@ -372,6 +405,121 @@ function Library:ListConfigs()
     return names
 end
 
+--------------------------------------------------------------------
+-- config auto-load
+--------------------------------------------------------------------
+-- The auto-load preference lives next to the configs but uses a .cfg
+-- extension so ListConfigs() (which only matches *.json) ignores it.
+function Library:_autoLoadFile()
+    return self.ConfigFolder .. "/autoload.cfg"
+end
+
+function Library:SaveAutoLoad()
+    if not fsOK() then
+        return false
+    end
+    local ok = pcall(function()
+        if not isfolder(self.ConfigFolder) then
+            makefolder(self.ConfigFolder)
+        end
+        writefile(self:_autoLoadFile(), HttpService:JSONEncode({
+            Enabled = self.AutoLoad and true or false,
+            Name = self.AutoLoadName,
+            Delay = self.AutoLoadDelay,
+        }))
+    end)
+    return ok
+end
+
+function Library:ReadAutoLoad()
+    if not fsOK() then
+        return false
+    end
+    local read = false
+    pcall(function()
+        local path = self:_autoLoadFile()
+        if typeof(isfile) == "function" and not isfile(path) then
+            return
+        end
+        local raw = readfile(path)
+        local t = HttpService:JSONDecode(raw)
+        if type(t) == "table" then
+            self.AutoLoad = t.Enabled == true
+            self.AutoLoadName = type(t.Name) == "string" and t.Name or nil
+            self.AutoLoadDelay = tonumber(t.Delay) or self.AutoLoadDelay
+            read = true
+        end
+    end)
+    return read
+end
+
+-- Mark `name` as the config that gets applied automatically on inject.
+-- Pass nil to re-enable the previously remembered config.
+function Library:SetAutoLoad(name)
+    if name ~= nil then
+        self.AutoLoadName = tostring(name)
+    end
+    self.AutoLoad = self.AutoLoadName ~= nil
+    self:SaveAutoLoad()
+    return self.AutoLoad
+end
+
+function Library:ClearAutoLoad()
+    self.AutoLoad, self.AutoLoadName = false, nil
+    self:SaveAutoLoad()
+end
+
+-- Apply a config right now. Defaults to the auto-load config.
+-- Returns true on success.
+function Library:AutoLoadConfig(name)
+    name = name or self.AutoLoadName
+    if not name then
+        return false
+    end
+    local ok = self:LoadConfig(name)
+    if ok and self.NotifyAutoLoad then
+        pcall(function()
+            self:Notify("Auto-loaded " .. name)
+        end)
+    end
+    return ok
+end
+
+-- Wait until the script has registered its options, then apply the
+-- auto-load config. Call this yourself at the end of your script, or
+-- let CreateWindow do it (CreateWindow passes AutoLoad / AutoLoadDelay).
+function Library:ScheduleAutoLoad(delay, name)
+    if self._autoScheduled then
+        return
+    end
+    if not name and (not self.AutoLoad or not self.AutoLoadName) then
+        return
+    end
+    self._autoScheduled = true
+    task.spawn(function()
+        delay = tonumber(delay) or self.AutoLoadDelay or 0.5
+        local t0 = os.clock()
+        local lastCount, stableSince = -1, t0
+        -- wait until the caller stops registering options (hard cap 15s)
+        while os.clock() - t0 < 15 do
+            local count = 0
+            for _ in pairs(self.Options) do
+                count = count + 1
+            end
+            if count ~= lastCount then
+                lastCount, stableSince = count, os.clock()
+            end
+            if lastCount > 0 and os.clock() - stableSince >= 0.2 and os.clock() - t0 >= delay then
+                break
+            end
+            task.wait(0.05)
+        end
+        if self.AutoLoad or name then
+            self:AutoLoadConfig(name)
+        end
+    end)
+end
+
 function Library:Unload()
     for _, c in ipairs(self._conns) do
         pcall(function()
@@ -383,7 +531,7 @@ function Library:Unload()
     end
     self._conns, self._accent, self._accentFns, self._binds, self._windows = {}, {}, {}, {}, {}
     self.Flags, self.Options = {}, {}
-    self.Gui, self._notes, self._inited = nil, nil, false
+    self.Gui, self._notes, self._inited, self._autoScheduled = nil, nil, false, false
 end
 
 --------------------------------------------------------------------
@@ -1036,9 +1184,10 @@ function Window:AddSettingsTab()
         CanvasSize = UDim2.new(),
         Parent = listHolder,
     }, { Stroke(Theme.Line), New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }) })
-    local selected
+    local selected = Library.AutoLoadName or Library.LastConfig
     local nameBox = cfg:AddTextbox({ Name = "Config Name", Flag = "__cfgname" })
     Library.Options.__cfgname = nil
+    local autoLabel, updateAuto
     local function refresh()
         for _, c in ipairs(list:GetChildren()) do
             if c:IsA("TextButton") then
@@ -1058,6 +1207,9 @@ function Window:AddSettingsTab()
                 selected = n
                 refresh()
             end)
+        end
+        if updateAuto then
+            updateAuto()
         end
     end
     cfg:AddButton({ Name = "Create", Callback = function()
@@ -1080,6 +1232,7 @@ function Window:AddSettingsTab()
     cfg:AddButton({ Name = "Load", Callback = function()
         if selected and Library:LoadConfig(selected) then
             Library:Notify("Loaded " .. selected)
+            refresh()
         end
     end })
     cfg:AddButton({ Name = "Save", Callback = function()
@@ -1089,6 +1242,49 @@ function Window:AddSettingsTab()
         end
     end })
     cfg:AddButton({ Name = "Refresh configs", Callback = refresh })
+
+    autoLabel = cfg:AddLabel("")
+    updateAuto = function()
+        if Library.AutoLoad and Library.AutoLoadName then
+            autoLabel:SetText("Auto-load: " .. Library.AutoLoadName .. "  (applied on inject)")
+        else
+            autoLabel:SetText("Auto-load: off")
+        end
+    end
+    local function configExists(n)
+        if Library.Configs[n] then
+            return true
+        end
+        for _, c in ipairs(Library:ListConfigs()) do
+            if c == n then
+                return true
+            end
+        end
+        return false
+    end
+    cfg:AddButton({ Name = "Set Auto-Load", Callback = function()
+        local n = selected
+        if not n then
+            n = ((nameBox.Value or ""):gsub("[^%w_%-]", ""))
+        end
+        if not n or n == "" then
+            Library:Notify("Select or name a config first")
+            return
+        end
+        if not configExists(n) then
+            Library:Notify("No config named " .. n)
+            return
+        end
+        selected = n
+        Library:SetAutoLoad(n)
+        refresh()
+        Library:Notify("Auto-load set to " .. n)
+    end })
+    cfg:AddButton({ Name = "Clear Auto-Load", Callback = function()
+        Library:ClearAutoLoad()
+        refresh()
+        Library:Notify("Auto-load cleared")
+    end })
     cfg:AddKeybind({ Name = "Menu Bind", Flag = "__menubind", Default = Library.MenuKey, NoFire = true, Changed = function(k)
         if k then
             Library.MenuKey = k
@@ -1119,6 +1315,20 @@ function Library:CreateWindow(opts)
     if opts.MenuKey then self.MenuKey = opts.MenuKey end
     local gui = self:_gui()
     self:_init()
+
+    -- config auto-load options
+    --   AutoLoad = true | false | "config name"
+    if opts.AutoLoad ~= nil then
+        if type(opts.AutoLoad) == "string" then
+            self:SetAutoLoad(opts.AutoLoad)
+        else
+            self.AutoLoad = opts.AutoLoad and true or false
+            self:SaveAutoLoad()
+        end
+    end
+    if opts.AutoLoadDelay then
+        self.AutoLoadDelay = tonumber(opts.AutoLoadDelay) or self.AutoLoadDelay
+    end
 
     local size = opts.Size or Vector2.new(560, 500)
     local win = setmetatable({ Tabs = {} }, Window)
@@ -1231,6 +1441,9 @@ function Library:CreateWindow(opts)
     table.insert(self._windows, win)
     if opts.Intro ~= false then
         win:Replay()
+    end
+    if opts.AutoLoad ~= false then
+        self:ScheduleAutoLoad(opts.AutoLoadDelay)
     end
     return win
 end
