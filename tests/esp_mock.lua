@@ -105,7 +105,9 @@ function group:AddToggle(o) library.Flags[o.Flag] = o.Default or false end
 function group:AddSlider(o) library.Flags[o.Flag] = o.Default end
 function group:AddDropdown(o) library.Flags[o.Flag] = o.Default end
 function group:AddLabel() return { SetText = function(self, text) self.text = text end } end
-function group:AddButton(o) if o.Name == "Unload Script & Clear ESP" then library.unloadButton = o.Callback end end
+function group:AddButton(o)
+    if o.Name == "Unload Script & Clear ESP" or o.Name == "Unload Script & Clear Memory" then library.unloadButton = o.Callback end
+end
 function group:AddESPPreview() end
 local tab = { AddGroup = function() return group end }
 local window = { AddTab = function() return tab end, AddSettingsTab = function() end }
@@ -195,4 +197,41 @@ assert(visible() == 0, "helicopter removal cleans up")
 library.unloadButton()
 assert(env.ARC3USX_ESP_UNLOAD == nil and library.unloaded, "unload clears singleton and UI")
 for _, d in ipairs(drawings) do assert(d.removed, "all drawing objects removed") end
-print("ESP mock lifecycle tests passed")
+library.unloaded = false
+local embeddedUnload = assert(loadfile("scripts/esp.lua"))({ Library = library, Window = window, Visuals = tab, Misc = tab })
+assert(type(embeddedUnload) == "function", "embedded ESP returns cleanup")
+library.Flags.plr_enabled = true
+tick()
+assert(visible() > 0, "embedded ESP uses shared flags")
+embeddedUnload()
+assert(visible() == 0 and not library.unloaded, "embedded unload cleans drawings without closing shared UI")
+
+-- Integration smoke test: main loads the separate ESP into the same window.
+run.Heartbeat = signal()
+task.spawn = function() end -- Background scans are tested separately above.
+game.HttpGet = function(_, url) return url end
+loadstring = function(source)
+    if source:find("scripts/esp.lua", 1, true) then return assert(loadfile("scripts/esp.lua")) end
+    return function() return library end
+end
+assert(loadfile("scripts/main.lua"))()
+assert(type(env.ARC3USX_MAIN_UNLOAD) == "function" and type(env.ARC3USX_ESP_UNLOAD) == "function", "main loads ESP")
+library.Flags.plr_enabled = true
+local newPlayer = player("JoinedAfterMain")
+players.PlayerAdded:Fire(newPlayer)
+newPlayer.Character = character("NewCharacter", world)
+newPlayer.CharacterAdded:Fire(newPlayer.Character)
+tick()
+assert(visible() > 0, "main and ESP share controls")
+library.unloadButton()
+assert(library.unloaded and env.ARC3USX_MAIN_UNLOAD == nil and env.ARC3USX_ESP_UNLOAD == nil and visible() == 0, "main unload also unloads ESP")
+library.unloaded = false
+loadstring = function(source)
+    if source:find("scripts/esp.lua", 1, true) then return function() error("test ESP load failure") end end
+    return function() return library end
+end
+assert(loadfile("scripts/main.lua"))()
+assert(type(env.ARC3USX_MAIN_UNLOAD) == "function" and env.ARC3USX_ESP_UNLOAD == nil, "main remains usable after ESP load failure")
+library.unloadButton()
+assert(library.unloaded, "main unload works without ESP")
+print("ESP mock lifecycle and main integration tests passed")

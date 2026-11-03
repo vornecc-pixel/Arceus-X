@@ -1,6 +1,8 @@
 -- ARC3USX ESP: player, NPC, resource, helicopter and staff overlays.
--- This is a standalone ESP script; it does not include the combat mods.
+-- Run directly for the standalone UI, or pass a shared UI context from main.lua.
 
+local context = ...
+if type(context) ~= "table" then context = nil end
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
@@ -38,18 +40,22 @@ for _, class in ipairs({ "Square", "Line", "Text" }) do
     pcall(function() object:Remove() end)
 end
 
-local ok, Library = pcall(function()
-    local source = game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/ARC3USX.lua")
-    return assert(loadstring(source))()
-end)
-if not ok or type(Library) ~= "table" then
+local ownsLibrary = not context
+local ok, Library = true, context and context.Library
+if ownsLibrary then
+    ok, Library = pcall(function()
+        local source = game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/ARC3USX.lua")
+        return assert(loadstring(source))()
+    end)
+end
+if not ok or type(Library) ~= "table" or (context and not context.Window) then
     report("Could not load the UI library: " .. tostring(Library))
     return
 end
 
-local Window = Library:CreateWindow({ Name = "ARC3USX.EXE — ESP", Size = Vector2.new(750, 600), Intro = false, Theme = "Purple", MenuKey = Enum.KeyCode.RightShift })
-local Visuals = Window:AddTab("ESP / World")
-local Misc = Window:AddTab("Misc")
+local Window = context and context.Window or Library:CreateWindow({ Name = "ARC3USX.EXE — ESP", Size = Vector2.new(750, 600), Intro = false, Theme = "Purple", MenuKey = Enum.KeyCode.RightShift })
+local Visuals = context and context.Visuals or Window:AddTab("ESP / World")
+local Misc = context and context.Misc or Window:AddTab("Misc")
 local Colors = {
     plr_box = Color3.new(1, 1, 1), plr_name = Color3.new(1, 1, 1),
     plr_dist = Color3.new(1, 1, 1), plr_weapon = Color3.fromRGB(0, 255, 255),
@@ -115,8 +121,8 @@ local staffGroup = Misc:AddGroup("Staff Detection", "Left")
 staffGroup:AddToggle({ Name = "Enable Staff Monitor", Flag = "staff_monitor", Default = false })
 staffGroup:AddToggle({ Name = "Highlight Staff", Flag = "staff_esp", Default = false })
 local staffLabel = staffGroup:AddLabel("Staff scan inactive.")
-local systemGroup = Misc:AddGroup("System", "Right")
-pcall(function() Window:AddSettingsTab() end)
+local systemGroup = ownsLibrary and Misc:AddGroup("System", "Right") or nil
+if ownsLibrary then pcall(function() Window:AddSettingsTab() end) end
 
 local alive = true
 local connections = {}
@@ -542,7 +548,8 @@ local function unload()
     for _, store in pairs(entries) do for _, entry in pairs(store) do destroy(entry) end end
     for _, hl in pairs(staffHighlights) do hl:Destroy() end
     if environment.ARC3USX_ESP_UNLOAD == unload then environment.ARC3USX_ESP_UNLOAD = nil end
-    pcall(function() Library:Unload() end)
+    if ownsLibrary then pcall(function() Library:Unload() end) end
 end
 environment.ARC3USX_ESP_UNLOAD = unload
-systemGroup:AddButton({ Name = "Unload Script & Clear ESP", Callback = unload })
+if systemGroup then systemGroup:AddButton({ Name = "Unload Script & Clear ESP", Callback = unload }) end
+return unload

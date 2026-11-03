@@ -22,7 +22,8 @@ A dark, purple-accent Roblox UI library with an animated intro.
 | --- | --- |
 | `ARC3USX.lua` | The library |
 | `example.lua` | Demo using every control |
-| `scripts/esp.lua` | Standalone player, NPC, resource, helicopter, and staff ESP |
+| `scripts/main.lua` | Main script with combat and weakspot controls; loads ESP separately |
+| `scripts/esp.lua` | Player, NPC, resource, helicopter, and staff ESP; usable standalone or in the main script |
 | `logo.png` | The logo image (upload this to your repo for `LogoUrl`) |
 | `README.md` | This file |
 
@@ -180,6 +181,16 @@ The intro runs real checks and prints the results: platform, screen size, client
 - Config files are only written when your environment provides file functions; otherwise configs stay in memory for the session. `Library:Serialize()` always works.
 - Set `Intro = false` in `CreateWindow` to skip the animation.
 - Please add a license file (for example MIT) before publishing, and make sure you have the rights to the logo image you upload.
+
+## Full script with separate ESP
+
+The main script loads the ESP from `scripts/esp.lua` into the same window. Both URLs below point to the session branch:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/main.lua"))()
+```
+
+The combat features depend on executor APIs and the target game's internal tables; they are not verified against the live game. Unloading restores the tracked scanner settings where possible, but cannot guarantee restoration of transient state changes or game-side effects. The weakspot feature retains the original invisible node marker; by itself it does **not** redirect hits. The ESP requires a compatible Drawing API. If ESP loading fails, the combat UI still opens and reports the error.
 
 ## Standalone ESP
 
