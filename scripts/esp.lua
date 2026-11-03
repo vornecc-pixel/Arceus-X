@@ -88,6 +88,10 @@ local ORE_COLORS = {
     SulfurNode = Color3.fromRGB(255, 230, 0), Tree = Color3.fromRGB(120, 70, 30),
     Meteor = Color3.fromRGB(180, 80, 255), StoneNode = Color3.fromRGB(160, 160, 160),
 }
+-- ItemIcons.lua identifies these inventory IDs. Node-to-drop mappings are fallbacks;
+-- a replicated drop attribute takes priority, and unknown drops are not guessed.
+local ORE_DROPS = { MetalNode = "metal_ore", SulfurNode = "sulfur_ore", StoneNode = "stones", Tree = "wood" }
+local ORE_ABBR = { metal_ore = "MO", sulfur_ore = "SO", stones = "ST", wood = "WD", cloth = "CL" }
 local function colorToggle(group, name, flag, defaults, callback, default)
     group:AddToggle({ Name = name, Flag = flag, Default = default ~= false, Colors = defaults, ColorCallback = callback })
 end
@@ -123,7 +127,7 @@ humanGroup(Visuals:AddGroup("NPC ESP", "Right"), "npc", "NPCs")
 local oreGroup = Visuals:AddGroup("Ore ESP", "Left")
 commonGroup(oreGroup, "ore", "Ores", 2000, 300)
 oreGroup:AddToggle({ Name = "Show Name", Flag = "ore_name", Default = true })
-oreGroup:AddToggle({ Name = "Show Marker", Flag = "ore_marker", Default = true })
+oreGroup:AddToggle({ Name = "Show Item Icon", Flag = "ore_marker", Default = true })
 oreGroup:AddToggle({ Name = "Show Distance", Flag = "ore_dist", Default = true })
 for _, name in ipairs({ "Cactus", "MetalNode", "SulfurNode", "Tree", "Meteor", "StoneNode" }) do
     oreGroup:AddToggle({ Name = name, Flag = "ore_" .. name, Default = true })
@@ -133,6 +137,20 @@ commonGroup(heliGroup, "heli", "Heli", 5000, 2000)
 heliGroup:AddDropdown({ Name = "Box Style", Flag = "heli_style", Options = { "Corners", "Full" }, Default = "Full" })
 heliGroup:AddToggle({ Name = "Chams", Flag = "heli_chams", Default = true })
 heliGroup:AddToggle({ Name = "Show Distance", Flag = "heli_dist", Default = true })
+local lootGroup = Visuals:AddGroup("Loot ESP", "Left")
+commonGroup(lootGroup, "loot", "Loot", 2000, 300)
+lootGroup:AddToggle({ Name = "Show Name", Flag = "loot_name", Default = true })
+lootGroup:AddToggle({ Name = "Show Distance", Flag = "loot_dist", Default = true })
+lootGroup:AddToggle({ Name = "Highlight", Flag = "loot_chams", Default = true })
+local depGroup = Visuals:AddGroup("Deployables ESP", "Right")
+commonGroup(depGroup, "dep", "Deployables", 2000, 300)
+depGroup:AddToggle({ Name = "Turrets", Flag = "dep_turret", Default = true })
+depGroup:AddToggle({ Name = "Sleeping Bags / Beds", Flag = "dep_bag", Default = true })
+depGroup:AddToggle({ Name = "Tool Cupboards", Flag = "dep_cupboard", Default = true })
+depGroup:AddToggle({ Name = "Other Deployables", Flag = "dep_other", Default = true })
+depGroup:AddToggle({ Name = "Show Name", Flag = "dep_name", Default = true })
+depGroup:AddToggle({ Name = "Show Distance", Flag = "dep_dist", Default = true })
+depGroup:AddToggle({ Name = "Highlight", Flag = "dep_chams", Default = true })
 local preview = Visuals:AddGroup("ESP Preview", "Right")
 pcall(function()
     preview:AddESPPreview({ Height = 280, PlayerName = "Target", Elements = {
@@ -152,7 +170,7 @@ end
 
 local alive = true
 local connections = {}
-local entries = { plr = {}, npc = {}, ore = {}, heli = {} }
+local entries = { plr = {}, npc = {}, ore = {}, heli = {}, loot = {}, dep = {} }
 local playerConnections = {}
 local staffHighlights, staffSeen = {}, {}
 local staffState, adminPerms
@@ -160,6 +178,113 @@ local function connect(signal, fn)
     local c = signal:Connect(fn)
     table.insert(connections, c)
     return c
+end
+
+-- The supplied ItemIcons module builds 3D models, not image asset IDs. Load only
+-- the two known modules asynchronously; never execute arbitrary Fust descendants.
+local itemsModule, itemIcons, moduleLoadBusy, moduleRetryRequested
+local function tryGameModules()
+    if not alive then return end
+    if moduleLoadBusy then moduleRetryRequested = true; return end
+    moduleLoadBusy = true
+    task.spawn(function()
+        local ok, err = pcall(function()
+            local fust = ReplicatedStorage:FindFirstChild("Fust")
+            if not fust then return end
+            local items = fust:FindFirstChild("Items")
+            local icons = fust:FindFirstChild("ItemIcons")
+            if not itemsModule and items and items:IsA("ModuleScript") then
+                local success, result = pcall(require, items)
+                if alive and success and type(result) == "table" then itemsModule = result end
+            end
+            if not itemIcons and icons and icons:IsA("ModuleScript") then
+                local success, result = pcall(require, icons)
+                if alive and success and type(result) == "table" and type(result.Get) == "function" then itemIcons = result end
+            end
+        end)
+        moduleLoadBusy = false
+        if not ok and alive then warn("[ARC3USX ESP] Optional item modules: " .. tostring(err)) end
+        if moduleRetryRequested and alive then moduleRetryRequested = false; tryGameModules() end
+    end)
+end
+if ReplicatedStorage.DescendantAdded then
+    connect(ReplicatedStorage.DescendantAdded, function(object)
+        if object.Name == "Fust" or object.Name == "Items" or object.Name == "ItemIcons" or object.Name == "Models" then tryGameModules() end
+    end)
+end
+tryGameModules()
+local iconScreen, iconCount, iconBudget = nil, 0, 0
+local iconData, iconPending, iconRetryAt = {}, {}, {}
+local MAX_ORE_ICONS = 24
+local function releaseIcon(entry)
+    if entry.icon then
+        pcall(function() entry.icon:Destroy() end)
+        entry.icon, entry.iconId = nil, nil
+        iconCount = math.max(0, iconCount - 1)
+    end
+end
+local function requestIcon(id)
+    if not id or not itemIcons or iconData[id] or iconPending[id] or (iconRetryAt[id] and os.clock() < iconRetryAt[id]) then return end
+    iconPending[id] = true
+    task.spawn(function()
+        local ok, data = pcall(itemIcons.Get, id)
+        iconPending[id] = nil
+        if alive and ok and type(data) == "table" and data.model and data.camCF then
+            iconData[id], iconRetryAt[id] = data, nil
+        else
+            iconRetryAt[id] = os.clock() + 10
+        end
+    end)
+end
+local function oreIcon(entry, id, x, y)
+    if entry.icon and entry.iconId ~= id then releaseIcon(entry) end
+    if not entry.icon and id then
+        requestIcon(id)
+        local data = iconData[id]
+        if data and iconCount < MAX_ORE_ICONS and iconBudget > 0 and (not entry.iconRetryAt or os.clock() >= entry.iconRetryAt) then
+            iconBudget = iconBudget - 1
+            local viewport
+            local ok = pcall(function()
+                if not iconScreen or not iconScreen.Parent then
+                    if iconScreen then pcall(function() iconScreen:Destroy() end) end
+                    iconScreen = Instance.new("ScreenGui")
+                    iconScreen.Name = "ARC3USX_OreIcons"
+                    iconScreen.ResetOnSpawn = false
+                    iconScreen.IgnoreGuiInset = true
+                    iconScreen.DisplayOrder = 999
+                    iconScreen.Parent = (Library.Gui and Library.Gui.Parent) or CoreGui
+                end
+                viewport = Instance.new("ViewportFrame")
+                viewport.Name = "OreIcon"
+                viewport.BackgroundTransparency = 1
+                viewport.BorderSizePixel = 0
+                viewport.Size = UDim2.fromOffset(30, 30)
+                viewport.Ambient = Color3.fromRGB(150, 145, 138)
+                viewport.LightColor = Color3.fromRGB(255, 244, 226)
+                viewport.LightDirection = Vector3.new(-1, -1.4, -0.6)
+                viewport.Parent = iconScreen
+                local cam = Instance.new("Camera")
+                cam.FieldOfView = tonumber(itemIcons.FOV) or 30
+                cam.CFrame = data.camCF
+                cam.Parent = viewport
+                viewport.CurrentCamera = cam
+                data.model:Clone().Parent = viewport
+            end)
+            if ok and viewport then
+                entry.icon, entry.iconId, entry.iconRetryAt = viewport, id, nil
+                iconCount = iconCount + 1
+            else
+                entry.iconRetryAt = os.clock() + 5
+                if viewport then pcall(function() viewport:Destroy() end) end
+            end
+        end
+    end
+    if entry.icon then
+        entry.icon.Position = UDim2.fromOffset(math.floor(x - 15), math.floor(y - 15))
+        entry.icon.Visible = true
+        return true
+    end
+    return false
 end
 
 local function removeDrawing(object)
@@ -171,11 +296,13 @@ local function hide(entry)
         pcall(function() object.Visible = false end)
     end
     if entry.highlight then entry.highlight.Enabled = false end
+    releaseIcon(entry)
 end
 local function destroy(entry)
     if not entry then return end
     for _, object in ipairs(entry.drawings) do removeDrawing(object) end
     if entry.highlight then entry.highlight:Destroy() end
+    releaseIcon(entry)
 end
 local function removeEntry(kind, object)
     local entry = entries[kind][object]
@@ -327,11 +454,69 @@ local function updateHighlight(entry, enabled, visibleColor, occludedColor, isVi
     entry.highlight.Enabled = true
 end
 
+local function prettyItem(id)
+    if type(id) ~= "string" or id == "" then return nil end
+    local def = itemsModule and type(itemsModule.Defs) == "table" and itemsModule.Defs[id]
+    if type(def) == "table" and type(def.name) == "string" and def.name ~= "" then return def.name end
+    return (id:gsub("_", " "))
+end
+local EQUIPMENT_ATTRS = { "EquippedItemId", "EquippedWeaponId", "EquippedToolId", "HeldItemId", "WeaponId", "WeaponName", "CurrentWeapon", "Weapon", "EquippedItem", "EquippedTool", "HeldItem", "HeldWeapon" }
+local function equipmentName(entry)
+    if entry.weaponAt and os.clock() < entry.weaponAt then return entry.weaponName end
+    entry.weaponAt = os.clock() + 0.35
+    local model = entry.model
+    local tool = model:FindFirstChildWhichIsA("Tool")
+    local name
+    if tool then name = prettyItem(tool:GetAttribute("ItemId")) or prettyItem(tool.Name) end
+    if not name then
+        for _, attribute in ipairs(EQUIPMENT_ATTRS) do
+            name = prettyItem(model:GetAttribute(attribute))
+            if name then break end
+        end
+    end
+    if not name then
+        for _, child in ipairs(model:GetChildren()) do
+            local lower = child.Name:lower()
+            if (child:IsA("StringValue") or child:IsA("ObjectValue")) and (lower == "weapon" or lower == "equippeditem" or lower == "equippedtool" or lower == "helditem" or lower == "currentweapon" or lower == "heldweapon") then
+                local value = child.Value
+                if type(value) == "string" then name = prettyItem(value)
+                elseif value and type(value.GetAttribute) == "function" then name = prettyItem(value:GetAttribute("ItemId")) or prettyItem(value.Name) end
+            elseif child:IsA("Model") then
+                local id = child:GetAttribute("ItemId")
+                local def = type(id) == "string" and itemsModule and type(itemsModule.Defs) == "table" and itemsModule.Defs[id]
+                local knownWeapon = type(def) == "table" and (def.weapon == "gun" or def.weapon == "bow" or def.weapon == "tool" or def.kind == "gun" or def.kind == "bow" or def.kind == "tool")
+                if knownWeapon or lower == "weapon" or lower == "gun" or lower == "helditem" then name = prettyItem(id) end
+            end
+            if name then break end
+        end
+    end
+    entry.weaponName = name or (entry.player and "Unarmed" or "Weapon unknown")
+    return entry.weaponName
+end
+local function deployableKind(model)
+    local values = { model.Name }
+    for _, key in ipairs({ "ItemId", "DeployableId", "DeployType", "Kind", "Type" }) do
+        local value = model:GetAttribute(key)
+        if type(value) == "string" then values[#values + 1] = value end
+    end
+    for _, value in ipairs(values) do
+        local compact = value:lower():gsub("[^%w]", "")
+        if compact:find("turret", 1, true) or compact:find("sentry", 1, true) then return "turret" end
+        if compact:find("sleepingbag", 1, true) or compact:find("bedroll", 1, true) or compact:sub(1, 3) == "bed" then return "bag" end
+        if compact:find("cupboard", 1, true) then return "cupboard" end
+    end
+    return "other"
+end
 local function renderEntry(kind, entry, camera, flags)
     local model = entry.model
     if not model:IsDescendantOf(workspace) then return hide(entry) end
     if not flags[kind .. "_master"] or not flags[kind .. "_enabled"] then return hide(entry) end
     if kind == "ore" and not flags["ore_" .. model.Name] then return hide(entry) end
+    if kind == "loot" or kind == "dep" then
+        local folder = workspace:FindFirstChild(kind == "loot" and "Loot" or "Deployables")
+        if not folder or not model:IsDescendantOf(folder) then return hide(entry) end
+        if kind == "dep" and not flags["dep_" .. deployableKind(model)] then return hide(entry) end
+    end
     local humanoid
     if kind == "plr" or kind == "npc" then
         humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -356,9 +541,32 @@ local function renderEntry(kind, entry, camera, flags)
         if z <= 0 or x < 0 or y < 0 or x > viewport.X or y > viewport.Y then return hide(entry) end
         local color = ORE_COLORS[model.Name]
         if not color then return hide(entry) end
-        if flags.ore_marker then square(entry, "box", x - 3, y - 3, 6, 6, color, true) else setHidden(entry, "box") end
-        if flags.ore_name then text(entry, "name", model.Name, color, x, y - 18) else setHidden(entry, "name") end
-        if flags.ore_dist then text(entry, "distance", string.format("%.0fm", distance), Color3.new(1, 1, 1), x, y + 6) else setHidden(entry, "distance") end
+        local itemId = model:GetAttribute("DropItemId") or model:GetAttribute("ResourceItemId") or model:GetAttribute("YieldItemId") or ORE_DROPS[model.Name]
+        if type(itemId) ~= "string" or itemId == "" then itemId = nil end
+        if flags.ore_marker then
+            if oreIcon(entry, itemId, x, y) then
+                setHidden(entry, "iconFallback")
+            else
+                local abbreviation = ORE_ABBR[itemId] or model.Name:sub(1, 3):upper()
+                text(entry, "iconFallback", abbreviation, color, x, y - 7)
+            end
+        else
+            releaseIcon(entry); setHidden(entry, "iconFallback")
+        end
+        if flags.ore_name then text(entry, "name", model.Name, color, x, y - 34) else setHidden(entry, "name") end
+        if flags.ore_dist then text(entry, "distance", string.format("%.0fm", distance), Color3.new(1, 1, 1), x, y + 16) else setHidden(entry, "distance") end
+        return
+    end
+    if kind == "loot" or kind == "dep" then
+        local x, y, z = project(camera, root.Position)
+        local viewport = camera.ViewportSize
+        if z <= 0 or x < 0 or y < 0 or x > viewport.X or y > viewport.Y then return hide(entry) end
+        local color = kind == "loot" and Color3.fromRGB(255, 204, 90) or Color3.fromRGB(110, 210, 255)
+        updateHighlight(entry, flags[kind .. "_chams"], color, color, true)
+        local itemId = model:GetAttribute("ItemId") or model:GetAttribute("DeployableId")
+        local label = prettyItem(itemId) or model.Name
+        if flags[kind .. "_name"] then text(entry, "name", label, color, x, y - 15) else setHidden(entry, "name") end
+        if flags[kind .. "_dist"] then text(entry, "distance", string.format("%.0fm", distance), Color3.new(1, 1, 1), x, y + 2) else setHidden(entry, "distance") end
         return
     end
     local left, top, right, bottom = bounds(camera, model)
@@ -382,8 +590,7 @@ local function renderEntry(kind, entry, camera, flags)
     if flags[kind .. "_name"] then text(entry, "name", entry.player and entry.player.Name or model.Name, Colors[kind .. "_name"], cx, top - 17) else setHidden(entry, "name") end
     if flags[kind .. "_dist"] then text(entry, "distance", string.format("%.0fm", distance), Colors[kind .. "_dist"], cx, bottom + 2) else setHidden(entry, "distance") end
     if flags[kind .. "_weapon"] then
-        local tool = model:FindFirstChildWhichIsA("Tool")
-        text(entry, "weapon", tool and tool.Name or "Unarmed", Colors[kind .. "_weapon"], cx, bottom + (flags[kind .. "_dist"] and 18 or 2))
+        text(entry, "weapon", equipmentName(entry), Colors[kind .. "_weapon"], cx, bottom + (flags[kind .. "_dist"] and 18 or 2))
     else setHidden(entry, "weapon") end
     if flags[kind .. "_health"] then
         local health = humanoid.MaxHealth > 0 and math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1) or 0
@@ -425,8 +632,21 @@ local function insideNpcFolder(model)
     local folder = workspace:FindFirstChild("Npcs")
     return folder and model:IsDescendantOf(folder)
 end
+local function topLevelIn(object, folderName)
+    local folder = workspace:FindFirstChild(folderName)
+    if not folder or object == folder or not object:IsDescendantOf(folder) then return false end
+    if not (object:IsA("Model") or object:IsA("BasePart")) then return false end
+    local parent = object.Parent
+    while parent and parent ~= folder do
+        if parent:IsA("Model") or parent:IsA("BasePart") then return false end
+        parent = parent.Parent
+    end
+    return parent == folder
+end
 local function consider(object)
     if not alive or not object:IsDescendantOf(workspace) then return end
+    if topLevelIn(object, "Loot") then newEntry("loot", object) end
+    if topLevelIn(object, "Deployables") then newEntry("dep", object) end
     if (object:IsA("Model") or object:IsA("BasePart")) and ORE_COLORS[object.Name] then
         -- Avoid duplicate labels for a same-named part inside its node model.
         local parent = object.Parent
@@ -563,6 +783,7 @@ connect(RunService.RenderStepped, function(dt)
         for _, store in pairs(entries) do for _, entry in pairs(store) do hide(entry) end end
         return
     end
+    iconBudget = 2
     for kind, store in pairs(entries) do
         local active = Library.Flags.esp_master and Library.Flags[kind .. "_master"] and Library.Flags[kind .. "_enabled"]
         if active then
@@ -597,6 +818,7 @@ local function unload()
     for _, list in pairs(playerConnections) do for _, c in ipairs(list) do c:Disconnect() end end
     for _, store in pairs(entries) do for _, entry in pairs(store) do destroy(entry) end end
     for _, hl in pairs(staffHighlights) do hl:Destroy() end
+    if iconScreen then pcall(function() iconScreen:Destroy() end); iconScreen = nil end
     if environment.ARC3USX_ESP_UNLOAD == unload then environment.ARC3USX_ESP_UNLOAD = nil end
     if ownsLibrary then pcall(function() Library:Unload() end) end
 end

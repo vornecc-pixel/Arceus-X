@@ -27,7 +27,7 @@ A dark, purple-accent Roblox UI library with an animated intro.
 | `example_mixes.lua` | Example of the mix API |
 | `scripts/ui_bootstrap.lua` | Shared logo, intro, and mix UI startup |
 | `scripts/main.lua` | Main script with combat and weakspot controls; loads ESP separately |
-| `scripts/esp.lua` | Player, NPC, resource, helicopter, and staff ESP; usable standalone or in the main script |
+| `scripts/esp.lua` | Player, NPC, resource, loot, deployable, helicopter, and staff ESP; usable standalone or in the main script |
 | `logo.png` | The logo image (upload this to your repo for `LogoUrl`) |
 | `README.md` | This file |
 
@@ -214,9 +214,13 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-
 
 This branch URL will only remain available while the branch exists. If the script is merged into `main`, use `refs/heads/main/scripts/esp.lua` instead.
 
-The ESP / World tab has a global overlay toggle and update-rate slider, plus per-category toggles and distance limits. Player and NPC overlays can independently show boxes, names, distance, weapon, health, skeletons, tracers, chams, or only visible targets. Players also have a teammate filter. Resource names, markers, and distance can be toggled separately. Existing category flags remain compatible with saved configs.
+The ESP / World tab has a global overlay toggle and update-rate slider, plus per-category toggles and distance limits. Player and NPC overlays can independently show boxes, names, distance, weapon, health, skeletons, tracers, chams, or only visible targets. Players also have a teammate filter. Loot and deployables have name, distance and highlight controls; deployable filters cover turrets, sleeping bags/beds, tool cupboards and other items. All category ESP switches start off. Existing category flags remain compatible with saved configs.
 
-Players are tracked through player/character events. NPCs are models with a Humanoid under `workspace.Npcs`; helicopters are models named `PatrolHeli`. Resources match the names in `ORE_COLORS` in the script. Change these names or discovery rules if the game uses a different hierarchy. Only objects replicated to the client can be detected, so streaming may affect what is visible. Staff detection depends on the game's `AdminRole` attribute or its optional `ReplicatedStorage.Fust` modules.
+Players are tracked through player/character events. NPCs are models with a Humanoid under `workspace.Npcs`; helicopters are models named `PatrolHeli`. The NPC weapon label checks direct equipped Tools, known equipment attributes and replicated held-item values, using `Fust.Items.Defs` names when available. It says **Weapon unknown** when equipment is not replicated; it cannot read server-only inventory.
+
+Loot and deployable scanners track top-level models or parts below `workspace.Loot` and `workspace.Deployables`, including later additions/removals. Names and item/deployable attributes classify turrets, bags and cupboards; unrecognized deployables fall under Other. Loot labels reflect replicated instance names or item IDs, not verified crate contents. Nested physical parts of a model are not labeled separately. Game-specific hierarchies may need adjusted classification.
+
+Resources match names in `ORE_COLORS`. Ore icon previews use the game's optional `ReplicatedStorage.Fust.ItemIcons.Get` model and camera (as described in the repository's `ItemIcons.lua`), including assets it resolves from `Fust.Models`. A replicated drop-item attribute takes priority; fallback mappings cover metal ore, sulfur ore, stones and wood. If an item/model is unknown or unavailable, an abbreviation is shown instead of inventing an icon. At most 24 3D icons are active and at most two are built per update; further nodes use the labeled fallback. Change mappings or discovery rules if the game differs. Only client-replicated objects can be detected, so streaming may affect visibility. Staff detection depends on the game's `AdminRole` attribute or its optional `ReplicatedStorage.Fust` modules.
 
 The script performs one initial workspace scan and handles later additions/removals through events, updates overlays at the selected rate (5–60 Hz), throttles visibility raycasts, and removes drawings on despawn, unload, and reinjection. Failed drawing operations clean up partial overlays and retry after a delay. Runtime performance depends on the number of tracked objects, chosen update rate, and executor. Use **Unload Script & Clear ESP** before switching scripts; the standalone script also cleans up a previous instance of itself on reinjection. The available candidate anticheat script is obfuscated and its identity is unconfirmed: neither these overlays nor the combat features are verified as undetected or safe from enforcement.
 

@@ -21,6 +21,7 @@ local v3meta = {
 function v3.new(x, y, z) return setmetatable({ X = x, Y = y, Z = z }, v3meta) end
 Vector3 = v3
 Vector2 = { new = function(x, y) return { X = x, Y = y } end }
+UDim2 = { fromOffset = function(x, y) return { X = x, Y = y } end }
 local function color(r, g, b)
     return { R = r, G = g, B = b, Lerp = function(self, other, t) return color(self.R * (1-t) + other.R*t, self.G*(1-t)+other.G*t, self.B*(1-t)+other.B*t) end }
 end
@@ -39,6 +40,9 @@ local function node(class, name, parent)
         local p = self.Parent
         while p do if p == ancestor then return true end; p = p.Parent end
         return false
+    end
+    function n:GetChildren()
+        local result={};for _,child in ipairs(self.children) do if child.Parent==self then result[#result+1]=child end end;return result
     end
     function n:FindFirstChild(name)
         for _, child in ipairs(self.children) do if child.Parent == self and child.Name == name then return child end end
@@ -97,7 +101,22 @@ end
 players.LocalPlayer = player("Local")
 local run = { RenderStepped = signal() }
 local rep = node("ReplicatedStorage", "ReplicatedStorage")
+rep.DescendantAdded=signal()
 function rep:WaitForChild() return nil end
+local fust=node("Folder","Fust",rep)
+local itemsScript=node("ModuleScript","Items",fust)
+local iconsScript=node("ModuleScript","ItemIcons",fust)
+local modelFolder=node("Folder","Models",fust)
+local resourceModel=node("Model","OreIconModel",modelFolder)
+function resourceModel:Clone() return node("Model","OreIconClone") end
+local items={Defs={rifle={name="Test Rifle",weapon="gun"},metal_ore={name="Metal Ore"}}}
+local icons={FOV=30,Get=function(id) if id=="metal_ore" then return {model=resourceModel,camCF={}} end end}
+iconsScript.Parent=nil -- Simulate the optional module arriving after startup.
+local nativeRequire=require
+require=function(module)
+    if module==itemsScript then return items elseif module==iconsScript then return icons end
+    return nativeRequire(module)
+end
 local services = { Players = players, RunService = run, CoreGui = gui, ReplicatedStorage = rep, StarterGui = { SetCore = function() end } }
 game = { GetService = function(_, name) return services[name] end, HttpGet = function(_, url) return url end }
 local env = {}
@@ -148,6 +167,10 @@ local function visible()
     local n = 0
     for _, d in ipairs(drawings) do if d.Visible and not d.removed then n = n + 1 end end
     return n
+end
+local function textVisible(value)
+    for _,d in ipairs(drawings) do if d.class=="Text" and d.Visible and not d.removed and d.Text==value then return true end end
+    return false
 end
 local mockClock = 0
 os.clock = function() return mockClock end
@@ -226,21 +249,52 @@ local ore = node("BasePart", "MetalNode", world)
 ore.Position = v3.new(0, 0, 10)
 world.DescendantAdded:Fire(ore)
 tick()
-assert(visible() == 3, "resource marker, name and distance draw")
+assert(textVisible("MO"), "resource uses a labeled fallback while the icon module is missing")
+iconsScript.Parent=fust;rep.DescendantAdded:Fire(iconsScript);tick()
+assert(visible() == 2, "resource name and distance draw with a late-loaded model icon")
+local oreIcon
+for _,o in ipairs(nodes) do if o.ClassName=="ViewportFrame" and o.Name=="OreIcon" and o.Parent then oreIcon=o end end
+assert(oreIcon and oreIcon.Visible and oreIcon.CurrentCamera, "ItemIcons model displayed in viewport")
 library.Flags.ore_marker=false;library.Flags.ore_name=false;tick()
-assert(visible()==1, "resource name and marker can be disabled independently")
+assert(oreIcon.Destroyed and visible()==1, "resource icon and name can be disabled independently")
 library.Flags.ore_dist=false;tick();assert(visible()==0, "resource distance can be disabled")
-library.Flags.ore_marker=true;library.Flags.ore_name=true;library.Flags.ore_dist=true
+library.Flags.ore_marker=true;library.Flags.ore_name=true;library.Flags.ore_dist=true;tick()
+local replacementIcon
+for _,o in ipairs(nodes) do if o.ClassName=="ViewportFrame" and o.Name=="OreIcon" and o.Parent then replacementIcon=o end end
+assert(replacementIcon and replacementIcon.Visible, "ore icon returns after being re-enabled")
 world.DescendantRemoving:Fire(ore)
 ore.Parent = nil
-assert(visible() == 0, "resource removal cleans up")
+assert(visible() == 0 and replacementIcon.Destroyed, "resource removal cleans drawings and icon")
+local manyOres={}
+for i=1,26 do local n=node("BasePart","MetalNode",world);n.Position=v3.new(0,0,10);manyOres[#manyOres+1]=n;world.DescendantAdded:Fire(n) end
+for _=1,20 do tick() end
+local activeIcons=0
+for _,o in ipairs(nodes) do if o.ClassName=="ViewportFrame" and o.Name=="OreIcon" and o.Parent then activeIcons=activeIcons+1 end end
+assert(activeIcons==24, "visible item icons are capped to limit overhead")
+assert(textVisible("MO"), "nodes above the icon cap retain a labeled fallback")
+for _,n in ipairs(manyOres) do world.DescendantRemoving:Fire(n);n.Parent=nil end
+assert(visible()==0, "bulk node removal cleans up")
 library.Flags.ore_enabled = false
 local folder = node("Folder", "Npcs", world)
 local npc, npcHumanoid = character("Guard", folder)
 world.DescendantAdded:Fire(npc)
 library.Flags.npc_enabled = true
 tick()
-assert(visible() > 0, "NPC under Npcs folder draws")
+assert(visible() > 0 and textVisible("Weapon unknown"), "NPC with no replicated weapon shows unknown")
+local weapon=node("Tool","RifleTool",npc);weapon.attributes={ItemId="rifle"}
+for _=1,12 do tick() end
+assert(textVisible("Test Rifle"), "NPC equipped tool is resolved through item definitions")
+weapon.Parent=nil;npc.attributes={EquippedItemId="crossbow"}
+for _=1,12 do tick() end
+assert(textVisible("crossbow"), "NPC equipment attributes update after weapon change")
+npc.attributes={}
+local held=node("StringValue","Weapon",npc);held.Value="stone_hatchet"
+for _=1,12 do tick() end
+assert(textVisible("stone hatchet"), "NPC replicated held item value is shown")
+held.Parent=nil
+local weaponModel=node("Model","VisualRifle",npc);weaponModel.attributes={ItemId="rifle"}
+for _=1,12 do tick() end
+assert(textVisible("Test Rifle"), "NPC weapon model with known item definition is resolved")
 local withHealth=visible();library.Flags.npc_health=false;tick();assert(visible()==withHealth-2, "NPC health bar toggles")
 library.Flags.npc_health=true;tick()
 local beforeNpcTracer=visible();library.Flags.npc_tracer=true;tick();assert(visible()==beforeNpcTracer+1, "NPC tracer toggles")
@@ -267,6 +321,51 @@ assert(visible() > 0, "new helicopter draws")
 world.DescendantRemoving:Fire(heli)
 heli.Parent = nil
 assert(visible() == 0, "helicopter removal cleans up")
+library.Flags.heli_enabled=false
+-- Loot and deployables may stream in after startup; nested parts must not duplicate labels.
+local loot=node("Folder","Loot",world)
+local lootFolder=node("Folder","Crates",loot)
+local crate=node("Model","MilitaryCrate",lootFolder)
+local cratePart=node("BasePart","Body",crate);cratePart.Position=v3.new(0,0,10)
+world.DescendantAdded:Fire(crate);world.DescendantAdded:Fire(cratePart)
+library.Flags.loot_enabled=true;tick()
+assert(visible()==2 and textVisible("MilitaryCrate"), "late loot model shows one label and distance")
+local lootHighlight
+for _,o in ipairs(nodes) do if o.Name=="ARC3USX_ESP" and o.Adornee==crate and o.Parent then lootHighlight=o end end
+assert(lootHighlight and lootHighlight.Enabled, "loot model is highlighted")
+library.Flags.loot_chams=false;tick();assert(not lootHighlight.Enabled, "loot highlight toggles off")
+world.DescendantRemoving:Fire(crate);crate.Parent=nil
+assert(visible()==0 and lootHighlight.Destroyed, "loot removal cleans labels and highlight")
+local loose=node("BasePart","LootDrop",loot);loose.Position=v3.new(0,0,10);world.DescendantAdded:Fire(loose);tick()
+assert(textVisible("LootDrop"), "direct loot parts are detected")
+world.DescendantRemoving:Fire(loose);loose.Parent=nil
+assert(visible()==0, "direct loot removal cleans labels")
+library.Flags.loot_enabled=false
+local deployables=node("Folder","Deployables",world)
+local function deploy(name,id)
+    local m=node("Model",name,deployables);m.attributes={ItemId=id}
+    local p=node("BasePart","Body",m);p.Position=v3.new(0,0,10)
+    world.DescendantAdded:Fire(m);world.DescendantAdded:Fire(p)
+    return m
+end
+local turret=deploy("Defense","auto_turret")
+local bag=deploy("SpawnPoint","sleeping_bag")
+local cupboard=deploy("Storage","tool_cupboard")
+local other=deploy("Campfire","campfire")
+library.Flags.dep_enabled=true;tick()
+assert(visible()==8 and textVisible("auto turret") and textVisible("sleeping bag") and textVisible("tool cupboard") and textVisible("campfire"), "deployables have unique labels and distance")
+library.Flags.dep_turret=false;tick();assert(visible()==6 and not textVisible("auto turret"), "turret filter")
+library.Flags.dep_bag=false;tick();assert(visible()==4 and not textVisible("sleeping bag"), "bag filter")
+library.Flags.dep_cupboard=false;tick();assert(visible()==2 and not textVisible("tool cupboard"), "cupboard filter")
+library.Flags.dep_other=false;tick();assert(visible()==0, "other deployable filter")
+library.Flags.dep_turret=true;library.Flags.dep_bag=true;library.Flags.dep_cupboard=true;library.Flags.dep_other=true;tick()
+for _,m in ipairs({turret,bag,cupboard,other}) do world.DescendantRemoving:Fire(m);m.Parent=nil end
+assert(visible()==0, "deployable removal cleans drawings")
+library.Flags.dep_enabled=false
+library.Flags.ore_enabled=true
+local sulfur=node("BasePart","SulfurNode",world);sulfur.Position=v3.new(0,0,10);world.DescendantAdded:Fire(sulfur);tick()
+assert(textVisible("SO"), "missing icon model uses labeled fallback rather than a dot")
+world.DescendantRemoving:Fire(sulfur);sulfur.Parent=nil;library.Flags.ore_enabled=false
 library.unloadButton()
 assert(env.ARC3USX_ESP_UNLOAD == nil and library.unloaded, "unload clears singleton and UI")
 for _, d in ipairs(drawings) do assert(d.removed, "all drawing objects removed") end

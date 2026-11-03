@@ -163,7 +163,7 @@ for _,o in ipairs(objects) do
     end
 end
 assert(foundHud and foundLogo and foundIntroLogo, "mix HUD, title logo and intro logo applied")
-for _, flag in ipairs({ "esp_master", "esp_rate", "plr_enabled", "plr_tracer", "plr_visible_only", "plr_ignore_team", "npc_enabled", "npc_health", "npc_skel", "npc_tracer", "npc_visible_only", "ore_enabled", "ore_name", "ore_marker", "heli_enabled", "staff_monitor", "staff_esp", "gunmods_enabled", "bowmods_enabled", "universal_ammo", "universal_noair", "weakspot_enabled", "NH_Mix" }) do
+for _, flag in ipairs({ "esp_master", "esp_rate", "plr_enabled", "plr_tracer", "plr_visible_only", "plr_ignore_team", "npc_enabled", "npc_health", "npc_skel", "npc_tracer", "npc_visible_only", "ore_enabled", "ore_name", "ore_marker", "heli_enabled", "loot_master", "loot_enabled", "loot_name", "loot_dist", "loot_chams", "dep_master", "dep_enabled", "dep_turret", "dep_bag", "dep_cupboard", "dep_other", "dep_name", "dep_dist", "dep_chams", "staff_monitor", "staff_esp", "gunmods_enabled", "bowmods_enabled", "universal_ammo", "universal_noair", "weakspot_enabled", "NH_Mix" }) do
     assert(loadedLibrary.Options[flag], "control missing: "..flag)
 end
 loadedLibrary.Options.NH_Mix:Set("Blood Eye")
