@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARC3USX — Interactive UI preview</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><div class="brand-mark"><img src="assets/logo.png" alt=""></div><div><span class="brand-name">ARC3USX<span class="brand-dim"> / NH</span></span><span class="brand-sub">INTERFACE PRESENTATION</span></div></div>
+      <div class="top-right"><span class="live-dot"></span><span>INTERACTIVE PREVIEW</span><span class="top-divider"></span><span class="desktop-label">BROWSER SIMULATION</span></div>
+    </header>
+
+    <main>
+      <section class="heading">
+        <div><div class="eyebrow"><span class="eyebrow-line"></span> YOUR INTERFACE, IN MOTION <span class="index">01 / 01</span></div><h1>Take a closer <span>look.</span></h1><p>An interactive presentation of your ARC3USX interface.</p></div>
+        <div class="heading-actions"><button id="replay" class="outline-button"><span class="replay-icon">↻</span> Replay intro</button><button id="reset" class="icon-button" title="Reset preview" aria-label="Reset preview">↺</button></div>
+      </section>
+
+      <section class="showcase" aria-label="Interactive visual simulation">
+        <div class="showcase-top"><div class="window-dots"><i></i><i></i><i></i></div><span>ARC3USX.EXE <span class="slash">/</span> LIVE UI PREVIEW</span><div class="showcase-badge"><span></span> SIMULATED VIEW</div></div>
+        <div class="stage" id="stage">
+          <div class="landscape" aria-hidden="true"><div class="sky"></div><div class="mountain mountain-back"></div><div class="mountain mountain-mid"></div><div class="ground"></div><div class="horizon"></div><div class="tree tree-one"></div><div class="tree tree-two"></div><div class="tree tree-three"></div><div class="vignette"></div><div class="crosshair"><i></i><b></b></div></div>
+          <div id="hud" class="hud"><div id="watermark" class="hud-box">ARC3USX.EXE | 60 fps | 42 ms | <span id="hud-time">12:00</span></div><div id="keybinds" class="hud-box keys"><b>Keybinds</b><span>No active keybinds</span></div></div>
+          <div id="menu-wrap" class="menu-wrap">
+            <div id="menu" class="menu">
+              <div class="menu-titlebar" id="drag-handle"><img src="assets/logo.png" alt="ARC3USX logo"><div><b>ARC3USX.EXE</b> <span>|</span> <span id="menu-date"></span></div><button id="close-menu" aria-label="Hide menu" title="Hide menu">−</button></div>
+              <div class="accent-rule"></div>
+              <nav class="tabs" id="tabs" aria-label="UI tabs"></nav>
+              <div class="menu-body" id="menu-body"></div>
+            </div>
+          </div>
+          <button id="floating" class="floating" aria-label="Show menu" title="Show menu"><img src="assets/logo.png" alt=""></button>
+          <div id="intro" class="intro" aria-label="Simulated loading sequence" hidden>
+            <div id="terminal" class="terminal"></div>
+            <div id="intro-checks" class="intro-checks"><div class="intro-title">ARC3USX.EXE</div><div class="intro-sub">32-bit compatibility check</div><div class="check-list" id="check-list"></div><div class="intro-bar"><i id="intro-progress"></i></div><div class="intro-status" id="intro-status">Starting up...</div></div>
+            <div id="intro-reveal" class="intro-reveal" hidden><div class="hero-logo"><img src="assets/logo.png" alt="ARC3USX logo"><i class="eye-glow"></i></div><div class="access-box"><strong>ACCESS GRANTED</strong><small>COMPATIBILITY VERIFIED</small></div></div>
+            <button id="skip-intro" class="skip-intro">Skip intro <span>→</span></button>
+          </div>
+        </div>
+        <div class="showcase-bottom"><div><span class="bottom-dot"></span> UI PREVIEW <span class="bottom-separator">/</span> <span id="current-theme">NH CLASSIC</span></div><div><kbd>RIGHT SHIFT</kbd> TOGGLE MENU <span class="bottom-separator">·</span> <span class="desktop-label">DRAG WINDOW TO MOVE</span></div></div>
+      </section>
+
+      <section class="below"><div class="below-copy"><span class="tiny-label">A NOTE ON THIS PREVIEW</span><p>Explore the tabs and controls, switch mixes, or replay the loading sequence. This is a visual simulation; it doesn’t connect to Roblox or change the game.</p></div><div class="feature-list"><div><span>01</span><b>Animated intro</b><small>Logo & compatibility sequence</small></div><div><span>02</span><b>Five visual mixes</b><small>Change them in the Mixes tab</small></div><div><span>03</span><b>Interactive controls</b><small>Toggles, sliders & preview</small></div></div></section>
+    </main>
+    <footer><span>ARC3USX <span class="footer-muted">/ INTERFACE PRESENTATION</span></span><span>DESIGNED FOR A CLOSER LOOK <span class="footer-star">✳</span></span></footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
