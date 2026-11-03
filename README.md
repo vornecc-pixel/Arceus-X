@@ -22,6 +22,7 @@ A dark, purple-accent Roblox UI library with an animated intro.
 | --- | --- |
 | `ARC3USX.lua` | The library |
 | `example.lua` | Demo using every control |
+| `scripts/esp.lua` | Standalone player, NPC, resource, helicopter, and staff ESP |
 | `logo.png` | The logo image (upload this to your repo for `LogoUrl`) |
 | `README.md` | This file |
 
@@ -179,3 +180,21 @@ The intro runs real checks and prints the results: platform, screen size, client
 - Config files are only written when your environment provides file functions; otherwise configs stay in memory for the session. `Library:Serialize()` always works.
 - Set `Intro = false` in `CreateWindow` to skip the animation.
 - Please add a license file (for example MIT) before publishing, and make sure you have the rights to the logo image you upload.
+
+## Standalone ESP
+
+`scripts/esp.lua` is an ESP-only replacement for the ESP portion of the supplied script; it does **not** include the gun, bow, ammo, or weakspot features. Run it in a Roblox environment with `loadstring`, HTTP access, and Drawing API support for `Square`, `Line`, and `Text`. It loads this library from the repository's `main` branch. Right Shift opens the menu; turn on the individual **ESP Toggle** for each category you want. The master switches are on by default, but the ESP toggles are off.
+
+Loader for the session branch:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/esp.lua"))()
+```
+
+This branch URL will only remain available while the branch exists. If the script is merged into `main`, use `refs/heads/main/scripts/esp.lua` instead.
+
+Players are tracked through player/character events. NPCs are models with a Humanoid under `workspace.Npcs`; helicopters are models named `PatrolHeli`. Resources match the names in `ORE_COLORS` in the script. Change these names or discovery rules if the game uses a different hierarchy. Only objects replicated to the client can be detected, so streaming may affect what is visible. Staff detection depends on the game's `AdminRole` attribute or its optional `ReplicatedStorage.Fust` modules.
+
+The script performs one initial workspace scan and handles later additions/removals through events, updates the overlay at up to 30 Hz, throttles visibility raycasts, and removes drawings on despawn, unload, and reinjection. Runtime performance depends on the number of tracked objects and the executor. Use **Unload Script & Clear ESP** before switching scripts; the standalone script also cleans up a previous instance of itself on reinjection.
+
+A lightweight lifecycle test with mocked Roblox services is in `tests/esp_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). It does not replace testing in Roblox with the target game's hierarchy and executor.
