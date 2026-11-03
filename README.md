@@ -1,0 +1,181 @@
+# ARC3USX.EXE UI Library
+
+A dark, purple-accent Roblox UI library with an animated intro.
+
+- Draggable window, tabs, two-column groups, mobile auto-scaling
+- Controls: Toggle (+ keybind + color swatches), Slider, Dropdown, Textbox, Button, Label, Keybind, Color picker
+- **13 built-in themes**, live theme switching, per-color editing, theme export/import (all in the Settings tab)
+- **ESP preview**: an animated mock player that reacts live to your ESP toggles and colors
+- **Auto-load**: pick a config and it loads itself the next time the script runs
+- **Customizable appearance**: edit every theme color, save your own named themes, change font, UI scale and window opacity (all remembered between sessions)
+- Config system (in memory; saved to files too if your environment provides file functions)
+- Notifications, menu keybind, floating logo button when the menu is hidden
+- **Intro sequence**
+  1. Hacker-style terminal typing in the background while real compatibility checks run
+  2. `ACCESS GRANTED` pops up with your logo above it
+  3. The logo's eye glows, it slices the box in two
+  4. A pin locks onto the window's logo slot, the logo circles in and smashes into it, and the window appears
+
+## Files
+
+| File | What it is |
+| --- | --- |
+| `ARC3USX.lua` | The library |
+| `example.lua` | Demo using every control |
+| `logo.png` | The logo image (upload this to your repo for `LogoUrl`) |
+| `README.md` | This file |
+
+## Setup
+
+1. **Logo** — pick one:
+   - **PNG from GitHub (no upload):** put `logo.png` in your repo and set `Library.LogoUrl = "https://raw.githubusercontent.com/USER/REPO/main/logo.png"`. The library downloads it once to `ARC3USX/logo.png` and loads it with `getcustomasset`. This needs an environment with file functions (`writefile`, `isfile`, ...) and `getcustomasset`; Roblox Studio does not have them.
+   - **Roblox asset id (works everywhere):** upload the PNG to Roblox (Creator Hub → Development Items → Decals/Images) and set `Library.Logo = "rbxassetid://YOUR_ID"`. If `LogoUrl` can't be used, the library falls back to this.
+   - To refresh a cached PNG, delete `ARC3USX/logo.png` from your workspace folder.
+2. Put the repo on GitHub, then load it with the raw URL:
+
+```lua
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/USER/REPO/main/ARC3USX.lua"))()
+```
+
+   Or in Roblox Studio, add `ARC3USX.lua` as a **ModuleScript** and `require` it from a **LocalScript**.
+
+3. Create a window:
+
+```lua
+Library.LogoUrl = "https://raw.githubusercontent.com/USER/REPO/main/logo.png"
+Library.Logo = "rbxassetid://YOUR_ID" -- fallback
+
+local Window = Library:CreateWindow({ Name = "ARC3USX.EXE", Intro = true })
+local Tab = Window:AddTab("Main")
+local Group = Tab:AddGroup("General", "Left") -- "Left" or "Right"
+
+Group:AddToggle({ Name = "Enabled", Flag = "enabled", Bind = true, Callback = print })
+Group:AddSlider({ Name = "Range", Min = 0, Max = 100, Default = 50, Suffix = "%" })
+
+Window:AddSettingsTab()
+```
+
+## API
+
+**Library**
+
+| Member | Description |
+| --- | --- |
+| `Library.Logo` | `rbxassetid://...` image used in the title bar and intro |
+| `Library.LogoUrl` | Direct PNG link (e.g. GitHub raw); downloaded and cached when the environment supports it |
+| `Library.Accent` | Accent `Color3` (change at runtime with `Library:SetAccent(color)`) |
+| `Library.MenuKey` | `Enum.KeyCode` that shows/hides the window (default `Insert`) |
+| `Library.Parent` | Optional custom parent for the ScreenGui (set before `CreateWindow`) |
+| `Library.ExtraChecks` | Extra intro checks: `{ {"Name", function() return "ok"/"warn"/"fail", "detail" end} }` |
+| `Library.Flags` | `flag -> value` table |
+| `Library.Options` | `flag -> control object` (use `:Set(value)`) |
+| `Library:CreateWindow(opts)` | `Name`, `Logo`, `Accent`, `MenuKey`, `Size` (Vector2), `Intro` (bool) |
+| `Library:SetTheme(nameOrTable, name)` | Apply a theme live |
+| `Library:SetThemeColor(key, color)` | Change one theme color |
+| `Library:RegisterTheme(name, table)` | Add a custom theme |
+| `Library:ExportTheme()` / `ImportTheme(json)` | Theme JSON |
+| `Library:SetFont(name)` / `SetUIScale(n)` / `SetOpacity(n)` | Appearance settings |
+| `Library:SaveCustomTheme(name)` / `DeleteCustomTheme(name)` | Your own named themes |
+| `Library:SetAutoLoad(name or nil)` / `GetAutoLoad()` | Config that loads on startup |
+| `Library.RememberSettings` | `false` = don't persist appearance settings |
+| `Library:Notify(text, seconds)` | Toast notification |
+| `Library:Serialize()` / `Library:Deserialize(json)` | Export / import all option values |
+| `Library:SaveConfig(name)` / `LoadConfig` / `DeleteConfig` / `ListConfigs` | Config helpers |
+| `Library:Unload()` | Destroys the UI and disconnects everything |
+
+**Window**: `AddTab(name)`, `AddSettingsTab()`, `Toggle()`, `Replay()` (replays the intro), `AutoLoad()`
+
+**Tab**: `AddGroup(title, "Left" | "Right")`
+
+**Group**
+
+| Method | Options |
+| --- | --- |
+| `AddToggle` | `Name, Flag, Default, Callback, Bind, BindDefault, Colors = {Color3...}, ColorCallback(index, color)` |
+| `AddSlider` | `Name, Flag, Min, Max, Default, Rounding, Suffix, Callback` |
+| `AddDropdown` | `Name, Flag, Options, Default, Callback` (`obj:SetOptions(list)`) |
+| `AddTextbox` | `Name, Flag, Default, Placeholder, Callback` |
+| `AddButton` | `Name, Callback` |
+| `AddLabel(text)` | returns object with `:SetText(text)` |
+| `AddKeybind` | `Name, Flag, Default, Callback, Changed(key)` |
+| `AddColor` | `Name, Flag, Default, Callback(color)` |
+| `AddCustom(height)` | returns an empty Frame you can fill yourself |
+| `AddESPPreview` | `Height, Animate, PlayerName, ToolName, Demo, Elements = {...}` (see above) |
+
+## Themes
+
+Open **Settings → Theme** to switch themes live, tweak individual colors (Accent, Background, Panel, Control, Input, Border, Text, Muted), and **export / import** a theme as JSON. Your current theme is also saved inside configs.
+
+Built-in themes: `Purple` (default), `Midnight`, `Crimson`, `Emerald`, `Ocean`, `Sunset`, `Rose`, `Monochrome`, `Gold`, `Dracula`, `Nord`, `Cyberpunk`, `Arctic Light`.
+
+```lua
+Library:SetTheme("Midnight")                       -- by name (before or after CreateWindow)
+Library:CreateWindow({ Theme = "Nord" })           -- or at creation
+Library:SetThemeColor("Accent", Color3.fromRGB(255, 80, 80))
+
+-- your own theme: appears in the Settings dropdown automatically
+Library:RegisterTheme("My Theme", {
+    Bg = Color3.fromRGB(12, 12, 12), P1 = Color3.fromRGB(20, 20, 20), P2 = Color3.fromRGB(28, 28, 28),
+    Input = Color3.fromRGB(32, 32, 32), Line = Color3.fromRGB(50, 50, 50), Box = Color3.fromRGB(44, 44, 44),
+    BoxLine = Color3.fromRGB(64, 64, 64), Text = Color3.fromRGB(220, 220, 220), Mute = Color3.fromRGB(120, 120, 120),
+    Accent = Color3.fromRGB(255, 80, 80),
+})
+Library:SetTheme("My Theme")
+```
+
+Theme keys: `Bg`, `P1` (panel), `P2` (controls), `Input`, `Line` (borders), `Box` / `BoxLine` (checkbox), `Text`, `Mute`, `Accent`. Missing keys fall back to the Purple theme.
+
+### Customizing the look (Settings → Theme)
+
+- **Theme dropdown + 8 color pickers** (Accent, Background, Panel, Control, Input, Border, Text, Muted). Editing a color switches to "Custom".
+- **Save Current as Theme / Delete Custom Theme**: name your colors and they appear in the theme dropdown. Built-in themes can't be overwritten or deleted.
+- **Font**, **UI Scale** (60–140%) and **Window Opacity** (30–100%).
+- **Remembered between sessions**: the theme, your saved themes, font, scale and opacity are written to `ARC3USX/settings.json` when the environment has file functions. Set `Library.RememberSettings = false` to turn that off.
+
+```lua
+Library:SetFont("Gotham")      -- SourceSans, Gotham, GothamMedium, Ubuntu, Arial, Roboto, RobotoMono, Code
+Library:SetUIScale(1.1)
+Library:SetOpacity(0.9)
+Library:SaveCustomTheme("Night Mode")   -- saves the current colors under that name
+Library:DeleteCustomTheme("Night Mode")
+```
+
+## Auto-load a config
+
+In **Settings → Configs**, select a config in the list and turn on **Auto Load Selected**. The label shows which config is set. Next time the script runs, that config loads automatically once the intro finishes and a notification confirms it. Changing the selection while the toggle is on updates the auto-load config; deleting it clears auto-load.
+
+- Needs file functions to remember between sessions (the choice is stored in `ARC3USX/autoload.txt`). Without them it only works for the current session.
+- `AddSettingsTab()` schedules the auto-load for you. If you add more controls after it with a delay, call `Window:AutoLoad()` yourself at the end of your script.
+- `Library:SetAutoLoad("name")`, `Library:SetAutoLoad(nil)` and `Library:GetAutoLoad()` work from code.
+- A config also stores your theme, so loading one can change the theme too.
+
+## ESP preview
+
+`Group:AddESPPreview({...})` adds an animated mock player (it sways, its health bar changes) that updates live from your own toggles. Point each element at the `Flag` of the control that drives it:
+
+```lua
+Group:AddESPPreview({
+    Height = 280,
+    Elements = {
+        Box = "esp_box",          -- toggle; Colors[1] = outline, Colors[2] = fill
+        BoxStyle = "esp_style",   -- dropdown: "Full" / "Corners"
+        BoxFill = "esp_fill",     -- toggle
+        Name = "esp_name", Health = "esp_health", Distance = "esp_dist", Tool = "esp_tool",
+        Tracer = "esp_tracer", Skeleton = "esp_skeleton",
+        Chams = "esp_chams",      -- toggle; Colors[1] = fill, Colors[2] = outline
+    },
+})
+```
+
+Colors come from the toggle's swatches (`Colors = {...}`), so users can recolor each element and see it instantly. Options: `Animate` (default true), `PlayerName`, `ToolName`, `Demo` (show every element). It is a preview only: it shows how your settings will look and draws nothing in the game itself. See `example.lua` for a full Visuals tab.
+
+## Compatibility checks
+
+The intro runs real checks and prints the results: platform, screen size, client version, game loaded, local player, PlayerGui, frame rate, network ping, and input type. If a check **fails**, a "Continue anyway" button appears before the intro continues.
+
+## Notes
+
+- The library is client-side UI only. It has no game-specific features, so wire up your own callbacks.
+- Config files are only written when your environment provides file functions; otherwise configs stay in memory for the session. `Library:Serialize()` always works.
+- Set `Intro = false` in `CreateWindow` to skip the animation.
+- Please add a license file (for example MIT) before publishing, and make sure you have the rights to the logo image you upload.
