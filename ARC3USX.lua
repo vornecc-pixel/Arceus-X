@@ -731,6 +731,14 @@ function Library:SetAutoLoad(name)
 end
 
 function Library:Unload()
+    if self._unloading then return end
+    self._unloading = true
+    local onUnload = self.OnUnload
+    self.OnUnload = nil
+    if type(onUnload) == "function" then
+        local ok, err = pcall(onUnload)
+        if not ok then warn("[ARC3USX] Unload callback failed: " .. tostring(err)) end
+    end
     for _, c in ipairs(self._conns) do
         pcall(function()
             c:Disconnect()
@@ -743,6 +751,7 @@ function Library:Unload()
     self.Flags, self.Options = {}, {}
     self._texts, self._themed, self._themeFns = {}, {}, {}
     self.Gui, self._notes, self._inited = nil, nil, false
+    self._unloading = false
 end
 
 --------------------------------------------------------------------
@@ -1650,9 +1659,20 @@ function Window:Toggle()
 end
 
 function Window:Replay()
+    if self._introRunning then return end
+    self._introRunning = true
     self._ready = false
     task.spawn(function()
-        pcall(Library._RunIntro, Library, self)
+        local ok, err = pcall(Library._RunIntro, Library, self)
+        if not ok then
+            warn("[ARC3USX] Intro failed; opening the menu: " .. tostring(err))
+            local gui = Library.Gui
+            local overlay = gui and gui:FindFirstChild("Intro")
+            if overlay then overlay:Destroy() end
+            if self.Root and self.Root.Parent then self.Root.Visible = true end
+            if self.Fab and self.Fab.Parent then self.Fab.Visible = false end
+        end
+        self._introRunning = false
         self._ready = true
     end)
 end
@@ -2252,7 +2272,11 @@ function Library:_RunIntro(win)
             Size = UDim2.fromOffset(140, 22),
             Parent = panel,
         }, { Stroke(T.Line) })
-        btn.MouseButton1Click:Wait()
+        local continued = false
+        local click = btn.MouseButton1Click:Connect(function() continued = true end)
+        local started = os.clock()
+        while not continued and btn.Parent and os.clock() - started < 8 do task.wait(0.1) end
+        click:Disconnect()
         btn:Destroy()
     else
         local w = res.warn > 0
@@ -2478,9 +2502,11 @@ function Library:_RunIntro(win)
             done = true
         end
     end)
-    while not done do
+    while not done and ov.Parent and os.clock() - t0 < 5 do
         task.wait()
     end
+    conn:Disconnect()
+    if not ov.Parent then return end
 
     -- impact
     hero.Visible = false

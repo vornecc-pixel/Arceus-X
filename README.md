@@ -22,6 +22,10 @@ A dark, purple-accent Roblox UI library with an animated intro.
 | --- | --- |
 | `ARC3USX.lua` | The library |
 | `example.lua` | Demo using every control |
+| `ARC3USX_NH.lua` | NH-style theme mixes and HUD layer |
+| `logo.lua` | Embedded PNG logo loader |
+| `example_mixes.lua` | Example of the mix API |
+| `scripts/ui_bootstrap.lua` | Shared logo, intro, and mix UI startup |
 | `scripts/main.lua` | Main script with combat and weakspot controls; loads ESP separately |
 | `scripts/esp.lua` | Player, NPC, resource, helicopter, and staff ESP; usable standalone or in the main script |
 | `logo.png` | The logo image (upload this to your repo for `LogoUrl`) |
@@ -184,17 +188,19 @@ The intro runs real checks and prints the results: platform, screen size, client
 
 ## Full script with separate ESP
 
-The main script loads the ESP from `scripts/esp.lua` into the same window. Both URLs below point to the session branch:
+The main script loads `scripts/esp.lua` into the same window, using the shared `scripts/ui_bootstrap.lua` to load the library, embedded logo, and NH mix. The stock animated intro plays before the NH Classic mix and HUD are applied; choose other appearances in the Mixes tab. The loader and all of its dependencies point to the session branch:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/main.lua"))()
 ```
 
+The embedded logo needs file APIs (`isfolder`, `makefolder`, `isfile`, `writefile`) and `getcustomasset` or `getsynasset`. Without them, the menu and intro still open but the logo falls back to the library's configured Roblox asset (by default a blank placeholder). If the mix cannot load, startup falls back to the stock UI. The settings tab's **Unload Menu** and the system unload button both clean up the ESP and combat loops.
+
 The combat features depend on executor APIs and the target game's internal tables; they are not verified against the live game. Unloading restores the tracked scanner settings where possible, but cannot guarantee restoration of transient state changes or game-side effects. The weakspot feature retains the original invisible node marker; by itself it does **not** redirect hits. The ESP requires a compatible Drawing API. If ESP loading fails, the combat UI still opens and reports the error.
 
 ## Standalone ESP
 
-`scripts/esp.lua` is an ESP-only replacement for the ESP portion of the supplied script; it does **not** include the gun, bow, ammo, or weakspot features. Run it in a Roblox environment with `loadstring`, HTTP access, and Drawing API support for `Square`, `Line`, and `Text`. It loads this library from the repository's `main` branch. Right Shift opens the menu; turn on the individual **ESP Toggle** for each category you want. The master switches are on by default, but the ESP toggles are off.
+`scripts/esp.lua` is an ESP-only replacement for the ESP portion of the supplied script; it does **not** include the gun, bow, ammo, or weakspot features. Run it in a Roblox environment with `loadstring`, HTTP access, and Drawing API support for `Square`, `Line`, and `Text`. When run standalone it uses the same logo, intro, and mix bootstrap as the full script. Right Shift opens the menu; turn on the individual **ESP Toggle** for each category you want. The master switches are on by default, but the ESP toggles are off.
 
 Loader for the session branch:
 
@@ -208,4 +214,4 @@ Players are tracked through player/character events. NPCs are models with a Huma
 
 The script performs one initial workspace scan and handles later additions/removals through events, updates the overlay at up to 30 Hz, throttles visibility raycasts, and removes drawings on despawn, unload, and reinjection. Runtime performance depends on the number of tracked objects and the executor. Use **Unload Script & Clear ESP** before switching scripts; the standalone script also cleans up a previous instance of itself on reinjection.
 
-A lightweight lifecycle test with mocked Roblox services is in `tests/esp_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). It does not replace testing in Roblox with the target game's hierarchy and executor.
+Mocked tests are in `tests/esp_mock.lua` and `tests/ui_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). They exercise ESP lifecycle, UI startup, mix, fallback, and cleanup, but do not replace testing in Roblox with the target game's hierarchy and executor.

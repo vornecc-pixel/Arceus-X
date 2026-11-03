@@ -5,7 +5,7 @@ local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
 local environment = type(getgenv) == "function" and getgenv() or _G
 local ESP_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/esp.lua"
-local LIBRARY_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/ARC3USX.lua"
+local UI_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/ui_bootstrap.lua"
 
 local function report(message)
     warn("[ARC3USX] " .. tostring(message))
@@ -14,10 +14,27 @@ local function report(message)
     end)
 end
 if type(environment.ARC3USX_MAIN_UNLOAD) == "function" then pcall(environment.ARC3USX_MAIN_UNLOAD) end
-local ok, Library = pcall(function() return assert(loadstring(game:HttpGet(LIBRARY_URL)))() end)
-if not ok or type(Library) ~= "table" then report("Could not load UI library: " .. tostring(Library)); return end
-
-local Window = Library:CreateWindow({ Name = "ARC3USX.EXE", Size = Vector2.new(750, 600), Intro = false, Theme = "Purple", MenuKey = Enum.KeyCode.RightShift })
+local cancelled, startupLibrary = false, nil
+local function cancelStartup()
+    cancelled = true
+    if startupLibrary then pcall(function() startupLibrary:Unload() end) end
+    if environment.ARC3USX_MAIN_UNLOAD == cancelStartup then environment.ARC3USX_MAIN_UNLOAD = nil end
+end
+environment.ARC3USX_MAIN_UNLOAD = cancelStartup
+local ok, ui, failure = pcall(function()
+    local bootstrap = assert(loadstring(game:HttpGet(UI_URL)))()
+    return bootstrap({
+        Name = "ARC3USX.EXE",
+        OnLibrary = function(library) startupLibrary = library; library.OnUnload = cancelStartup end,
+        IsCancelled = function() return cancelled end,
+    })
+end)
+if not ok or not ui then
+    cancelStartup()
+    if not cancelled or failure ~= "cancelled" then report("Could not load UI: " .. tostring(failure or ui)) end
+    return
+end
+local Library, Window, Mix = ui.Library, ui.Window, ui.Mix
 local Visuals = Window:AddTab("ESP / World")
 local Combat = Window:AddTab("Combat")
 local Misc = Window:AddTab("Misc")
@@ -32,8 +49,13 @@ end
 local espUnload
 local loaded, result = pcall(function()
     local source = game:HttpGet(ESP_URL)
+    if cancelled then return nil end
     return assert(loadstring(source))({ Library = Library, Window = Window, Visuals = Visuals, Misc = Misc })
 end)
+if cancelled then
+    if type(result) == "function" then pcall(result) end
+    return
+end
 if loaded and type(result) == "function" then
     espUnload = result
 else
@@ -329,6 +351,7 @@ local WG = Misc:AddGroup("Auto Weakspot", "Left")
 WG:AddToggle({ Name = "Enable Auto Weakspot", Flag = "weakspot_enabled", Default = false })
 WG:AddSlider({ Name = "Max Distance", Flag = "weakspot_max_dist", Min = 5, Max = 100, Default = 30, Suffix = "m" })
 WG:AddLabel("Creates an invisible marker at the nearest node; it does not redirect hits.")
+if Mix then pcall(function() Mix.AddTab(Library, Window) end) end
 pcall(function() Window:AddSettingsTab() end)
 local System = Misc:AddGroup("System", "Right")
 local function unload()
@@ -344,4 +367,5 @@ local function unload()
     pcall(function() Library:Unload() end)
 end
 environment.ARC3USX_MAIN_UNLOAD = unload
+Library.OnUnload = unload
 System:AddButton({ Name = "Unload Script & Clear Memory", Callback = unload })

@@ -41,19 +41,35 @@ for _, class in ipairs({ "Square", "Line", "Text" }) do
 end
 
 local ownsLibrary = not context
-local ok, Library = true, context and context.Library
+local Library, Window, Mix
 if ownsLibrary then
-    ok, Library = pcall(function()
-        local source = game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/ARC3USX.lua")
-        return assert(loadstring(source))()
+    if type(environment.ARC3USX_MAIN_UNLOAD) == "function" then pcall(environment.ARC3USX_MAIN_UNLOAD) end
+    local cancelled, startupLibrary = false, nil
+    local function cancelStartup()
+        cancelled = true
+        if startupLibrary then pcall(function() startupLibrary:Unload() end) end
+        if environment.ARC3USX_ESP_UNLOAD == cancelStartup then environment.ARC3USX_ESP_UNLOAD = nil end
+    end
+    environment.ARC3USX_ESP_UNLOAD = cancelStartup
+    local ok, ui, failure = pcall(function()
+        local url = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/ui_bootstrap.lua"
+        local bootstrap = assert(loadstring(game:HttpGet(url)))()
+        return bootstrap({
+            Name = "ARC3USX.EXE — ESP",
+            OnLibrary = function(library) startupLibrary = library; library.OnUnload = cancelStartup end,
+            IsCancelled = function() return cancelled end,
+        })
     end)
+    if not ok or not ui then
+        cancelStartup()
+        if failure ~= "cancelled" then report("Could not load the UI: " .. tostring(failure or ui)) end
+        return
+    end
+    Library, Window, Mix = ui.Library, ui.Window, ui.Mix
+else
+    Library, Window = context.Library, context.Window
+    if type(Library) ~= "table" or not Window then report("Invalid shared UI context."); return end
 end
-if not ok or type(Library) ~= "table" or (context and not context.Window) then
-    report("Could not load the UI library: " .. tostring(Library))
-    return
-end
-
-local Window = context and context.Window or Library:CreateWindow({ Name = "ARC3USX.EXE — ESP", Size = Vector2.new(750, 600), Intro = false, Theme = "Purple", MenuKey = Enum.KeyCode.RightShift })
 local Visuals = context and context.Visuals or Window:AddTab("ESP / World")
 local Misc = context and context.Misc or Window:AddTab("Misc")
 local Colors = {
@@ -122,7 +138,10 @@ staffGroup:AddToggle({ Name = "Enable Staff Monitor", Flag = "staff_monitor", De
 staffGroup:AddToggle({ Name = "Highlight Staff", Flag = "staff_esp", Default = false })
 local staffLabel = staffGroup:AddLabel("Staff scan inactive.")
 local systemGroup = ownsLibrary and Misc:AddGroup("System", "Right") or nil
-if ownsLibrary then pcall(function() Window:AddSettingsTab() end) end
+if ownsLibrary then
+    if Mix then pcall(function() Mix.AddTab(Library, Window) end) end
+    pcall(function() Window:AddSettingsTab() end)
+end
 
 local alive = true
 local connections = {}
@@ -551,5 +570,6 @@ local function unload()
     if ownsLibrary then pcall(function() Library:Unload() end) end
 end
 environment.ARC3USX_ESP_UNLOAD = unload
+if ownsLibrary then Library.OnUnload = unload end
 if systemGroup then systemGroup:AddButton({ Name = "Unload Script & Clear ESP", Callback = unload }) end
 return unload

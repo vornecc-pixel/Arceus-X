@@ -95,7 +95,7 @@ local run = { RenderStepped = signal() }
 local rep = node("ReplicatedStorage", "ReplicatedStorage")
 function rep:WaitForChild() return nil end
 local services = { Players = players, RunService = run, CoreGui = gui, ReplicatedStorage = rep, StarterGui = { SetCore = function() end } }
-game = { GetService = function(_, name) return services[name] end, HttpGet = function() return "library" end }
+game = { GetService = function(_, name) return services[name] end, HttpGet = function(_, url) return url end }
 local env = {}
 getgenv = function() return env end
 task = { spawn = function(fn) fn() end, wait = function() end }
@@ -112,8 +112,25 @@ function group:AddESPPreview() end
 local tab = { AddGroup = function() return group end }
 local window = { AddTab = function() return tab end, AddSettingsTab = function() end }
 function library:CreateWindow() return window end
-function library:Unload() self.unloaded = true end
-loadstring = function() return function() return library end end
+function library:Unload()
+    if self.unloading then return end
+    self.unloading = true
+    local callback = self.OnUnload
+    self.OnUnload = nil
+    if callback then callback() end
+    self.unloaded = true
+    self.unloading = false
+end
+local function mockBootstrap()
+    return function(opts)
+        opts.OnLibrary(library)
+        return { Library = library, Window = window, Mix = { AddTab = function() end } }
+    end
+end
+loadstring = function(source)
+    if source:find("ui_bootstrap.lua", 1, true) then return mockBootstrap end
+    return function() return library end
+end
 local function character(name, parent)
     local m = node("Model", name, parent)
     local root = node("BasePart", "HumanoidRootPart", m)
@@ -211,6 +228,7 @@ run.Heartbeat = signal()
 task.spawn = function() end -- Background scans are tested separately above.
 game.HttpGet = function(_, url) return url end
 loadstring = function(source)
+    if source:find("ui_bootstrap.lua", 1, true) then return mockBootstrap end
     if source:find("scripts/esp.lua", 1, true) then return assert(loadfile("scripts/esp.lua")) end
     return function() return library end
 end
@@ -227,6 +245,7 @@ library.unloadButton()
 assert(library.unloaded and env.ARC3USX_MAIN_UNLOAD == nil and env.ARC3USX_ESP_UNLOAD == nil and visible() == 0, "main unload also unloads ESP")
 library.unloaded = false
 loadstring = function(source)
+    if source:find("ui_bootstrap.lua", 1, true) then return mockBootstrap end
     if source:find("scripts/esp.lua", 1, true) then return function() error("test ESP load failure") end end
     return function() return library end
 end
