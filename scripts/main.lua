@@ -308,6 +308,267 @@ end
 local function slider(group, name, flag, state, field, min, max, default)
     group:AddSlider({ Name = name, Flag = flag, Min = min, Max = max, Default = default, Rounding = 3, Callback = function(value) state[field] = value end })
 end
+-- Silent aim only handles the known Fust Shoot payload; unknown calls pass through.
+-- The dispatcher is reused on reinjection, so we never stack our own hooks.
+local Silent = { active = true, remote = nil, items = nil }
+local silentStatus
+local function silentStatusText(message)
+    if not unloaded and silentStatus then silentStatus:SetText("Status: " .. message) end
+end
+local lastSilentWarning, lastSilentWarningAt = "", -math.huge
+local function silentWarn(message)
+    local now = os.clock()
+    if message ~= lastSilentWarning or now - lastSilentWarningAt >= 1 then
+        lastSilentWarning, lastSilentWarningAt = message, now
+        warn("[SilentAim] " .. message)
+    end
+end
+local function finite(n)
+    return type(n) == "number" and n == n and n ~= math.huge and n ~= -math.huge
+end
+local function targetPart(character)
+    for _, name in ipairs({ "Head", "UpperTorso", "Torso", "HumanoidRootPart" }) do
+        local part = character:FindFirstChild(name)
+        if part and part:IsA("BasePart") then return part end
+    end
+end
+local function closestTarget(camera, flags)
+    local center = camera.ViewportSize
+    local best, bestDistance = nil, tonumber(flags.silent_fov) or 250
+    local rayParams
+    if flags.silent_visibility then
+        rayParams = RaycastParams.new()
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        rayParams.FilterDescendantsInstances = LocalPlayer.Character and { LocalPlayer.Character } or {}
+    end
+    local function consider(character)
+        local hum = character:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return end
+        local part = targetPart(character)
+        if not part then return end
+        local screen, onScreen = camera:WorldToViewportPoint(part.Position)
+        if not onScreen or screen.Z <= 0 then return end
+        local dx, dy = screen.X - center.X / 2, screen.Y - center.Y / 2
+        local distance = math.sqrt(dx * dx + dy * dy)
+        if distance >= bestDistance then return end
+        if rayParams then
+            local origin = camera.CFrame.Position
+            local result = workspace:Raycast(origin, part.Position - origin, rayParams)
+            if result and not result.Instance:IsDescendantOf(character) then return end
+        end
+        bestDistance = distance
+        best = { part = part, velocity = part.AssemblyLinearVelocity }
+    end
+    if flags.silent_players then
+        for _, player in ipairs(Players:GetPlayers()) do
+            local teammate = player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team
+            if player ~= LocalPlayer and (not flags.silent_ignore_team or not teammate) and player.Character then
+                consider(player.Character)
+            end
+        end
+    end
+    if flags.silent_npcs then
+        local npcs = workspace:FindFirstChild("Npcs")
+        if npcs then
+            for _, character in ipairs(npcs:GetChildren()) do
+                if character:IsA("Model") then consider(character) end
+            end
+        end
+    end
+    return best
+end
+local function weaponSpec(data)
+    local character = LocalPlayer.Character
+    local tool = character and character:FindFirstChildOfClass("Tool")
+    local itemId = tool and tool:GetAttribute("ItemId")
+    if type(itemId) ~= "string" or type(Silent.items.Get) ~= "function" then return end
+    local ok, def = pcall(Silent.items.Get, itemId)
+    if not ok or type(def) ~= "table" then return end
+    local bow = def.weapon == "bow" or def.kind == "bow"
+        or (def.weapon == nil and def.kind == nil and itemId:lower():find("bow") ~= nil)
+    local gun = def.weapon == "gun" or def.kind == "gun"
+    if not bow and not gun then return end
+    if gun then bow = false end
+    local base = finite(def.speedBase) and def.speedBase or 95
+    local charge = finite(def.speedCharge) and def.speedCharge or 125
+    local gravity = finite(def.gravity) and math.abs(def.gravity) or 50
+    local chargeFraction = finite(data.charge) and math.clamp(data.charge, 0, 1) or 1
+    local speed = base + charge
+    if bow then
+        local draw = Silent.items.BOW_DRAW
+        local success, scale = false, nil
+        if type(draw) == "table" and type(draw.scale) == "function" then success, scale = pcall(draw.scale, chargeFraction) end
+        if success and finite(scale) then speed = speed * math.clamp(scale, 0, 1)
+        else speed = speed * (math.clamp(chargeFraction, 0.15, 1) * 125 + 95) / 220 end
+    end
+    if finite(data.gravity) then gravity = math.abs(data.gravity)
+    elseif typeof(data.gravity) == "Vector3" and finite(data.gravity.Y) then gravity = math.abs(data.gravity.Y) end
+    if finite(data.speed) then speed = data.speed end
+    if not finite(speed) or speed <= 0 or not finite(gravity) then return end
+    return { speed = speed, gravity = gravity, bow = bow, name = tostring(def.name or itemId) }
+end
+local function inBallisticRange(origin, target, spec)
+    if spec.gravity <= 0 then return true end
+    local delta = target - origin
+    local horiz2 = delta.X * delta.X + delta.Z * delta.Z
+    local v2, g = spec.speed * spec.speed, spec.gravity
+    return v2 * v2 - g * (g * horiz2 + 2 * delta.Y * v2) >= 0
+end
+-- Find the earliest positive intercept. Upward compensation opposes downward gravity.
+local function intercept(origin, position, velocity, speed, gravity)
+    local delta = position - origin
+    local maxTime = math.min(15, math.max(0.25, delta.Magnitude / speed * 3, gravity > 0 and 2.1 * speed / gravity or 0))
+    local function offset(t)
+        return delta + velocity * t + Vector3.new(0, 0.5 * gravity * t * t, 0)
+    end
+    local function residual(t)
+        local v = offset(t)
+        return v.X * v.X + v.Y * v.Y + v.Z * v.Z - speed * speed * t * t
+    end
+    local low, high = 0, nil
+    for i = 1, 240 do
+        local t = maxTime * i / 240
+        if residual(t) <= 0 then high = t; break end
+        low = t
+    end
+    if not high then return nil end
+    for _ = 1, 28 do
+        local mid = (low + high) / 2
+        if residual(mid) <= 0 then high = mid else low = mid end
+    end
+    local result = offset(high)
+    if result.Magnitude <= 1e-4 then return nil end
+    return result.Unit
+end
+local function rewriteShot(remote, data)
+    local flags = Library.Flags
+    if unloaded or not Silent.active or not flags.silent_enabled or remote ~= Silent.remote or type(data) ~= "table" or data.draw then return end
+    local origin = data.origin or data.position or data.pos
+    local directionKey = data.dir and "dir" or (data.direction and "direction") or (data.lookVector and "lookVector")
+    if typeof(origin) ~= "Vector3" or not directionKey or typeof(data[directionKey]) ~= "Vector3" then return end
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+    local spec = weaponSpec(data)
+    if not spec then return end
+    local target = closestTarget(camera, flags)
+    if not target then return end
+    local targetPosition = target.part.Position
+    local inRange = inBallisticRange(origin, targetPosition, spec)
+    if flags.silent_range and not inRange then
+        silentWarn("Out of range: " .. spec.name .. "; shot left unchanged")
+        return
+    end
+    if spec.bow and inRange and spec.gravity > 0 then
+        local levelRange = spec.speed * spec.speed / spec.gravity
+        if (targetPosition - origin).Magnitude > levelRange * 0.95 then
+            silentWarn("Bow near its approximate level-ground maximum range: " .. spec.name)
+        end
+    end
+    local aim
+    if flags.silent_prediction then
+        local velocity = typeof(target.velocity) == "Vector3" and target.velocity or Vector3.new(0, 0, 0)
+        aim = intercept(origin, targetPosition, velocity, spec.speed, spec.gravity)
+        if not aim then
+            silentWarn("No reliable intercept for " .. spec.name .. "; shot left unchanged")
+            return
+        end
+    else
+        local delta = targetPosition - origin
+        if delta.Magnitude > 1e-4 then aim = delta.Unit end
+    end
+    if not aim then return end
+    local copy
+    if type(table.clone) == "function" then copy = table.clone(data)
+    else
+        copy = {}
+        for key, value in pairs(data) do copy[key] = value end
+    end
+    copy[directionKey] = aim
+    return copy
+end
+local function installSilentHook()
+    local dispatcher = environment.ARC3USX_SILENT_AIM_HOOK
+    if type(dispatcher) == "table" and dispatcher.version == 1 and dispatcher.installed then
+        dispatcher.handler, dispatcher.remote = rewriteShot, Silent.remote
+        return true
+    end
+    if type(hookmetamethod) ~= "function" or type(getnamecallmethod) ~= "function" or type(checkcaller) ~= "function" then
+        return false, "Executor lacks namecall hook support"
+    end
+    dispatcher = { version = 1, handler = rewriteShot, remote = Silent.remote }
+    local old
+    local wrapper = function(remote, ...)
+        local method = getnamecallmethod()
+        if dispatcher.handler and remote == dispatcher.remote and (method == "FireServer" or method == "fireServer") and not checkcaller() then
+            local args = table.pack(...)
+            local ok, replacement = pcall(dispatcher.handler, remote, args[1])
+            if ok and replacement then args[1] = replacement
+            elseif not ok then silentWarn("Shot handler error: " .. tostring(replacement)) end
+            return old(remote, table.unpack(args, 1, args.n))
+        end
+        return old(remote, ...)
+    end
+    local ok, result = pcall(function()
+        return hookmetamethod(game, "__namecall", newClosure(wrapper))
+    end)
+    if not ok or type(result) ~= "function" then return false, "Could not install namecall hook: " .. tostring(result) end
+    old = result
+    dispatcher.installed = true
+    environment.ARC3USX_SILENT_AIM_HOOK = dispatcher
+    return true
+end
+local function stopSilent()
+    Silent.active = false
+    local dispatcher = environment.ARC3USX_SILENT_AIM_HOOK
+    if type(dispatcher) == "table" and dispatcher.handler == rewriteShot then dispatcher.handler, dispatcher.remote = nil, nil end
+end
+
+local SA = Combat:AddGroup("Silent Aim", "Left")
+SA:AddToggle({ Name = "Enable Silent Aim", Flag = "silent_enabled", Default = false, Bind = true, BindDefault = Enum.KeyCode.F })
+SA:AddSlider({ Name = "FOV (screen pixels)", Flag = "silent_fov", Min = 10, Max = 1000, Default = 250 })
+SA:AddToggle({ Name = "Prediction + drop compensation", Flag = "silent_prediction", Default = true })
+SA:AddToggle({ Name = "Visibility check", Flag = "silent_visibility", Default = false })
+SA:AddToggle({ Name = "Ignore teammates", Flag = "silent_ignore_team", Default = true })
+SA:AddToggle({ Name = "Enforce projectile range", Flag = "silent_range", Default = true })
+SA:AddToggle({ Name = "Target players", Flag = "silent_players", Default = true })
+SA:AddToggle({ Name = "Target NPCs", Flag = "silent_npcs", Default = true })
+silentStatus = SA:AddLabel("Status: off")
+task.spawn(function()
+    local lastStatus = ""
+    while not unloaded do
+        local status = "off"
+        if Library.Flags.silent_enabled then
+            local fust = game:GetService("ReplicatedStorage"):FindFirstChild("Fust")
+            local remotes = fust and fust:FindFirstChild("Remotes")
+            local remote = remotes and remotes:FindFirstChild("Shoot")
+            local itemsModule = fust and fust:FindFirstChild("Items")
+            if not remote or not remote:IsA("RemoteEvent") or not itemsModule then
+                Silent.remote = nil
+                status = "waiting for Fust Shoot / Items"
+            else
+                if Silent.itemsModule ~= itemsModule then
+                    local ok, items = pcall(require, itemsModule)
+                    if unloaded then return end
+                    if ok and type(items) == "table" and type(items.Get) == "function" then Silent.items, Silent.itemsModule = items, itemsModule
+                    else Silent.items, Silent.itemsModule = nil, nil end
+                end
+                if not Silent.items then Silent.remote = nil; status = "could not load Fust Items"
+                else
+                    Silent.remote = remote
+                    local ok, reason = installSilentHook()
+                    status = ok and "ready" or reason
+                end
+            end
+        end
+        if status ~= lastStatus then
+            silentStatusText(status)
+            if status ~= "off" and status ~= "ready" then silentWarn(status) end
+            lastStatus = status
+        end
+        task.wait(1)
+    end
+end)
+
 local GM = Combat:AddGroup("Gun Master", "Left")
 toggle(GM, "Enable Gun Mods", "gunmods_enabled", GunMods, "Enabled")
 local TG = Combat:AddGroup("Gun Timing", "Left")
@@ -357,6 +618,7 @@ local System = Misc:AddGroup("System", "Right")
 local function unload()
     if unloaded then return end
     unloaded = true
+    stopSilent()
     for _, connection in ipairs(connections) do connection:Disconnect() end
     if espUnload then pcall(espUnload) end
     if weakspotPart then weakspotPart:Destroy(); weakspotPart = nil end

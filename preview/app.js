@@ -33,7 +33,7 @@
       [group('NPC ESP',human('npc')),group('Heli ESP',[T('Master Enable (Heli)','heli_master',true),T('Heli ESP Toggle','heli_enabled'),R('Max Distance','heli_max_dist',10,5000,2000,'m'),S('Box Style','heli_style',['Corners','Full'],'Full'),T('Chams','heli_chams',true),T('Show Distance','heli_dist',true)]),group('ESP Preview',[{type:'preview'}])]
     ],
     'Combat': [
-      [group('Gun Master',[T('Enable Gun Mods','gunmods_enabled')]),group('Gun Timing',[T('Instant Equip','gunmods_inst_equip'),R('Equip Time','gunmods_equip_time',.001,1,.001),T('Instant ADS','gunmods_inst_ads'),R('ADS Time','gunmods_ads_time',.001,1,.001)]),group('Fire Rate & Spread',[T('No Spread + Custom Rate','gunmods_nospread'),R('Fire Rate','gunmods_rate',.01,1,.05),T('Force Auto','gunmods_force_auto',true),slider('Spread','gunmods_spread'),slider('ADS Spread','gunmods_ads_spread'),slider('Move Spread','gunmods_move_spread')]),group('Bow Mods',[T('Enable Bow Mods','bowmods_enabled'),T('Instant Draw (max charge)','bowmods_instdraw'),T('Instant Reload (crossbow)','bowmods_instreload'),T('No Shot Cooldown','bowmods_nocd'),T('No Recoil / No Tremble','bowmods_norecoil'),T('No Drop (every bow)','bowmods_nodrop')])],
+      [group('Silent Aim',[T('Enable Silent Aim','silent_enabled'),R('FOV (screen pixels)','silent_fov',10,1000,250),T('Prediction + drop compensation','silent_prediction',true),T('Visibility check','silent_visibility'),T('Ignore teammates','silent_ignore_team',true),T('Enforce projectile range','silent_range',true),T('Target players','silent_players',true),T('Target NPCs','silent_npcs',true),L('Status: simulated')]),group('Gun Master',[T('Enable Gun Mods','gunmods_enabled')]),group('Gun Timing',[T('Instant Equip','gunmods_inst_equip'),R('Equip Time','gunmods_equip_time',.001,1,.001),T('Instant ADS','gunmods_inst_ads'),R('ADS Time','gunmods_ads_time',.001,1,.001)]),group('Fire Rate & Spread',[T('No Spread + Custom Rate','gunmods_nospread'),R('Fire Rate','gunmods_rate',.01,1,.05),T('Force Auto','gunmods_force_auto',true),slider('Spread','gunmods_spread'),slider('ADS Spread','gunmods_ads_spread'),slider('Move Spread','gunmods_move_spread')]),group('Bow Mods',[T('Enable Bow Mods','bowmods_enabled'),T('Instant Draw (max charge)','bowmods_instdraw'),T('Instant Reload (crossbow)','bowmods_instreload'),T('No Shot Cooldown','bowmods_nocd'),T('No Recoil / No Tremble','bowmods_norecoil'),T('No Drop (every bow)','bowmods_nodrop')])],
       [group('Recoil & Bloom',[T('No Recoil','gunmods_norecoil'),slider('Visual Bloom','gunmods_bloom'),slider('Recoil Climb','gunmods_climb'),slider('Shake Max','gunmods_shakemax')]),group('Sway',[T('No Sway','gunmods_nosway'),slider('Sway','gunmods_sway'),slider('Sway Max','gunmods_swaymax'),slider('Bob Walk','gunmods_bobwalk'),slider('Bob Idle','gunmods_bobidle'),slider('Lean','gunmods_lean')]),group('Kick',[slider('Kick Pitch','gunmods_kickpitch'),slider('Kick Back','gunmods_kickback')]),group('Universal Bypass',[T('Infinite Ammo (every weapon)','universal_ammo'),T('No Air Block (fire while jumping)','universal_noair')])]
     ],
     'Misc': [
@@ -49,7 +49,7 @@
       [group('Other',[B('Replay Intro','intro'),B('Unload Menu','unload'),L('Settings are simulated in this presentation.')])]
     ]
   };
-  let state = {}, colors = {}, activeTab = 'ESP / World', currentMix = 'NH Classic', introTimers = [], menuShown = true;
+  let state = {}, colors = {}, activeTab = 'ESP / World', currentMix = 'NH Classic', introTimers = [], menuShown = true, silentKey = 'F', captureKey = false;
   const stage = $('#stage'), menuWrap = $('#menu-wrap'), stageArea = $('#stage-area'), deviceShell = $('#device-shell');
   const devices = {
     pc: {width:1280,height:720,touch:false,label:'PC · 1280 × 720',description:'Two-column desktop layout'},
@@ -57,10 +57,10 @@
     landscape: {width:844,height:390,touch:true,label:'MOBILE · LANDSCAPE',description:'844 × 390 · Two-column touch layout'}
   };
   let selectedDevice = 'pc';
-  function defaults(){ state={}; colors={}; Object.values(layout).flat(2).forEach(g=>g.rows.forEach(r=>{if(r.flag !== undefined) state[r.flag] = r.type==='toggle'?r.on:r.value; if(r.colors) colors[r.flag]=[...r.colors]})); currentMix='NH Classic'; activeTab='ESP / World'; menuShown=true; }
+  function defaults(){ state={}; colors={}; Object.values(layout).flat(2).forEach(g=>g.rows.forEach(r=>{if(r.flag !== undefined) state[r.flag] = r.type==='toggle'?r.on:r.value; if(r.colors) colors[r.flag]=[...r.colors]})); currentMix='NH Classic'; activeTab='ESP / World'; menuShown=true; silentKey='F'; captureKey=false; }
   function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function row(r){
-    if(r.type==='toggle') return `<div class="row"><button class="toggle ${state[r.flag]?'on':''}" data-toggle="${esc(r.flag)}" aria-pressed="${!!state[r.flag]}" aria-label="${esc(r.label)}"></button><span class="row-label" data-toggle="${esc(r.flag)}">${esc(r.label)}</span>${(colors[r.flag]||[]).map((c,i)=>`<label class="swatch" style="background:${esc(c)}" title="Change ${esc(r.label)} color"><input type="color" data-color="${esc(r.flag)}" data-index="${i}" value="${esc(c)}" aria-label="${esc(r.label)} color ${i+1}"></label>`).join('')}</div>`;
+    if(r.type==='toggle') return `<div class="row"><button class="toggle ${state[r.flag]?'on':''}" data-toggle="${esc(r.flag)}" aria-pressed="${!!state[r.flag]}" aria-label="${esc(r.label)}"></button><span class="row-label" data-toggle="${esc(r.flag)}">${esc(r.label)}</span>${r.flag==='silent_enabled'?`<button class="bind-button" data-bind="silent_enabled" aria-label="Change silent aim keybind">[${captureKey?'press':esc(silentKey||'...')}]</button>`:''}${(colors[r.flag]||[]).map((c,i)=>`<label class="swatch" style="background:${esc(c)}" title="Change ${esc(r.label)} color"><input type="color" data-color="${esc(r.flag)}" data-index="${i}" value="${esc(c)}" aria-label="${esc(r.label)} color ${i+1}"></label>`).join('')}</div>`;
     if(r.type==='select') return `<div class="select-row"><div class="control-heading">${esc(r.label)}</div><select data-select="${esc(r.flag)}" aria-label="${esc(r.label)}">${r.options.map(o=>`<option ${o===state[r.flag]?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
     if(r.type==='range'){const pct=(state[r.flag]-r.min)/(r.max-r.min)*100;return `<div class="slider-row"><div class="control-heading"><span>${esc(r.label)}</span><span data-value="${esc(r.flag)}">${state[r.flag]}${esc(r.suffix||'')}</span></div><div class="slider-controls"><button class="slider-step" data-step="-1" aria-label="Decrease ${esc(r.label)}">−</button><input type="range" data-range="${esc(r.flag)}" data-suffix="${esc(r.suffix||'')}" min="${r.min}" max="${r.max}" step="${r.max<=1?'.001':'1'}" value="${state[r.flag]}" style="--pct:${pct}%" aria-label="${esc(r.label)}"><button class="slider-step" data-step="1" aria-label="Increase ${esc(r.label)}">+</button></div></div>`;}
     if(r.type==='button') return `<button class="ui-button" data-action="${esc(r.action)}">${esc(r.label)}</button>`;
@@ -141,6 +141,7 @@
   }
   $('#tabs').addEventListener('click',e=>{const tab=e.target.closest('[data-tab]');if(tab){activeTab=tab.dataset.tab;render();$('#menu-body').scrollTop=0;}});
   $('#menu-body').addEventListener('click',e=>{
+    const bind=e.target.closest('[data-bind]');if(bind){captureKey=true;bind.textContent='[press]';return;}
     const toggle=e.target.closest('[data-toggle]');if(toggle){const key=toggle.dataset.toggle;state[key]=!state[key];if(key==='NH_Watermark')$('#watermark').style.display=state[key]?'':'none';if(key==='NH_KeybindList')$('#keybinds').style.display=state[key]?'':'none';const button=$(`.toggle[data-toggle="${key}"]`);button.classList.toggle('on',state[key]);button.setAttribute('aria-pressed',state[key]);updateFigure();return;}
     const step=e.target.closest('[data-step]'); if(step){const input=step.parentElement.querySelector('input'); if(step.dataset.step==='1')input.stepUp();else input.stepDown();input.dispatchEvent(new Event('input',{bubbles:true}));return;}
     const action=e.target.closest('[data-action]')?.dataset.action;if(!action)return;
@@ -152,7 +153,12 @@
   document.querySelectorAll('.device-choice').forEach(button=>button.addEventListener('click',()=>selectDevice(button.dataset.device)));
   $('#replay').addEventListener('click',playIntro);$('#skip-intro').addEventListener('click',stopIntro);$('#close-menu').addEventListener('click',()=>showMenu(false));$('#floating').addEventListener('click',()=>{if(fabMoved){fabMoved=false;return;} showMenu(!menuShown);});
   $('#reset').addEventListener('click',()=>{stopIntro();defaults();applyMix(currentMix);render();showMenu(true);menuWrap.style.left='50%';menuWrap.style.top='50%';});
-  document.addEventListener('keydown',e=>{if(e.code==='ShiftRight'&&!e.repeat&&!['INPUT','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();showMenu(!menuShown);}});
+  document.addEventListener('keydown',e=>{
+    if(captureKey){e.preventDefault();silentKey=e.key==='Escape'?'':e.key.toUpperCase();captureKey=false;render();return;}
+    if(e.repeat||['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return;
+    if(e.code==='ShiftRight'){e.preventDefault();showMenu(!menuShown);return;}
+    if(silentKey&&e.key.toUpperCase()===silentKey){state.silent_enabled=!state.silent_enabled;render();}
+  });
   let drag=null;$('#drag-handle').addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;const rect=menuWrap.getBoundingClientRect(),parent=stage.getBoundingClientRect();drag={dx:e.clientX-(rect.left+rect.width/2),dy:e.clientY-(rect.top+rect.height/2),left:parent.left,top:parent.top,scale:parent.width/devices[selectedDevice].width};e.currentTarget.setPointerCapture(e.pointerId)});$('#drag-handle').addEventListener('pointermove',e=>{if(!drag||!drag.scale)return;menuWrap.style.left=(e.clientX-drag.left-drag.dx)/drag.scale+'px';menuWrap.style.top=(e.clientY-drag.top-drag.dy)/drag.scale+'px'});$('#drag-handle').addEventListener('pointerup',()=>drag=null);$('#drag-handle').addEventListener('pointercancel',()=>drag=null);
   let fabDrag=null, fabMoved=false;
   const fab=$('#floating');

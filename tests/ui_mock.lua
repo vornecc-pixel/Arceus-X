@@ -163,9 +163,23 @@ for _,o in ipairs(objects) do
     end
 end
 assert(foundHud and foundLogo and foundIntroLogo, "mix HUD, title logo and intro logo applied")
-for _, flag in ipairs({ "plr_enabled", "npc_enabled", "ore_enabled", "heli_enabled", "staff_monitor", "staff_esp", "gunmods_enabled", "bowmods_enabled", "universal_ammo", "universal_noair", "weakspot_enabled", "NH_Mix" }) do
+for _, flag in ipairs({ "plr_enabled", "npc_enabled", "ore_enabled", "heli_enabled", "staff_monitor", "staff_esp", "silent_enabled", "silent_enabled_bind", "silent_fov", "silent_prediction", "silent_visibility", "silent_ignore_team", "silent_range", "silent_players", "silent_npcs", "gunmods_enabled", "bowmods_enabled", "universal_ammo", "universal_noair", "weakspot_enabled", "NH_Mix" }) do
     assert(loadedLibrary.Options[flag], "control missing: "..flag)
 end
+assert(not loadedLibrary.Flags.silent_enabled and loadedLibrary.Options.silent_enabled_bind.Key==Enum.KeyCode.F, "silent aim defaults off and uses F")
+input.InputBegan:Fire({UserInputType=Enum.UserInputType.Keyboard, KeyCode=Enum.KeyCode.F}, false)
+step(0.2)
+assert(loadedLibrary.Flags.silent_enabled, "default key toggles silent aim on")
+loadedLibrary.Options.silent_enabled_bind:Set("G")
+input.InputBegan:Fire({UserInputType=Enum.UserInputType.Keyboard, KeyCode=Enum.KeyCode.F}, false)
+step(0.2)
+assert(loadedLibrary.Flags.silent_enabled, "old key no longer toggles")
+input.InputBegan:Fire({UserInputType=Enum.UserInputType.Keyboard, KeyCode=Enum.KeyCode.G}, false)
+step(0.2)
+assert(not loadedLibrary.Flags.silent_enabled, "custom key toggles silent aim off")
+loadedLibrary.Options.silent_enabled:Set(true)
+assert(loadedLibrary.Flags.silent_enabled, "silent aim can be enabled from UI")
+loadedLibrary.Options.silent_enabled:Set(false)
 loadedLibrary.Options.NH_Mix:Set("Blood Eye")
 step(0.2)
 assert(loadedLibrary.ThemeName=="NH Blood Eye" and loadedLibrary.Flags.NH_KeybindList==false, "mix selector applies and synchronizes HUD controls")
