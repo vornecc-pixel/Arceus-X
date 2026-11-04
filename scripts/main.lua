@@ -525,11 +525,15 @@ local function performInstaHit()
     local camPos = Camera.CFrame.Position
     if (targetPos - camPos).Magnitude < 0.5 then return end
 
-    -- Silent snap: aim → activate → restore in the same tick.
+    -- Silent snap: aim → activate → restore in the same tick. The tool is
+    -- activated directly; the mouse is NOT clicked unless Auto Click is on,
+    -- so equipping a tool near a node never starts auto-clicking.
     local savedCFrame = Camera.CFrame
     Camera.CFrame = CFrame.lookAt(camPos, targetPos)
     pcall(function() tool:Activate() end)
-    if type(mouse1click) == "function" then pcall(mouse1click) end
+    if getFlag("weakspot_auto_click", false) and type(mouse1click) == "function" then
+        pcall(mouse1click)
+    end
     Camera.CFrame = savedCFrame
 end
 
@@ -713,37 +717,20 @@ connect(Players.PlayerRemoving, function(plr)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
---  AIMBOT (mouse-relative lock)
+--  AIMBOT (mouse-relative lock — pasted standalone version)
 -- ═══════════════════════════════════════════════════════════════
--- Adapted from the standalone aiming snippet: it picks the target closest to
--- the mouse inside a pixel FOV, leads it using bullet travel time, then nudges
--- the mouse toward it. Everything is driven by flags set in the Combat tab.
-local lp      = LocalPlayer
-local ws      = Workspace
-local uis     = UserInputService
-local players = Players
-local vec2    = Vector2.new
-local colornew = Color3.fromRGB
-local flags   = Library.Flags
-
-local aiming = {
-    enabled     = false,
-    fov         = 220,
-    bone        = "Head",
-    distance    = 0,
-    smoothing   = 2,
-    prediction  = true,
-    bulletSpeed = 900,
-    targetNpcs  = false,
-    wallCheck   = false,
-    teamCheck   = false,
-}
-
--- The UI library stores a keybind's flag as a key-name string, so the lock
--- state (mode + active) lives in its own table, exactly as lockActive expects.
-flags.aim_lock = { mode = "always", active = false }
-flags.Aim_FOV_Circle = false
-local aimLock = flags.aim_lock
+-- Picks the valid target closest to the mouse inside a pixel FOV, leads it
+-- using bullet travel time, then nudges the mouse toward it. The snippet's
+-- aliases map onto the hub's services; Luau `continue` is written as nested
+-- conditions so the file stays valid plain Lua as well.
+local lp         = LocalPlayer
+local ws         = Workspace
+local uis        = UserInputService
+local players    = Players
+local vec2       = Vector2.new
+local colornew   = Color3.fromRGB
+local mathfloor  = math.floor
+local flags      = Library.Flags
 
 -- Executor Drawing objects are optional: a no-op stand-in keeps the rest of
 -- the hub alive on executors without Drawing support.
@@ -763,19 +750,27 @@ local function drawing(kind, props)
     return obj
 end
 
-aiming.fovCircle = drawing("Circle", {
-    Thickness = 1, NumSides = 64, Filled = false, Visible = false,
-})
+local aiming = {
+    enabled     = false,
+    fov         = 220,
+    bone        = "Head",
+    distance    = 0,
+    smoothing   = 2,
+    prediction  = true,
+    bulletSpeed = 900,  -- studs/sec, typical gun bullet speed
+    targetNpcs  = false,
+    wallCheck   = false,
+    teamCheck   = false,
+    fovCircle   = drawing("Circle", { Thickness = 1, NumSides = 64, Filled = false, Visible = false }),
+}
 
-local aimRayParams = RaycastParams.new()
-aimRayParams.FilterType = Enum.RaycastFilterType.Exclude
-aimRayParams.IgnoreWater = true
+-- The UI library stores a keybind's flag as a key-name string, so the lock
+-- state (mode + active) lives in its own table, exactly as lockActive expects.
+flags.aim_lock = { mode = "always", active = false }
+flags.Aim_FOV_Circle = false
+local aimLock = flags.aim_lock
 
-local function aimKey()
-    local opt = Library.Options and Library.Options.aim_key
-    return opt and opt.Key or nil
-end
-
+-- teammate detection via FustMates attribute (comma-delimited UserIds)
 local function isTeammate(player)
     local ok, mates = pcall(function() return lp:GetAttribute("FustMates") end)
     if not ok or type(mates) ~= "string" or mates == "" then return false end
@@ -785,66 +780,21 @@ local function isTeammate(player)
 end
 
 local function lockActive()
-    local lk = flags.aim_lock
-    if not lk then return false end
-    if lk.mode == "always" then return true end
-    return lk.active == true
+    local lk = flags["aim_lock"]
+    if lk and lk.mode == "always" then return true end
+    return lk ~= nil and lk.active == true
 end
 
--- In "always" mode the keybind toggles the aimbot; in "hold" mode the aimbot
--- only runs while the key is held. Both are tracked here (the library's
--- AddKeybind is press-only and does not report releases).
-connect(uis.InputBegan, function(input, gp)
-    if gp or unloaded or Library._listening then return end
-    local key = aimKey()
-    if not key or input.KeyCode ~= key then return end
-    if aimLock.mode == "hold" then
-        aimLock.active = true
-    else
-        aiming.enabled = not aiming.enabled
-        local opt = Library.Options and Library.Options.aim_enabled
-        if opt and type(opt.Set) == "function" then
-            pcall(function() opt:Set(aiming.enabled) end)
-        end
-    end
-end)
-connect(uis.InputEnded, function(input)
-    if input.KeyCode == aimKey() then aimLock.active = false end
-end)
-
-local function getBonePart(model)
-    if aiming.bone == "Hrp" then
-        return model:FindFirstChild("HumanoidRootPart")
-    end
-    return model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
+local function bonePart(model)
+    return aiming.bone == "Hrp"
+        and model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("Head")
+        or model:FindFirstChild("HumanoidRootPart")
 end
 
-local function predictPosition(model, basePos, cameraPos)
-    if not aiming.prediction or aiming.bulletSpeed <= 0 then
-        return basePos
-    end
-
-    local hrp = model:FindFirstChild("HumanoidRootPart")
-    local vel = hrp and hrp.AssemblyLinearVelocity
-    if not vel or vel.Magnitude <= 1 then
-        return basePos
-    end
-
-    local dist = (basePos - cameraPos).Magnitude
-    local travelTime = dist / aiming.bulletSpeed
-    return basePos + vel * travelTime
-end
-
-local function screenDelta(camera, worldPos, mouseLocation)
-    local point, onScreen = camera:WorldToViewportPoint(worldPos)
-    if not onScreen or point.Z < 0 then
-        return nil, math.huge
-    end
-
-    local dx = point.X - mouseLocation.X
-    local dy = point.Y - mouseLocation.Y
-    return vec2(dx, dy), dx * dx + dy * dy
-end
+local aimRayParams = RaycastParams.new()
+aimRayParams.FilterType = Enum.RaycastFilterType.Exclude
+aimRayParams.IgnoreWater = true
 
 local function checkLineOfSight(camera, model)
     local root = getRoot(model)
@@ -866,109 +816,152 @@ local function isNpc(model)
         and not players:GetPlayerFromCharacter(model)
 end
 
-local function considerTarget(model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta)
-    local humanoid = model:FindFirstChildOfClass("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then
-        return best, bestDelta
-    end
+-- ── Keybind: toggles the aimbot on/off, and works with RMB ─────────
+-- The keybind can be rebound to a keyboard key, RMB (MouseButton2) or MMB.
+-- RMB can also be enabled as a second aim key without rebinding anything.
+local RMB = Enum.UserInputType.MouseButton2
 
-    local bone = getBonePart(model)
-    if not bone then
-        return best, bestDelta
-    end
-
-    if aiming.wallCheck and not checkLineOfSight(camera, model) then
-        return best, bestDelta
-    end
-
-    local aimPos = predictPosition(model, bone.Position, cameraPos)
-    if maxDist > 0 and (aimPos - cameraPos).Magnitude > maxDist then
-        return best, bestDelta
-    end
-
-    local deltaVec, delta = screenDelta(camera, aimPos, mouseLocation)
-    if not deltaVec then
-        return best, bestDelta
-    end
-
-    if aiming.fov > 0 and delta > aiming.fov * aiming.fov then
-        return best, bestDelta
-    end
-
-    if delta < bestDelta then
-        return { delta = deltaVec }, delta
-    end
-
-    return best, bestDelta
+local function aimKey()
+    local opt = Library.Options and Library.Options.aim_key
+    return opt and opt.Key or nil
 end
 
-local function moveMouse(x, y)
-    if type(mousemoverel) == "function" then pcall(mousemoverel, x, y) end
+local function inputMatches(input, bound)
+    if not bound then return false end
+    if input.KeyCode == bound then return true end
+    return input.UserInputType == bound
 end
 
-local function aimStep()
-    local camera = ws.CurrentCamera
-    if not camera then return end
+local function isAimInput(input)
+    if inputMatches(input, aimKey()) then return true end
+    if getFlag("aim_rmb", true) and input.UserInputType == RMB then return true end
+    return false
+end
 
-    local circle = aiming.fovCircle
-    local mouseLocation = nil
-    if aiming.enabled and flags.Aim_FOV_Circle and aiming.fov > 0 then
-        mouseLocation = uis:GetMouseLocation()
-        circle.Radius = aiming.fov
-        circle.Position = mouseLocation
-        circle.Color = colornew(255, 255, 255)
-        circle.Visible = true
-    elseif circle.Visible then
-        circle.Visible = false
+local function toggleAim()
+    aiming.enabled = not aiming.enabled
+    local opt = Library.Options and Library.Options.aim_enabled
+    if opt and type(opt.Set) == "function" then
+        pcall(function() opt:Set(aiming.enabled) end)
     end
+end
 
-    if not (aiming.enabled and lockActive()) then
-        return
+connect(uis.InputBegan, function(input, gp)
+    if unloaded or Library._listening then return end
+    -- RMB is frequently reported as game-processed; let it through anyway.
+    if gp and input.UserInputType ~= RMB then return end
+    if not isAimInput(input) then return end
+    if aimLock.mode == "hold" then
+        aimLock.active = true
+    else
+        toggleAim()
     end
+end)
+connect(uis.InputEnded, function(input)
+    if isAimInput(input) then aimLock.active = false end
+end)
 
-    mouseLocation = mouseLocation or uis:GetMouseLocation()
-    local cameraPos = camera.CFrame.Position
-    local maxDist = aiming.distance
-    local best, bestDelta = nil, math.huge
+local nextAimWarn = 0
 
-    for _, player in ipairs(players:GetPlayers()) do
-        if player ~= lp and not (aiming.teamCheck and isTeammate(player)) then
-            local model = player.Character
-            if model then
-                best, bestDelta = considerTarget(
-                    model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta
-                )
-            end
+-- The snippet drives its own RenderStepped connection. It is pcall-isolated so
+-- a bad target or a missing executor function cannot stop the ESP pass below.
+connect(RunService.RenderStepped, function()
+    if unloaded then return end
+    local ok, err = pcall(function()
+        local camera = ws.CurrentCamera
+        if not camera then return end
+
+        local circle = aiming.fovCircle
+        if aiming.enabled and flags["Aim_FOV_Circle"] and aiming.fov > 0 then
+            circle.Radius = aiming.fov
+            circle.Position = uis:GetMouseLocation()
+            circle.Color = colornew(255, 255, 255)
+            circle.Visible = true
+        else
+            circle.Visible = false
         end
-    end
 
-    if aiming.targetNpcs then
-        local npcsFolder = ws:FindFirstChild("Npcs")
-        if npcsFolder then
-            for _, model in ipairs(npcsFolder:GetChildren()) do
-                if isNpc(model) then
-                    best, bestDelta = considerTarget(
-                        model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta
-                    )
+        if not (aiming.enabled and lockActive()) then return end
+
+        local mouseLocation = uis:GetMouseLocation()
+        local cameraPosition = camera.CFrame.Position
+        local maxDist = aiming.distance
+        local best, bestDelta = nil, math.huge
+
+        -- Both target loops from the snippet share this selection step.
+        local function choose(model, checkLOS)
+            local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+            local bone = humanoid and humanoid.Health > 0 and bonePart(model)
+            if not bone then return end
+            if checkLOS and aiming.wallCheck and not checkLineOfSight(camera, model) then return end
+            local bonePos = bone.Position
+            -- velocity prediction: aim where the target WILL be
+            if aiming.prediction and aiming.bulletSpeed > 0 then
+                local hrp = model:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local vel = hrp.AssemblyLinearVelocity
+                    if vel and vel.Magnitude > 1 then
+                        local dist = (bonePos - cameraPosition).Magnitude
+                        local travelTime = dist / aiming.bulletSpeed
+                        bonePos = bonePos + vel * travelTime
+                    end
+                end
+            end
+            if maxDist <= 0 or (bonePos - cameraPosition).Magnitude <= maxDist then
+                local point, onScreen = camera:WorldToViewportPoint(bonePos)
+                if onScreen and point.Z >= 0 then
+                    local dx = point.X - mouseLocation.X
+                    local dy = point.Y - mouseLocation.Y
+                    local delta = dx * dx + dy * dy
+                    if (aiming.fov <= 0 or delta <= aiming.fov * aiming.fov) and delta < bestDelta then
+                        best = { delta = vec2(dx, dy) }
+                        bestDelta = delta
+                    end
                 end
             end
         end
+
+        for _, p in ipairs(players:GetPlayers()) do
+            if p ~= lp then
+                -- team check: skip teammates
+                if not (aiming.teamCheck and isTeammate(p)) then
+                    choose(p.Character, true)
+                end
+            end
+        end
+
+        -- NPC targeting (Guard / Soldier)
+        if aiming.targetNpcs then
+            local npcsFolder = ws:FindFirstChild("Npcs")
+            if npcsFolder then
+                for _, model in ipairs(npcsFolder:GetChildren()) do
+                    if isNpc(model) then choose(model, false) end
+                end
+            end
+        end
+
+        if not best then return end
+        local divisor = aiming.smoothing > 0 and aiming.smoothing or 1
+        local step = best.delta / divisor
+        if type(mousemoverel) == "function" then
+            pcall(mousemoverel, mathfloor(step.X + 0.5), mathfloor(step.Y + 0.5))
+        end
+    end)
+    if not ok then
+        local now = tick()
+        if now >= nextAimWarn then
+            nextAimWarn = now + 1
+            warn("[ARC3USX] Aimbot step error: " .. tostring(err))
+        end
     end
-
-    if not best then return end
-
-    local divisor = aiming.smoothing > 0 and aiming.smoothing or 1
-    local step = best.delta / divisor
-    moveMouse(math.floor(step.X + 0.5), math.floor(step.Y + 0.5))
-end
+end)
 
 -- ═══════════════════════════════════════════════════════════════
---  MAIN RENDER LOOP (one connection: aimbot + throttled, reconciled ESP)
+--  MAIN RENDER LOOP (throttled, reconciled ESP)
 -- ═══════════════════════════════════════════════════════════════
 local lastEspTick = 0
 local nextPrune = 0
 local nextEspWarn = 0
-local nextAimWarn = 0
 
 -- If the ScreenGui is removed externally (respawn cleanup, another script),
 -- rebuild it and drop all stale overlays instead of drawing into a dead GUI.
@@ -992,12 +985,6 @@ connect(RunService.RenderStepped, function(dt)
     if not Camera then return end
 
     local now = tick()
-    -- Isolate the aimbot step: an error here must never abort the ESP pass below.
-    local okAim, aimErr = pcall(aimStep)
-    if not okAim and now >= nextAimWarn then
-        nextAimWarn = now + 1
-        warn("[ARC3USX] Aimbot step error: " .. tostring(aimErr))
-    end
 
     -- One throttled pass drives every ESP category. Flags are read once per
     -- pass rather than once per target, line-of-sight raycasts are cached,
@@ -1360,7 +1347,7 @@ AimbotGroup:AddToggle({
     Callback = function(v) aiming.enabled = v end
 })
 AimbotGroup:AddDropdown({
-    Name = "Lock Mode", Flag = "aim_lock_mode", Options = {"Always", "Hold"}, Default = "Always",
+    Name = "Keybind Mode", Flag = "aim_lock_mode", Options = {"Toggle", "Hold"}, Default = "Toggle",
     Callback = function(v)
         aimLock.mode = (v == "Hold") and "hold" or "always"
         aimLock.active = false
@@ -1369,6 +1356,9 @@ AimbotGroup:AddDropdown({
 AimbotGroup:AddKeybind({
     Name = "Aimbot Keybind", Flag = "aim_key", Default = Enum.KeyCode.Q, NoFire = true,
     Changed = function(k) if not k then aimLock.active = false end end
+})
+AimbotGroup:AddToggle({
+    Name = "RMB Keybind (MouseButton2)", Flag = "aim_rmb", Default = true
 })
 AimbotGroup:AddDropdown({
     Name = "Bone", Flag = "aim_bone", Options = {"Head", "Hrp"}, Default = "Head",
@@ -1409,7 +1399,7 @@ AimOptionsGroup:AddToggle({
     Name = "Team Check", Flag = "aim_team_check", Default = false,
     Callback = function(v) aiming.teamCheck = v end
 })
-AimOptionsGroup:AddLabel("Always: the keybind toggles the aimbot. Hold: aim only while the key is held. FOV is a pixel radius; distance 0 = unlimited. Mouse-relative lock with bullet-travel prediction.")
+AimOptionsGroup:AddLabel("Toggle: the keybind / RMB switches the aimbot on and off. Hold: aim only while held. The keybind can be rebound to a key, RMB (MouseButton2) or MMB. FOV is a pixel radius; distance 0 = unlimited.")
 
 -- ═══════════════════════════════════════════════════════════════
 --  MISC TAB
@@ -1446,7 +1436,8 @@ attachStaffToUI()
 
 local WeakspotGroup = MiscTab:AddGroup("Mining (Silent Insta-Hit)", "Right")
 WeakspotGroup:AddToggle({ Name = "Enable Insta-Hit Weakspot", Flag = "weakspot_enabled", Default = false })
-WeakspotGroup:AddLabel("Silently snaps the camera at the nearest weakspot for one tick, activates the tool, then restores the camera. No visible lock. Radius: 50 studs.")
+WeakspotGroup:AddToggle({ Name = "Auto Click (off by default)", Flag = "weakspot_auto_click", Default = false })
+WeakspotGroup:AddLabel("Silently snaps the camera at the nearest weakspot and activates the tool, then restores it. No synthetic mouse click unless Auto Click is on, so equipping a tool near a node will not auto-click. Radius: 50 studs.")
 
 local MiscGroup = MiscTab:AddGroup("System", "Left")
 MiscGroup:AddButton({

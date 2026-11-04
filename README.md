@@ -50,15 +50,21 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
   client, network ping, frame rate), a progress bar, then the logo / **ACCESS GRANTED**
   reveal. It runs on every hub startup; **Replay Intro** in Settings shows it again.
 - **Silent Insta-Hit weakspot** — snaps the camera at the nearest resource weakspot for one
-  tick, activates the equipped mining tool (and a synthetic click), then restores the camera.
-  Radius: 50 studs; 0.12 s cooldown; no visible camera lock.
-- **Aimbot (mouse-relative lock)** — picks the valid target closest to the mouse inside a
-  pixel FOV, then nudges the mouse toward it with `mousemoverel`. Head or `HumanoidRootPart`
-  bone, optional bullet-travel prediction from `AssemblyLinearVelocity` and a configurable
-  bullet speed, smoothing divisor, max distance, NPC targets, `FustMates` team check, and
-  an optional line-of-sight wall check. An optional `Drawing` FOV circle follows the mouse.
-  - **Lock modes** — `Always` (the keybind toggles the aimbot) or `Hold` (the aimbot only
-    runs while the key is held). The keybind defaults to `Q` and is rebindable in the UI.
+  tick, activates the equipped mining tool, then restores the camera. Radius: 50 studs;
+  0.12 s cooldown; no visible camera lock. **No synthetic mouse click by default**, so
+  equipping a tool near a node does not start auto-clicking; the optional **Auto Click**
+  toggle (`weakspot_auto_click`, off) restores `mouse1click()` if a game needs it.
+- **Aimbot (mouse-relative lock)** — the standalone snippet's own `RenderStepped`
+  connection: picks the valid target closest to the mouse inside a pixel FOV, leads it with
+  `AssemblyLinearVelocity` / bullet travel time, then nudges the mouse toward it with
+  `mousemoverel`. Head or `HumanoidRootPart` bone, smoothing divisor, max distance, NPC
+  targets, `FustMates` team check, an optional line-of-sight wall check for players, and an
+  optional `Drawing` FOV circle that follows the mouse. The connection is `pcall`-isolated
+  from the ESP pass.
+  - **Keybind** — `Toggle` (default) makes the bound input switch the aimbot on and off;
+    `Hold` aims only while it is held. The keybind defaults to `Q` and can be rebound to any
+    keyboard key, **RMB (`MouseButton2`)** or MMB (`MouseButton3`). **RMB Keybind** is on by
+    default, so right-click also acts as the aim key without rebinding anything.
 - **Staff detection** — reads `AdminRole` attributes or the game's optional
   `Fust.StaffState` / `Fust.AdminPerms` modules; role labels, ranks, colors, a monitor with
   notifications, role-change hooks, and staff highlights.
@@ -78,8 +84,8 @@ Master switches start **on**, but every category's ESP toggle starts **off** —
 individual **ESP Toggle** and any elements you want. The aimbot, staff monitor, staff ESP and
 insta-hit all start off. Aimbot defaults: FOV 220 px, bone `Head`, unlimited distance,
 smoothing 2, prediction on, bullet speed 900, FOV circle off, NPC/wall/team checks off,
-lock mode `Always` with the `Q` keybind. The ESP pass runs at 60 Hz by default
-(`ESP Update Rate (Hz)`).
+keybind mode `Toggle` with the `Q` keybind and RMB enabled. Weakspot auto-click starts off.
+The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 
 ### Requirements and caveats
 
@@ -170,7 +176,7 @@ In Roblox Studio, add `ARC3USX.lua` as a **ModuleScript** and `require` it from 
 | `AddTextbox` | `Name, Flag, Default, Placeholder, Callback` |
 | `AddButton` | `Name, Callback` |
 | `AddLabel(text)` | returns object with `:SetText(text)` |
-| `AddKeybind` | `Name, Flag, Default, Callback, Changed(key)` |
+| `AddKeybind` | `Name, Flag, Default, Callback, Changed(key)`; accepts keyboard keys, RMB (`MouseButton2`) and MMB (`MouseButton3`) |
 | `AddColor` | `Name, Flag, Default, Callback(color)` |
 | `AddCustom(height)` | returns an empty Frame you can fill yourself |
 | `AddESPPreview` | `Height, Animate, PlayerName, ToolName, Demo, Elements = {...}` |
@@ -216,6 +222,8 @@ nothing in the game itself. The hub uses this in the **ESP Preview** group.
 ### Notes
 
 - The library is client-side UI only; the hub wires up the game-specific callbacks.
+- Click a keybind's `[...]` button then press a key, **RMB** or **MMB** to rebind it;
+  `Escape` clears it. The hub treats the bound input and RMB as a toggle (or hold).
 - Config files are only written when the environment provides file functions; otherwise
   configs stay in memory for the session. `Library:Serialize()` always works.
 - The hub enables the loading screen with `Intro = true`. Set `Intro = false` in

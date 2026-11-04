@@ -410,7 +410,8 @@ assert(load(hubSource, "scripts/main.lua"))()
 for _, removed in ipairs({ "GunMods", "BowMods", "getgc", "gunmods_enabled", "bowmods_enabled",
     "universal_ammo", "ESP_URL", "ui_bootstrap", "ARC3USX_NH", "weakspotMarkers",
     "FustAimBow", "BowAutoLock", "solveBallistic", "ARC3USX_Aimbot", "Aimbot.Config",
-    "Cycle Target Part", "Toggle: Z" }) do
+    "Cycle Target Part", "Toggle: Z", "considerTarget", "predictPosition",
+    "screenDelta", "getBonePart", "moveMouse", "aimStep" }) do
     check(not hubSource:find(removed, 1, true), "legacy feature still present: " .. removed)
 end
 for _, flag in ipairs({ "gunmods_enabled", "bowmods_enabled", "universal_ammo", "universal_noair" }) do
@@ -422,7 +423,8 @@ for _, bad in ipairs({ ".lastX", ".lastY", ".lastW", ".lastH", ".lastLen", ".las
     check(not hubSource:find(bad, 1, true), "ESP writes an invalid Instance property: " .. bad)
 end
 check(hubSource:find("okEsp, espErr = pcall", 1, true), "ESP pass is not isolated")
-check(hubSource:find("okAim, aimErr = pcall", 1, true), "aimbot step is not isolated")
+check(hubSource:find("Aimbot step error", 1, true), "aimbot step is not isolated")
+check(hubSource:find("MouseButton2", 1, true), "RMB keybind support missing")
 -- The loading screen is embedded in the library the hub actually downloads.
 check(requestedLibraryUrl and requestedLibraryUrl:find("arena/6af703ac-arceus-x/ARC3USX.lua", 1, true),
     "hub does not load this branch's library")
@@ -448,7 +450,8 @@ for _, name in ipairs(expectedGroups) do
 end
 for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "player_esp_hz",
     "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
-    "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_bone",
+    "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_rmb",
+    "weakspot_auto_click", "aim_bone",
     "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
     "aim_prediction", "aim_target_npcs", "aim_wall_check", "aim_team_check" }) do
     check(library.Flags[flag] ~= nil, "missing flag: " .. flag)
@@ -577,8 +580,14 @@ library.Flags.weakspot_enabled = true
 clock = clock + 1
 renderSteps.ARC3USX_InstaHit(1 / 60)
 check((tool.activations or 0) == 1, "insta-hit activates the mining tool")
-check(clicks == 1, "insta-hit also fires a synthetic click")
+check(clicks == 0, "no synthetic auto click by default")
 check(camera.CFrame == savedCFrame, "insta-hit restores the camera without a visible lock")
+-- Opting in past the 0.12s cooldown is the only way to get a synthetic click.
+library.Flags.weakspot_auto_click = true
+for _ = 1, 10 do step() end
+renderSteps.ARC3USX_InstaHit(1 / 60)
+check(clicks == 1, "auto click only when explicitly enabled")
+library.Flags.weakspot_auto_click = false
 library.Flags.weakspot_enabled = false
 
 -- ─── Aimbot (mouse-relative lock) ───────────────────────────────
@@ -663,14 +672,43 @@ uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
 step()
 check(#mouseMoves > movesBefore, "hold mode aims while the key is held")
 uis.InputEnded:Fire({ KeyCode = Enum.KeyCode.Q })
-library.controls.aim_lock_mode.Callback("Always")
+library.controls.aim_lock_mode.Callback("Toggle")
 library.controls.aim_enabled.Callback(true)
 uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
-check(library.Flags.aim_enabled == false, "keybind toggles the aimbot in always mode")
+check(library.Flags.aim_enabled == false, "keybind toggles the aimbot in toggle mode")
 library.controls.aim_enabled.Callback(true)
 library.Flags.Aim_FOV_Circle = false
 step()
 check(not drawings[1].Visible, "FOV circle hidden when its toggle is off")
+
+-- RMB (MouseButton2) is a second aim key and toggles the aimbot on/off.
+library.Flags.aim_rmb = true
+library.Options.aim_enabled:Set(true)
+check(library.Flags.aim_enabled == true, "aimbot starts enabled before the RMB test")
+uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
+check(library.Flags.aim_enabled == false, "RMB toggles the aimbot off")
+uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
+check(library.Flags.aim_enabled == true, "RMB toggles the aimbot back on")
+-- Hold mode also accepts RMB.
+library.controls.aim_lock_mode.Callback("Hold")
+movesBefore = #mouseMoves
+step()
+check(#mouseMoves == movesBefore, "hold mode still needs a key or RMB")
+uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
+step()
+check(#mouseMoves > movesBefore, "RMB aims while held in hold mode")
+uis.InputEnded:Fire({ UserInputType = Enum.UserInputType.MouseButton2 })
+library.controls.aim_lock_mode.Callback("Toggle")
+
+-- The keybind itself can be rebound to MouseButton2.
+library.Options.aim_key.Key = Enum.UserInputType.MouseButton2
+library.Flags.aim_rmb = false
+library.Options.aim_enabled:Set(true)
+uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
+check(library.Flags.aim_enabled == false, "keybind rebound to RMB toggles the aimbot")
+library.Options.aim_key.Key = Enum.KeyCode.Q
+library.Flags.aim_rmb = true
+library.controls.aim_enabled.Callback(false)
 
 -- ─── ESP ScreenGui rebuild + cleanup ─────────────────────────────
 espGui.Parent = nil

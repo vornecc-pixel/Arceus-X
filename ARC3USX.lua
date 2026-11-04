@@ -402,29 +402,32 @@ function Library:_init()
     end
     self._inited = true
     Connect(UserInputService.InputBegan, function(input, gp)
+        local kind = input.UserInputType
         if self._listening then
-            if input.UserInputType == Enum.UserInputType.Keyboard then
-                local st = self._listening
+            local st = self._listening
+            if kind == Enum.UserInputType.Keyboard then
                 self._listening = nil
                 if input.KeyCode == Enum.KeyCode.Escape then
                     st:SetKey(nil)
                 else
                     st:SetKey(input.KeyCode)
                 end
+            elseif kind == Enum.UserInputType.MouseButton2 or kind == Enum.UserInputType.MouseButton3 then
+                -- RMB / MMB are valid keybind targets too.
+                self._listening = nil
+                st:SetKey(kind)
             end
             return
         end
-        if gp or input.UserInputType ~= Enum.UserInputType.Keyboard then
-            return
-        end
-        if input.KeyCode == self.MenuKey then
+        if gp then return end
+        if kind == Enum.UserInputType.Keyboard and input.KeyCode == self.MenuKey then
             for _, w in ipairs(self._windows) do
                 w:Toggle()
             end
             return
         end
         for _, st in ipairs(self._binds) do
-            if st.Key == input.KeyCode and st.Press then
+            if st.Press and (st.Key == input.KeyCode or st.Key == kind) then
                 task.spawn(st.Press)
             end
         end
@@ -1192,7 +1195,17 @@ function Group:AddKeybind(o)
     end)
     obj.Key = st.Key
     function obj:Set(name)
-        st:SetKey(name ~= "" and Enum.KeyCode[name] or nil)
+        local k = nil
+        if name and name ~= "" then
+            local ok, keyCode = pcall(function() return Enum.KeyCode[name] end)
+            if ok and keyCode then
+                k = keyCode
+            else
+                local ok2, uiType = pcall(function() return Enum.UserInputType[name] end)
+                if ok2 then k = uiType end
+            end
+        end
+        st:SetKey(k)
     end
     Library.Options[flag] = obj
     return obj
