@@ -73,8 +73,10 @@ function cfmt.__index(self, key)
         end
     end
 end
+local lookAtCalls = {}
 CFrame = {
     lookAt = function(pos, target)
+        lookAtCalls[#lookAtCalls + 1] = { pos = pos, target = target }
         return setmetatable({ Position = pos, LookVector = (target - pos).Unit }, cfmt)
     end,
 }
@@ -135,9 +137,11 @@ local validProps = {
     connected=true,
     -- world visuals
     Brightness=true, OutdoorAmbient=true, GlobalShadows=true, ClockTime=true,
-    FogEnd=true, FogStart=true, Density=true, Decoration=true,
-    Transparency=true, Material=true,
+    FogEnd=true, FogStart=true, Density=true,
+    Transparency=true, Material=true, WorldPosition=true,
+    AbsolutePosition=true, AbsoluteSize=true, PlayerGui=true,
 }
+local invalidMembers = {}
 local function node(class, name, parent)
     -- Roblox lets `model.Humanoid` resolve to a child; mirror that here.
     local n = setmetatable({
@@ -145,6 +149,9 @@ local function node(class, name, parent)
         attributes = {}, Destroyed = false, Visible = false,
     }, {
         __index = function(self, key)
+            if invalidMembers[self] and invalidMembers[self][key] then
+                error(string.format("%s is not a valid member of %s", tostring(key), tostring(class)), 2)
+            end
             return self:FindFirstChild(key)
         end,
         __newindex = function(self, key, value)
@@ -232,6 +239,9 @@ function workspace:Raycast() return self.obstruction end
 local camera = node("Camera", "Camera", workspace)
 camera.CFrame = CFrame.lookAt(V3.new(0, 0, 0), V3.new(0, 0, -10))
 camera.ViewportSize = V2.new(800, 600)
+function camera:ViewportPointToRay(x, y)
+    return { Origin = V3.new(0, 0, 0), Direction = V3.new((x - 400) / 800, (300 - y) / 600, -1) }
+end
 function camera:WorldToViewportPoint(p)
     return { X = 400 + p.X * 10, Y = 300 - p.Y * 10, Z = p.Z }, true
 end
@@ -250,6 +260,7 @@ local function newPlayer(name)
 end
 players.LocalPlayer = newPlayer("Local")
 players.LocalPlayer.Team = "blue"
+local playerGui = node("PlayerGui", "PlayerGui", players.LocalPlayer)
 
 local coreGui = node("CoreGui", "CoreGui")
 local lighting = node("Lighting", "Lighting")
@@ -263,7 +274,10 @@ lighting.FogStart = 0
 local atmosphere = node("Atmosphere", "Atmosphere", lighting)
 atmosphere.Density = 0.35
 local terrain = node("Terrain", "Terrain", workspace)
-terrain.Decoration = true
+terrain:SetAttribute("FustArcticTerrain", 1)
+-- "Decoration is not a valid member of Terrain" is the real runtime error the
+-- old hub produced. Mirror both the failed read and the failed write.
+invalidMembers[terrain] = { Decoration = true }
 local rep = node("ReplicatedStorage", "ReplicatedStorage")
 local fust = node("Folder", "Fust", rep)
 local iconsScript = node("ModuleScript", "ItemIcons", fust)
@@ -453,6 +467,10 @@ check(hubSource:find("Intro = true", 1, true), "hub does not enable the intro")
 check(libSource:find("function Library:_RunIntro", 1, true), "loading screen missing from the library")
 check(libSource:find("if opts.Intro ~= false then", 1, true), "library does not start the intro from CreateWindow")
 check(libSource:find("ACCESS GRANTED", 1, true), "intro reveal missing from the library")
+check(hubSource:find("FustArcticTerrain", 1, true), "real terrain attribute path missing")
+check(hubSource:find("FustWeakSpotMark", 1, true), "real weakspot mark path missing")
+check(not hubSource:find("terrain.Decoration", 1, true), "unguarded Terrain.Decoration access still present")
+check(not pcall(function() return terrain.Decoration end), "mock now rejects the invalid Terrain.Decoration member")
 
 check(library.windowOpts.Intro == true and library.windowOpts.Theme == "Purple", "hub window options / intro enabled")
 check(library.windowOpts.Size.X == 800 and library.windowOpts.Size.Y == 620, "hub window size")
@@ -473,7 +491,7 @@ for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "p
     "world_grass", "world_leaves", "world_fullbright", "world_fog",
     "world_brightness", "world_fog_end", "world_leaf_transparency",
     "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_key_list",
-    "weakspot_auto_click", "aim_bone",
+    "weakspot_auto_click", "weakspot_source", "weakspot_radius", "aim_bone",
     "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
     "aim_prediction", "aim_target_npcs", "aim_wall_check", "aim_team_check" }) do
     check(library.Flags[flag] ~= nil, "missing flag: " .. flag)
@@ -612,6 +630,51 @@ check(clicks == 1, "auto click only when explicitly enabled")
 library.Flags.weakspot_auto_click = false
 library.Flags.weakspot_enabled = false
 
+-- ─── FustWeakSpotMark: the real LocalPlayer.PlayerGui path ────────
+local markAnchor = node("BasePart", "MarkAnchor", workspace)
+markAnchor.Position = V3.new(3, 4, 5)
+local weakMark = node("BillboardGui", "FustWeakSpotMark", playerGui)
+weakMark.Visible = true
+weakMark.Adornee = markAnchor
+
+local function hitOnce()
+    clock = clock + 1
+    lookAtCalls = {}
+    local before = tool.activations or 0
+    renderSteps.ARC3USX_InstaHit(1 / 60)
+    return (tool.activations or 0) - before, lookAtCalls[#lookAtCalls]
+end
+
+library.Flags.weakspot_enabled = true
+local delta, aim = hitOnce()
+check(delta == 1, "insta-hit activates from the real FustWeakSpotMark")
+check(aim ~= nil and aim.target == markAnchor.Position, "aim comes from the mark Adornee, not the node")
+check(camera.CFrame == savedCFrame, "mark aim restores the camera")
+
+-- "Node Parts" must ignore the marker and use the node's weakspot part.
+library.controls.weakspot_source.Callback("Node Parts")
+delta, aim = hitOnce()
+check(aim ~= nil and aim.target == weakspot.Position, "Node Parts source uses the node weakspot")
+
+-- "Mark Only" must refuse to fire when the marker is hidden.
+library.controls.weakspot_source.Callback("Mark Only")
+weakMark.Visible = false
+delta = hitOnce()
+check(delta == 0, "hidden FustWeakSpotMark blocks Mark Only hits")
+weakMark.Visible = true
+
+-- Screen-space marker: AbsolutePosition -> camera direction.
+weakMark.Adornee = nil
+weakMark.AbsolutePosition = V2.new(100, 100)
+weakMark.AbsoluteSize = V2.new(20, 20)
+delta, aim = hitOnce()
+check(delta == 1, "screen-space FustWeakSpotMark still fires")
+check(aim ~= nil and aim.target.Z ~= 0, "screen mark aims along a camera ray")
+library.controls.weakspot_source.Callback("Auto")
+library.controls.weakspot_radius.Callback(75)
+library.Flags.weakspot_auto_click = false
+library.Flags.weakspot_enabled = false
+
 -- ─── Aimbot (mouse-relative lock) ───────────────────────────────
 library.controls.aim_enabled.Callback(true)
 library.Flags.Aim_FOV_Circle = true
@@ -737,10 +800,27 @@ check(library.Flags.aim_enabled == false, "Q is the active keybind again")
 library.Options.aim_enabled:Set(false)
 
 -- ─── World Visuals ───────────────────────────────────────────────
+-- Terrain.Decoration does NOT exist in this game; the grass toggle must use
+-- the FustArcticTerrain attribute that the real Workspace.Terrain carries.
+check(terrain:GetAttribute("FustArcticTerrain") == 1, "real terrain attribute captured")
 library.controls.world_grass.Callback(true)
-check(terrain.Decoration == false, "remove grass disables terrain decoration")
+check(terrain:GetAttribute("FustArcticTerrain") == 0, "remove grass drives FustArcticTerrain")
+check(not pcall(function() terrain.Decoration = false end), "Decoration remains an invalid Terrain member")
+-- The game can re-set its attribute; the loop must correct it.
+terrain:SetAttribute("FustArcticTerrain", 1)
+step()
+check(terrain:GetAttribute("FustArcticTerrain") == 0, "looped grass re-applies the terrain attribute")
 library.controls.world_grass.Callback(false)
-check(terrain.Decoration == true, "disabling grass restores terrain decoration")
+check(terrain:GetAttribute("FustArcticTerrain") == 1, "disabling grass restores the captured original")
+local terrainDiag = nil
+for _, l in ipairs(library.labels) do
+    if l.text and l.text:find("FustArcticTerrain", 1, true) then terrainDiag = l end
+end
+check(terrainDiag ~= nil, "terrain diagnostic label reports the real path")
+library.buttons["Report Game Paths"]()
+local report = library.Notifications[#library.Notifications]
+check(report and report:find("FustArcticTerrain", 1, true) and report:find("FustWeakSpotMark", 1, true),
+    "Report Game Paths surfaces both real game paths")
 
 local leaf = node("BasePart", "LeafPart", workspace)
 leaf.Material = Enum.Material.Leaves
@@ -797,7 +877,7 @@ library.controls.world_fog.Callback(true)
 library.controls.world_fullbright.Callback(true)
 library.buttons["Unload Script & Clear Memory"]()
 check(library.unloaded, "unload closes the UI library")
-check(terrain.Decoration == true, "unload restores terrain decoration")
+check(terrain:GetAttribute("FustArcticTerrain") == 1, "unload restores the terrain attribute")
 check(lighting.FogEnd == 100000 and lighting.FogStart == 0, "unload restores fog")
 check(atmosphere.Density == 0.35, "unload restores atmosphere density")
 check(lighting.Brightness == 1 and lighting.GlobalShadows == true and lighting.ClockTime == 14,

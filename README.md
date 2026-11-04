@@ -47,9 +47,13 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
   - **ESP Preview** — a live preview widget wired to the player ESP toggles/colors.
 - **World Visuals** — ported from the standalone `@abusegpt` visuals script, wired into
   the hub's **ESP / World** tab instead of its own ScreenGui:
-  - **Remove Grass** — turns off `Workspace.Terrain.Decoration` (the original
-    `grass and false or original` expression in the source always evaluated to the original
-    in Lua, so the port branches explicitly).
+  - **Remove Grass** — drives the real `Workspace.Terrain` attribute
+    `FustArcticTerrain` (set to `0` while on, captured original restored when off).
+    `Terrain.Decoration` is **not** a valid member in this game: the hub probes for it
+    instead of reading it, so it is skipped rather than aborting the whole load. The
+    attribute is re-applied every frame if the game resets it. A live label in the group
+    reports the attribute value and whether `Decoration` exists; **Report Game Paths**
+    prints the terrain and `FustWeakSpotMark` state in one notification.
   - **Remove Leaves** — sets every `Enum.Material.Leaves` part to a configurable
     transparency, including leaves streamed in later via `DescendantAdded`; original
     transparencies are cached and restored.
@@ -59,16 +63,25 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
     every `Atmosphere` density under `Lighting`.
   - All four capture their originals when the hub loads and restore them when a toggle is
     switched off or the hub is unloaded. Sliders: brightness 0–5, fog end 1000–1000000,
-    leaf transparency 0–1.
+    leaf transparency 0–1. Every game-object read/write goes through `readProp`,
+    `writeProp`, `readAttr` and `writeAttr`, so an unsupported Roblox member is skipped
+    instead of raising `X is not a valid member of Y` at startup.
 - **Loading screen (embedded in `ARC3USX.lua`)** — `CreateWindow` starts the library's own
   animated intro: terminal boot log, real compatibility checks (device, layout, screen size,
   client, network ping, frame rate), a progress bar, then the logo / **ACCESS GRANTED**
   reveal. It runs on every hub startup; **Replay Intro** in Settings shows it again.
-- **Silent Insta-Hit weakspot** — snaps the camera at the nearest resource weakspot for one
-  tick, activates the equipped mining tool, then restores the camera. Radius: 50 studs;
-  0.12 s cooldown; no visible camera lock. **No synthetic mouse click by default**, so
-  equipping a tool near a node does not start auto-clicking; the optional **Auto Click**
-  toggle (`weakspot_auto_click`, off) restores `mouse1click()` if a game needs it.
+- **Silent Insta-Hit weakspot** — aims from the game's real marker at
+  `Players.LocalPlayer.PlayerGui.FustWeakSpotMark`: it tries a world-position attribute,
+  the `Adornee`, a weakspot-named child part, any descendant with a world position, and
+  finally converts the marker's `AbsolutePosition` into a `Camera:ViewportPointToRay`
+  direction. If the marker is missing, hidden or unusable, it falls back to weakspot part
+  names on the nearest node. **Weakspot Source** selects `Auto`, `Mark Only` or
+  `Node Parts`; **Weakspot Radius** (default 50 studs) bounds the node fallback. A live
+  label reports whether the marker was found. The camera snaps for one tick, activates the
+  equipped mining tool, then is restored (0.12 s cooldown, no visible lock). **No synthetic
+  mouse click by default**, so equipping a tool near a node does not start auto-clicking;
+  the optional **Auto Click** toggle (`weakspot_auto_click`, off) restores `mouse1click()`
+  if a game needs it.
 - **Aimbot (mouse-relative lock)** — the standalone snippet's own `RenderStepped`
   connection: picks the valid target closest to the mouse inside a pixel FOV, leads it with
   `AssemblyLinearVelocity` / bullet travel time, then nudges the mouse toward it with
@@ -103,7 +116,8 @@ Master switches start **on**, but every category's ESP toggle starts **off** —
 individual **ESP Toggle** and any elements you want. The aimbot, staff monitor, staff ESP and
 insta-hit all start off. Aimbot defaults: FOV 220 px, bone `Head`, unlimited distance,
 smoothing 2, prediction on, bullet speed 900, FOV circle off, NPC/wall/team checks off,
-keybind mode `Toggle` with `Q` selected in the Keybind List. Weakspot auto-click starts off.
+keybind mode `Toggle` with `Q` selected in the Keybind List. Weakspot auto-click starts off,
+source `Auto` and radius 50.
 All four world visuals start off, with brightness 2, fog end 100000 and leaf transparency 1.
 The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 
@@ -117,11 +131,13 @@ The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
   game-specific replicated modules/attributes. Missing modules fall back to abbreviations
   and built-in role labels. Only client-replicated objects can be detected, so streaming
   affects ESP. `workspace.Npcs` is used for optional NPC targets.
-- World visuals read and write `Lighting`, `Workspace.Terrain.Decoration` and
-  `Atmosphere` instances. Games that continuously re-apply their own lighting/fog may fight
-  the looped fullbright, and streaming affects when new leaves are found. Originals are
-  captured once at load, so re-executing the hub after another script changed lighting
-  captures those changed values.
+- World visuals read and write `Lighting`, the `FustArcticTerrain` attribute on
+  `Workspace.Terrain`, and `Atmosphere` instances. `Terrain.Decoration` is probed, never
+  assumed. Games that continuously re-apply their own lighting/fog/terrain attribute may
+  fight the per-frame re-apply, and streaming affects when new leaves are found. Originals
+  are captured once at load, so re-executing the hub after another script changed lighting
+  captures those changed values. `FustWeakSpotMark` is read fresh from `PlayerGui` on each
+  check, so late-created GUIs are picked up.
 - The hub is client-side and is not verified against the live game or its anticheat. The
   decompiled game scripts in `ItemIcons.lua` and `Vex.txt` are reference material only.
 - `tests/hub_mock.lua` checks the feature set, ESP/insta-hit/aimbot/staff lifecycles and

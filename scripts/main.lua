@@ -41,6 +41,45 @@ local function connect(signal, fn)
 end
 
 -- ═══════════════════════════════════════════════════════════════
+--  SAFE INSTANCE ACCESS
+--  Roblox throws when a member does not exist on an Instance. Terrain has no
+--  "Decoration" member in this game, so the old hub aborted at load while
+--  reading it. Every game-object read/write below goes through these helpers:
+--  unsupported members are detected, skipped and reported instead of crashing
+--  the whole script.
+-- ═══════════════════════════════════════════════════════════════
+local function readProp(obj, prop)
+    if not obj then return false, nil end
+    return pcall(function() return obj[prop] end)
+end
+local function getProp(obj, prop, fallback)
+    local ok, value = readProp(obj, prop)
+    if ok then return value end
+    return fallback
+end
+local function writeProp(obj, prop, value)
+    if not obj or value == nil then return false end
+    return pcall(function() obj[prop] = value end)
+end
+local function readAttr(obj, name)
+    if not obj then return false, nil end
+    return pcall(function() return obj:GetAttribute(name) end)
+end
+local function writeAttr(obj, name, value)
+    if not obj then return false end
+    return pcall(function() obj:SetAttribute(name, value) end)
+end
+local function isVec3(v)
+    if v == nil then return false end
+    local ok, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
+    return ok and type(x) == "number" and type(y) == "number" and type(z) == "number"
+end
+local function isInstance(obj)
+    if obj == nil then return false end
+    return type(obj) == "userdata" or type(obj) == "table"
+end
+
+-- ═══════════════════════════════════════════════════════════════
 --  ITEM ICONS MODULE
 -- ═══════════════════════════════════════════════════════════════
 local ItemIcons = nil
@@ -460,13 +499,28 @@ connect(Players.PlayerRemoving, function(plr)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
---  SILENT INSTA-HIT WEAKSPOT (NO CAMERA LOCK)
+-- ═══════════════════════════════════════════════════════════════
+--  SILENT INSTA-HIT WEAKSPOT — real FustWeakSpotMark path
+--  The game's marker lives at:
+--    game:GetService("Players").LocalPlayer.PlayerGui.FustWeakSpotMark
+--  Aim from it first (attribute / Adornee / child part / screen point), then
+--  fall back to node part names. A missing or renamed GUI can never break the
+--  feature — or abort the hub at load.
 -- ═══════════════════════════════════════════════════════════════
 local NodeNames = { ["Tree"] = true, ["MetalNode"] = true, ["SulfurNode"] = true, ["StoneNode"] = true, ["Cactus"] = true, ["Meteor"] = true }
 local WeakspotNames = { "Weakspot", "WeakSpot", "WeakPoint", "Weakpoint", "CriticalSpot", "CriticalPart", "Critical", "CritSpot", "Hitpoint", "HitPoint", "HitSpot", "Mark", "MarkSpot", "Bonus", "BonusSpot" }
+local WEAKSPOT_MARK_NAME = "FustWeakSpotMark"
+local MARK_POSITION_ATTRS = { "WorldPosition", "WeakspotPosition", "WeakSpotPosition", "TargetPosition", "HitPosition" }
 local cachedNodes = {}
 local lastHitTime = 0
+local nextWeakspotDiag = 0
 local HIT_COOLDOWN = 0.12
+local weakspot = {
+    source = "Auto",      -- Auto | Mark Only | Node Parts
+    radius = 50,
+    status = "waiting",
+}
+local weakspotDiagLabel = nil -- wired up by the UI group below
 
 task.spawn(function()
     for _, v in ipairs(Workspace:GetDescendants()) do
@@ -481,66 +535,209 @@ task.spawn(function()
     end)
 end)
 
-local function getWeakspotPosition(model)
-    for _, name in ipairs(WeakspotNames) do
-        local child = model:FindFirstChild(name, true)
-        if child then
-            if child:IsA("BasePart") then return child.Position end
-            if child:IsA("Attachment") then return child.WorldPosition end
-        end
-    end
-    return model:GetPivot().Position
+-- ── Marker lookup ────────────────────────────────────────────────
+local function getPlayerGui()
+    local ok, gui = readProp(LocalPlayer, "PlayerGui")
+    if ok and isInstance(gui) then return gui end
+    return nil
+end
+local function getWeakspotMark()
+    local gui = getPlayerGui()
+    if not gui then return nil end
+    local ok, mark = pcall(function() return gui:FindFirstChild(WEAKSPOT_MARK_NAME, true) end)
+    if ok and isInstance(mark) then return mark end
+    return nil
+end
+local function markIsVisible(mark)
+    local okE, enabled = readProp(mark, "Enabled")
+    if okE and enabled == false then return false end
+    local okV, visible = readProp(mark, "Visible")
+    if okV and visible == false then return false end
+    return true
 end
 
+-- World position of a BasePart, Attachment or Model (never throws).
+local function instanceWorldPos(inst)
+    if not isInstance(inst) then return nil end
+    local okP, pos = readProp(inst, "Position")
+    if okP and isVec3(pos) then return pos end
+    local okW, worldPos = readProp(inst, "WorldPosition")
+    if okW and isVec3(worldPos) then return worldPos end
+    local okPivot, pivot = pcall(function() return inst:GetPivot().Position end)
+    if okPivot and isVec3(pivot) then return pivot end
+    return nil
+end
+
+-- Turn the marker into an aim target: a world point or a camera direction.
+local function resolveMarkAim(mark)
+    if not markIsVisible(mark) then return nil, "mark hidden" end
+
+    -- 1) An explicit world-position attribute on the GUI.
+    for _, name in ipairs(MARK_POSITION_ATTRS) do
+        local ok, value = readAttr(mark, name)
+        if ok and isVec3(value) then
+            return { kind = "position", value = value }, "mark attribute " .. name
+        end
+    end
+
+    -- 2) BillboardGui-style Adornee pointing at the weakspot.
+    local okA, adornee = readProp(mark, "Adornee")
+    if okA and isInstance(adornee) then
+        local pos = instanceWorldPos(adornee)
+        if pos then return { kind = "position", value = pos }, "mark Adornee" end
+    end
+
+    -- 3) A weakspot-named descendant part / attachment.
+    for _, name in ipairs(WeakspotNames) do
+        local okF, child = pcall(function() return mark:FindFirstChild(name, true) end)
+        if okF and isInstance(child) then
+            local pos = instanceWorldPos(child)
+            if pos then return { kind = "position", value = pos }, "mark child " .. name end
+        end
+    end
+
+    -- 4) Any descendant that carries a world position.
+    local okD, descendants = pcall(function() return mark:GetDescendants() end)
+    if okD and type(descendants) == "table" then
+        for _, child in ipairs(descendants) do
+            local pos = instanceWorldPos(child)
+            if pos then return { kind = "position", value = pos }, "mark descendant" end
+        end
+    end
+
+    -- 5) Screen-space marker: convert its centre to a camera direction.
+    local candidates = { mark }
+    if okD and type(descendants) == "table" then
+        for _, child in ipairs(descendants) do candidates[#candidates + 1] = child end
+    end
+    for _, obj in ipairs(candidates) do
+        local okP, absPos = readProp(obj, "AbsolutePosition")
+        local okS, absSize = readProp(obj, "AbsoluteSize")
+        if okP and okS and absPos and absSize and absPos.X and absSize.X then
+            local cx = absPos.X + absSize.X * 0.5
+            local cy = absPos.Y + absSize.Y * 0.5
+            local okR, ray = pcall(function() return Camera:ViewportPointToRay(cx, cy, 0) end)
+            if okR and ray and isVec3(ray.Direction) then
+                return { kind = "direction", value = ray.Direction }, "mark screen point"
+            end
+        end
+    end
+    return nil, "mark has no usable position"
+end
+
+-- ── Node fallback (name-based, as before but guarded) ─────────────
+local function getWeakspotPosition(model)
+    for _, name in ipairs(WeakspotNames) do
+        local ok, child = pcall(function() return model:FindFirstChild(name, true) end)
+        if ok and isInstance(child) then
+            local pos = instanceWorldPos(child)
+            if pos then return pos end
+        end
+    end
+    return instanceWorldPos(model)
+end
 local function getNearestNodeInRange(maxRange)
     local char = LocalPlayer.Character
     if not char then return nil end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
+    local okHRP, hrpPos = readProp(hrp, "Position")
+    if not okHRP or not isVec3(hrpPos) then return nil end
     local closest, closestDist = nil, maxRange or 50
     for _, node in ipairs(cachedNodes) do
         if node.Parent then
             local pos = getWeakspotPosition(node)
-            local dist = (pos - hrp.Position).Magnitude
-            if dist < closestDist then
-                closestDist = dist
-                closest = node
+            if isVec3(pos) then
+                local dist = (pos - hrpPos).Magnitude
+                if dist < closestDist then
+                    closestDist = dist
+                    closest = node
+                end
             end
         end
     end
     return closest
 end
 
+local function getWeakspotAim()
+    local useMark = weakspot.source ~= "Node Parts"
+    local useNodes = weakspot.source ~= "Mark Only"
+    if useMark then
+        local mark = getWeakspotMark()
+        if mark then
+            local target, how = resolveMarkAim(mark)
+            if target then return target, how end
+            weakspot.status = how
+            if not useNodes then return nil, how end
+        elseif not useNodes then
+            return nil, "no " .. WEAKSPOT_MARK_NAME
+        end
+    end
+    local node = getNearestNodeInRange(weakspot.radius)
+    if node then
+        local pos = getWeakspotPosition(node)
+        if isVec3(pos) then return { kind = "position", value = pos }, "node part" end
+    end
+    return nil, "no node in range"
+end
+
 local function performInstaHit()
     local char = LocalPlayer.Character
-    if not char then return end
+    if not char then weakspot.status = "no character"; return end
     local tool = char:FindFirstChildOfClass("Tool")
-    if not tool then return end
+    if not tool then weakspot.status = "no tool"; return end
     local name = tool.Name:lower()
-    if not (name:find("pickaxe") or name:find("hatchet") or name:find("rock") or name:find("jackhammer") or name:find("chainsaw")) then return end
+    if not (name:find("pickaxe") or name:find("hatchet") or name:find("rock") or name:find("jackhammer") or name:find("chainsaw")) then
+        weakspot.status = "not a mining tool"
+        return
+    end
 
-    local node = getNearestNodeInRange(50)
-    if not node then return end
+    local target, how = getWeakspotAim()
+    if not target then weakspot.status = how; return end
 
-    local targetPos = getWeakspotPosition(node)
     local camPos = Camera.CFrame.Position
-    if (targetPos - camPos).Magnitude < 0.5 then return end
+    if target.kind == "position" and (target.value - camPos).Magnitude < 0.5 then
+        weakspot.status = "already on target"
+        return
+    end
 
     -- Silent snap: aim → activate → restore in the same tick. The tool is
     -- activated directly; the mouse is NOT clicked unless Auto Click is on,
     -- so equipping a tool near a node never starts auto-clicking.
     local savedCFrame = Camera.CFrame
-    Camera.CFrame = CFrame.lookAt(camPos, targetPos)
+    if target.kind == "position" then
+        pcall(function() Camera.CFrame = CFrame.lookAt(camPos, target.value) end)
+    elseif target.kind == "direction" then
+        pcall(function() Camera.CFrame = CFrame.lookAt(camPos, camPos + target.value * 100) end)
+    end
     pcall(function() tool:Activate() end)
     if getFlag("weakspot_auto_click", false) and type(mouse1click) == "function" then
         pcall(mouse1click)
     end
     Camera.CFrame = savedCFrame
+    weakspot.status = how
 end
 
 RunService:BindToRenderStep("ARC3USX_InstaHit", Enum.RenderPriority.Camera.Value + 1, function(dt)
-    if unloaded or not getFlag("weakspot_enabled", false) then return end
+    if unloaded then return end
     local now = tick()
+
+    -- Live diagnostic: shows whether the real marker path resolves in-game.
+    if now >= nextWeakspotDiag then
+        nextWeakspotDiag = now + 1
+        local mark = getWeakspotMark()
+        local state = "not found"
+        if mark then state = markIsVisible(mark) and "visible" or "hidden" end
+        if weakspotDiagLabel and type(weakspotDiagLabel.SetText) == "function" then
+            pcall(function()
+                weakspotDiagLabel:SetText(string.format(
+                    "%s: %s · source: %s · last: %s",
+                    WEAKSPOT_MARK_NAME, state, weakspot.source, weakspot.status))
+            end)
+        end
+    end
+
+    if not getFlag("weakspot_enabled", false) then return end
     if now - lastHitTime < HIT_COOLDOWN then return end
     lastHitTime = now
     performInstaHit()
@@ -988,6 +1185,14 @@ pcall(function()
     if old then old:Destroy() end
 end)
 
+-- ═══════════════════════════════════════════════════════════════
+--  WORLD VISUALS — real Fust terrain path
+--  Source: game:GetService("Workspace").Terrain
+--          attribute "FustArcticTerrain" = 1
+--  Terrain.Decoration is NOT a valid member in this game. We probe it instead
+--  of reading it, so an unsupported member can never abort the hub at load.
+--  Every original is captured once and restored on toggle-off / unload.
+-- ═══════════════════════════════════════════════════════════════
 local world = {
     grass = false,
     leaves = false,
@@ -997,104 +1202,163 @@ local world = {
     fogEnd = 100000,
     leafTransparency = 1,
 }
+local TERRAIN_ATTR = "FustArcticTerrain"
+local GRASS_OFF_VALUE = 0
+local terrain = Workspace.Terrain
+local terrainDiagLabel = nil
+local nextWorldDiag = 0
+
+-- readAttr/readProp return (ok, value). A failed read is a missing member, not
+-- an error: this is exactly the Decoration bug that used to kill the script.
+local attrOk, origArctic = readAttr(terrain, TERRAIN_ATTR)
+local decorationSupported, origDecoration = readProp(terrain, "Decoration")
 
 local origLighting = {
-    Brightness = Lighting.Brightness,
-    Ambient = Lighting.Ambient,
-    OutdoorAmbient = Lighting.OutdoorAmbient,
-    GlobalShadows = Lighting.GlobalShadows,
-    ClockTime = Lighting.ClockTime,
-    FogEnd = Lighting.FogEnd,
-    FogStart = Lighting.FogStart,
+    Brightness     = getProp(Lighting, "Brightness", 1),
+    Ambient        = getProp(Lighting, "Ambient", nil),
+    OutdoorAmbient = getProp(Lighting, "OutdoorAmbient", nil),
+    GlobalShadows  = getProp(Lighting, "GlobalShadows", true),
+    ClockTime      = getProp(Lighting, "ClockTime", 12),
+    FogEnd         = getProp(Lighting, "FogEnd", 100000),
+    FogStart       = getProp(Lighting, "FogStart", 0),
 }
 
-local terrain = Workspace.Terrain
-local origTerrainDecoration = terrain and terrain.Decoration
-
-local atmosphereOriginals = {}
-for _, obj in ipairs(Lighting:GetDescendants()) do
-    if obj:IsA("Atmosphere") then
-        atmosphereOriginals[obj] = obj.Density
+-- Weak-keyed so streaming parts never leak through our restore bookkeeping.
+local atmosphereOriginals = setmetatable({}, { __mode = "k" })
+do
+    local ok, descendants = pcall(function() return Lighting:GetDescendants() end)
+    if ok and type(descendants) == "table" then
+        for _, obj in ipairs(descendants) do
+            local okIs, isAtmosphere = pcall(function() return obj:IsA("Atmosphere") end)
+            if okIs and isAtmosphere then
+                local okD, density = readProp(obj, "Density")
+                if okD then atmosphereOriginals[obj] = density end
+            end
+        end
     end
 end
 
 local FULLBRIGHT_AMBIENT = Color3.fromRGB(200, 200, 200)
 
--- ── GRASS ───────────────────────────────────────────────────────
-local function applyGrass()
-    if not terrain then return end
+local function currentTerrainAttr()
+    local _, value = readAttr(terrain, TERRAIN_ATTR)
+    return value
+end
+local function updateTerrainDiag()
+    if not terrainDiagLabel or type(terrainDiagLabel.SetText) ~= "function" then return end
     pcall(function()
-        -- `grass and false or original` always picks the original in Lua
-        -- because false is falsy, so branch explicitly instead.
-        if world.grass then
-            terrain.Decoration = false
-        else
-            terrain.Decoration = origTerrainDecoration
-        end
+        terrainDiagLabel:SetText(string.format(
+            "Terrain: Workspace.Terrain · %s = %s · Decoration: %s · grass: %s",
+            TERRAIN_ATTR, tostring(currentTerrainAttr()),
+            decorationSupported and "supported" or "invalid member (skipped)",
+            world.grass and "OFF" or "original"))
     end)
 end
 
+-- ── GRASS / ARCTIC TERRAIN ──────────────────────────────────────
+local function applyGrass()
+    if not terrain then return end
+    if world.grass then
+        writeAttr(terrain, TERRAIN_ATTR, GRASS_OFF_VALUE)
+        if decorationSupported then writeProp(terrain, "Decoration", false) end
+    else
+        -- If the game never had the attribute, remove ours instead of leaving
+        -- a fake value behind. SetAttribute(name, nil) deletes it in Roblox.
+        if attrOk and origArctic ~= nil then
+            writeAttr(terrain, TERRAIN_ATTR, origArctic)
+        else
+            writeAttr(terrain, TERRAIN_ATTR, nil)
+        end
+        if decorationSupported and origDecoration ~= nil then
+            writeProp(terrain, "Decoration", origDecoration)
+        end
+    end
+    updateTerrainDiag()
+end
+
+-- The game can re-set its own terrain attribute. Only write when it differs.
+local function reapplyTerrain()
+    if not world.grass or not terrain then return end
+    if currentTerrainAttr() ~= GRASS_OFF_VALUE then
+        writeAttr(terrain, TERRAIN_ATTR, GRASS_OFF_VALUE)
+    end
+    if decorationSupported then
+        local ok, current = readProp(terrain, "Decoration")
+        if ok and current ~= false then writeProp(terrain, "Decoration", false) end
+    end
+end
+
 -- ── LEAVES ──────────────────────────────────────────────────────
-local leafOriginals = {}
+local leafOriginals = setmetatable({}, { __mode = "k" })
 local function isLeaf(part)
-    return part:IsA("BasePart") and part.Material == Enum.Material.Leaves
+    local okIs, isBasePart = pcall(function() return part:IsA("BasePart") end)
+    if not okIs or not isBasePart then return false end
+    local okMat, material = readProp(part, "Material")
+    return okMat and material == Enum.Material.Leaves
 end
 local function applyLeaves()
     if world.leaves then
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            local ok, leaf = pcall(function() return isLeaf(obj) end)
-            if ok and leaf then
-                if leafOriginals[obj] == nil then leafOriginals[obj] = obj.Transparency end
-                if obj.Transparency ~= world.leafTransparency then
-                    obj.Transparency = world.leafTransparency
+        local ok, descendants = pcall(function() return Workspace:GetDescendants() end)
+        if not ok or type(descendants) ~= "table" then return end
+        for _, obj in ipairs(descendants) do
+            if isLeaf(obj) then
+                if leafOriginals[obj] == nil then
+                    local okT, transparency = readProp(obj, "Transparency")
+                    if okT then leafOriginals[obj] = transparency end
+                end
+                local okNow, current = readProp(obj, "Transparency")
+                if okNow and current ~= world.leafTransparency then
+                    writeProp(obj, "Transparency", world.leafTransparency)
                 end
             end
         end
     else
         for part, transparency in pairs(leafOriginals) do
-            if part and part.Parent then part.Transparency = transparency end
+            if part and part.Parent then writeProp(part, "Transparency", transparency) end
         end
-        leafOriginals = {}
+        table.clear(leafOriginals)
     end
 end
 
 connect(Workspace.DescendantAdded, function(obj)
     if unloaded or not world.leaves or not obj then return end
-    local ok, leaf = pcall(function() return isLeaf(obj) end)
-    if not ok or not leaf then return end
-    if leafOriginals[obj] == nil then leafOriginals[obj] = obj.Transparency end
-    obj.Transparency = world.leafTransparency
+    if not isLeaf(obj) then return end
+    if leafOriginals[obj] == nil then
+        local okT, transparency = readProp(obj, "Transparency")
+        if okT then leafOriginals[obj] = transparency end
+    end
+    writeProp(obj, "Transparency", world.leafTransparency)
 end)
 
 -- ── FULLBRIGHT ──────────────────────────────────────────────────
 local function restoreLighting()
-    Lighting.Brightness = origLighting.Brightness
-    Lighting.Ambient = origLighting.Ambient
-    Lighting.OutdoorAmbient = origLighting.OutdoorAmbient
-    Lighting.GlobalShadows = origLighting.GlobalShadows
-    Lighting.ClockTime = origLighting.ClockTime
+    writeProp(Lighting, "Brightness", origLighting.Brightness)
+    writeProp(Lighting, "Ambient", origLighting.Ambient)
+    writeProp(Lighting, "OutdoorAmbient", origLighting.OutdoorAmbient)
+    writeProp(Lighting, "GlobalShadows", origLighting.GlobalShadows)
+    writeProp(Lighting, "ClockTime", origLighting.ClockTime)
 end
 
 local function applyFullbright()
-    if Lighting.Brightness ~= world.brightness then Lighting.Brightness = world.brightness end
-    if Lighting.Ambient ~= FULLBRIGHT_AMBIENT then Lighting.Ambient = FULLBRIGHT_AMBIENT end
-    if Lighting.OutdoorAmbient ~= FULLBRIGHT_AMBIENT then Lighting.OutdoorAmbient = FULLBRIGHT_AMBIENT end
-    if Lighting.GlobalShadows ~= false then Lighting.GlobalShadows = false end
-    if Lighting.ClockTime ~= 12 then Lighting.ClockTime = 12 end
+    if getProp(Lighting, "Brightness", nil) ~= world.brightness then writeProp(Lighting, "Brightness", world.brightness) end
+    if getProp(Lighting, "Ambient", nil) ~= FULLBRIGHT_AMBIENT then writeProp(Lighting, "Ambient", FULLBRIGHT_AMBIENT) end
+    if getProp(Lighting, "OutdoorAmbient", nil) ~= FULLBRIGHT_AMBIENT then writeProp(Lighting, "OutdoorAmbient", FULLBRIGHT_AMBIENT) end
+    if getProp(Lighting, "GlobalShadows", nil) ~= false then writeProp(Lighting, "GlobalShadows", false) end
+    if getProp(Lighting, "ClockTime", nil) ~= 12 then writeProp(Lighting, "ClockTime", 12) end
 end
 
 -- ── FOG ─────────────────────────────────────────────────────────
 local function applyFog()
     if world.fog then
-        Lighting.FogEnd = world.fogEnd
-        Lighting.FogStart = world.fogEnd
+        writeProp(Lighting, "FogEnd", world.fogEnd)
+        writeProp(Lighting, "FogStart", world.fogEnd)
     else
-        Lighting.FogEnd = origLighting.FogEnd
-        Lighting.FogStart = origLighting.FogStart
+        writeProp(Lighting, "FogEnd", origLighting.FogEnd)
+        writeProp(Lighting, "FogStart", origLighting.FogStart)
     end
     for atmosphere, density in pairs(atmosphereOriginals) do
         if atmosphere and atmosphere.Parent then
-            atmosphere.Density = world.fog and 0 or density
+            writeProp(atmosphere, "Density", world.fog and 0 or density)
         end
     end
 end
@@ -1107,7 +1371,7 @@ local function restoreWorldVisuals()
     applyGrass()
 end
 
--- Initial apply simply confirms the captured originals; everything starts off.
+-- Everything starts off. Confirming captured originals must never throw.
 applyGrass()
 applyFog()
 
@@ -1144,6 +1408,11 @@ connect(RunService.RenderStepped, function(dt)
     -- Looped fullbright runs every frame (before the ESP throttle) so the game
     -- cannot reset Lighting behind our back.
     if world.fullbright then applyFullbright() end
+    if world.grass then reapplyTerrain() end
+    if now >= nextWorldDiag then
+        nextWorldDiag = now + 1
+        updateTerrainDiag()
+    end
 
     -- One throttled pass drives every ESP category. Flags are read once per
     -- pass rather than once per target, line-of-sight raycasts are cached,
@@ -1536,7 +1805,20 @@ WorldGroup:AddSlider({
         if world.leaves then applyLeaves() end
     end
 })
-WorldGroup:AddLabel("Grass, leaves, fog and fullbright are restored to their captured originals when a toggle is switched off or the hub is unloaded. Fullbright re-applies every frame.")
+terrainDiagLabel = WorldGroup:AddLabel("Terrain: detecting…")
+updateTerrainDiag()
+WorldGroup:AddButton({
+    Name = "Report Game Paths",
+    Callback = function()
+        local mark = getWeakspotMark()
+        Library:Notify(string.format(
+            "Terrain: Workspace.Terrain (%s=%s, Decoration %s) | FustWeakSpotMark: %s",
+            TERRAIN_ATTR, tostring(currentTerrainAttr()),
+            decorationSupported and "available" or "invalid",
+            mark and "found" or "not found"), 8)
+    end
+})
+WorldGroup:AddLabel("Remove Grass drives Workspace.Terrain's FustArcticTerrain attribute (set to 0 while on). Terrain.Decoration is only touched if the engine actually exposes it, so an invalid member never crashes the hub. Grass, leaves, fog and fullbright restore their captured originals when switched off or unloaded; fullbright and grass re-apply every frame.")
 
 -- ═══════════════════════════════════════════════════════════════
 --  COMBAT TAB
@@ -1651,7 +1933,17 @@ attachStaffToUI()
 local WeakspotGroup = MiscTab:AddGroup("Mining (Silent Insta-Hit)", "Right")
 WeakspotGroup:AddToggle({ Name = "Enable Insta-Hit Weakspot", Flag = "weakspot_enabled", Default = false })
 WeakspotGroup:AddToggle({ Name = "Auto Click (off by default)", Flag = "weakspot_auto_click", Default = false })
-WeakspotGroup:AddLabel("Silently snaps the camera at the nearest weakspot and activates the tool, then restores it. No synthetic mouse click unless Auto Click is on, so equipping a tool near a node will not auto-click. Radius: 50 studs.")
+WeakspotGroup:AddDropdown({
+    Name = "Weakspot Source", Flag = "weakspot_source",
+    Options = { "Auto", "Mark Only", "Node Parts" }, Default = "Auto",
+    Callback = function(v) weakspot.source = v end
+})
+WeakspotGroup:AddSlider({
+    Name = "Weakspot Radius", Flag = "weakspot_radius", Min = 10, Max = 200, Default = 50, Rounding = 0,
+    Callback = function(v) weakspot.radius = v end
+})
+weakspotDiagLabel = WeakspotGroup:AddLabel("FustWeakSpotMark: scanning…")
+WeakspotGroup:AddLabel("Aims from LocalPlayer.PlayerGui.FustWeakSpotMark (attribute, Adornee, child part or screen point), then falls back to node weakspot names. Silently snaps the camera, activates the tool and restores it. No synthetic mouse click unless Auto Click is on, so equipping a tool near a node will not auto-click.")
 
 local MiscGroup = MiscTab:AddGroup("System", "Left")
 MiscGroup:AddButton({
