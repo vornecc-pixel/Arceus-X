@@ -45,27 +45,6 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
     Cactus, MetalNode, SulfurNode, Tree, Meteor and StoneNode, plus a distance toggle.
   - **Heli ESP** — `PatrolHeli` models with box, chams and distance.
   - **ESP Preview** — a live preview widget wired to the player ESP toggles/colors.
-- **World Visuals** — ported from the standalone `@abusegpt` visuals script, wired into
-  the hub's **ESP / World** tab instead of its own ScreenGui:
-  - **Remove Grass** — drives the real `Workspace.Terrain` attribute
-    `FustArcticTerrain` (set to `0` while on, captured original restored when off).
-    `Terrain.Decoration` is **not** a valid member in this game: the hub probes for it
-    instead of reading it, so it is skipped rather than aborting the whole load. The
-    attribute is re-applied every frame if the game resets it. A live label in the group
-    reports the attribute value and whether `Decoration` exists; **Report Game Paths**
-    prints the terrain and `FustWeakSpotMark` state in one notification.
-  - **Remove Leaves** — sets every `Enum.Material.Leaves` part to a configurable
-    transparency, including leaves streamed in later via `DescendantAdded`; original
-    transparencies are cached and restored.
-  - **Looped Fullbright** — re-applies brightness, ambient/outdoor ambient, `GlobalShadows`
-    and `ClockTime = 12` every frame (before the ESP throttle) so the game cannot reset them.
-  - **Remove Fog** — pushes `FogStart`/`FogEnd` out to a configurable distance and clears
-    every `Atmosphere` density under `Lighting`.
-  - All four capture their originals when the hub loads and restore them when a toggle is
-    switched off or the hub is unloaded. Sliders: brightness 0–5, fog end 1000–1000000,
-    leaf transparency 0–1. Every game-object read/write goes through `readProp`,
-    `writeProp`, `readAttr` and `writeAttr`, so an unsupported Roblox member is skipped
-    instead of raising `X is not a valid member of Y` at startup.
 - **Loading screen (embedded in `ARC3USX.lua`)** — `CreateWindow` starts the library's own
   animated intro: terminal boot log, real compatibility checks (device, layout, screen size,
   client, network ping, frame rate), a progress bar, then the logo / **ACCESS GRANTED**
@@ -100,6 +79,11 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
 - **Staff detection** — reads `AdminRole` attributes or the game's optional
   `Fust.StaffState` / `Fust.AdminPerms` modules; role labels, ranks, colors, a monitor with
   notifications, role-change hooks, and staff highlights.
+- **Looped Fullbright** — the only world visual, a single toggle in
+  **Misc → System**. Re-applies brightness (2), ambient / outdoor ambient, `GlobalShadows`
+  and `ClockTime = 12` every frame before the ESP throttle, so the game cannot reset them.
+  Originals are captured at load and restored when switched off or unloaded. All `Lighting`
+  access goes through the guarded `getProp` / `writeProp` helpers.
 - **System** — `Unload Script & Clear Memory` disconnects connections, unbinds render steps,
   removes drawings/overlays and unloads the UI.
 
@@ -107,7 +91,7 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
 
 | Tab | Groups |
 | --- | --- |
-| ESP / World | Player ESP, NPC ESP, Ore ESP (Icons), Heli ESP, ESP Preview, World Visuals |
+| ESP / World | Player ESP, NPC ESP, Ore ESP (Icons), Heli ESP, ESP Preview |
 | Combat | Aimbot, Aimbot Options |
 | Misc | Staff Detection, Staff ESP, Mining (Silent Insta-Hit), System |
 | Settings | themes, config/auto-load, appearance (`Window:AddSettingsTab()`) |
@@ -118,7 +102,7 @@ insta-hit all start off. Aimbot defaults: FOV 220 px, bone `Head`, unlimited dis
 smoothing 2, prediction on, bullet speed 900, FOV circle off, NPC/wall/team checks off,
 keybind mode `Toggle` with `Q` selected in the Keybind List. Weakspot auto-click starts off,
 source `Auto` and radius 50.
-All four world visuals start off, with brightness 2, fog end 100000 and leaf transparency 1.
+Looped Fullbright starts off (fixed brightness 2).
 The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 
 ### Requirements and caveats
@@ -131,13 +115,11 @@ The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
   game-specific replicated modules/attributes. Missing modules fall back to abbreviations
   and built-in role labels. Only client-replicated objects can be detected, so streaming
   affects ESP. `workspace.Npcs` is used for optional NPC targets.
-- World visuals read and write `Lighting`, the `FustArcticTerrain` attribute on
-  `Workspace.Terrain`, and `Atmosphere` instances. `Terrain.Decoration` is probed, never
-  assumed. Games that continuously re-apply their own lighting/fog/terrain attribute may
-  fight the per-frame re-apply, and streaming affects when new leaves are found. Originals
-  are captured once at load, so re-executing the hub after another script changed lighting
-  captures those changed values. `FustWeakSpotMark` is read fresh from `PlayerGui` on each
-  check, so late-created GUIs are picked up.
+- Looped Fullbright writes `Lighting` only. Games that continuously re-apply their own
+  lighting may fight the per-frame loop. Originals are captured once at load, so
+  re-executing the hub after another script changed lighting captures those changed values.
+  `FustWeakSpotMark` is read fresh from `PlayerGui` on each check, so late-created GUIs are
+  picked up.
 - The hub is client-side and is not verified against the live game or its anticheat. The
   decompiled game scripts in `ItemIcons.lua` and `Vex.txt` are reference material only.
 - `tests/hub_mock.lua` checks the feature set, ESP/insta-hit/aimbot/staff lifecycles and
@@ -153,7 +135,7 @@ The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 | File | What it is |
 | --- | --- |
 | `ARC3USX.lua` | The UI library, including the embedded loading screen / intro (loaded by the hub at runtime) |
-| `scripts/main.lua` | The hub: ESP, world visuals, auto weakspot, mouse-relative aimbot, staff detection and UI |
+| `scripts/main.lua` | The hub: ESP, looped fullbright, auto weakspot, mouse-relative aimbot, staff detection and UI |
 | `tests/hub_mock.lua`, `tests/run_hub_mock.js` | Mocked lifecycle/feature test for the hub (Lua 5.3 or fengari) |
 | `ItemIcons.lua` | Decompiled reference copy of the game's `Fust.ItemIcons` module |
 | `Vex.txt` | Decompiled reference copy of game combat code |

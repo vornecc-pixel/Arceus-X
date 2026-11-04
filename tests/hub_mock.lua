@@ -137,11 +137,8 @@ local validProps = {
     connected=true,
     -- world visuals
     Brightness=true, OutdoorAmbient=true, GlobalShadows=true, ClockTime=true,
-    FogEnd=true, FogStart=true, Density=true,
-    Transparency=true, Material=true, WorldPosition=true,
-    AbsolutePosition=true, AbsoluteSize=true, PlayerGui=true,
+    WorldPosition=true, AbsolutePosition=true, AbsoluteSize=true, PlayerGui=true,
 }
-local invalidMembers = {}
 local function node(class, name, parent)
     -- Roblox lets `model.Humanoid` resolve to a child; mirror that here.
     local n = setmetatable({
@@ -149,9 +146,6 @@ local function node(class, name, parent)
         attributes = {}, Destroyed = false, Visible = false,
     }, {
         __index = function(self, key)
-            if invalidMembers[self] and invalidMembers[self][key] then
-                error(string.format("%s is not a valid member of %s", tostring(key), tostring(class)), 2)
-            end
             return self:FindFirstChild(key)
         end,
         __newindex = function(self, key, value)
@@ -269,15 +263,6 @@ lighting.Ambient = newColor(0.2, 0.2, 0.2)
 lighting.OutdoorAmbient = newColor(0.3, 0.3, 0.3)
 lighting.GlobalShadows = true
 lighting.ClockTime = 14
-lighting.FogEnd = 100000
-lighting.FogStart = 0
-local atmosphere = node("Atmosphere", "Atmosphere", lighting)
-atmosphere.Density = 0.35
-local terrain = node("Terrain", "Terrain", workspace)
-terrain:SetAttribute("FustArcticTerrain", 1)
--- "Decoration is not a valid member of Terrain" is the real runtime error the
--- old hub produced. Mirror both the failed read and the failed write.
-invalidMembers[terrain] = { Decoration = true }
 local rep = node("ReplicatedStorage", "ReplicatedStorage")
 local fust = node("Folder", "Fust", rep)
 local iconsScript = node("ModuleScript", "ItemIcons", fust)
@@ -358,8 +343,8 @@ local function addControl(group, o)
     library.Options[key] = obj
     return o
 end
-local function newGroup(name, side)
-    local g = { name = name, side = side, controls = {} }
+local function newGroup(name, side, tab)
+    local g = { name = name, side = side, tab = tab, controls = {} }
     function g:AddToggle(o) return addControl(self, o) end
     function g:AddSlider(o) return addControl(self, o) end
     function g:AddDropdown(o) return addControl(self, o) end
@@ -381,7 +366,7 @@ local function newGroup(name, side)
 end
 local function newTab(name)
     local t = { name = name }
-    function t:AddGroup(groupName, side) return newGroup(groupName, side) end
+    function t:AddGroup(groupName, side) return newGroup(groupName, side, name) end
     library.tabs[#library.tabs + 1] = t
     return t
 end
@@ -467,20 +452,26 @@ check(hubSource:find("Intro = true", 1, true), "hub does not enable the intro")
 check(libSource:find("function Library:_RunIntro", 1, true), "loading screen missing from the library")
 check(libSource:find("if opts.Intro ~= false then", 1, true), "library does not start the intro from CreateWindow")
 check(libSource:find("ACCESS GRANTED", 1, true), "intro reveal missing from the library")
-check(hubSource:find("FustArcticTerrain", 1, true), "real terrain attribute path missing")
 check(hubSource:find("FustWeakSpotMark", 1, true), "real weakspot mark path missing")
-check(not hubSource:find("terrain.Decoration", 1, true), "unguarded Terrain.Decoration access still present")
-check(not pcall(function() return terrain.Decoration end), "mock now rejects the invalid Terrain.Decoration member")
+for _, removed in ipairs({ "FustArcticTerrain", "Decoration", "world_grass", "world_leaves",
+    "world_fog", "world_brightness", "world_fog_end", "world_leaf_transparency",
+    "applyGrass", "applyLeaves", "applyFog", "reapplyTerrain", "restoreWorldVisuals",
+    "Report Game Paths", "World Visuals" }) do
+    check(not hubSource:find(removed, 1, true), "removed world visual still present: " .. removed)
+end
 
 check(library.windowOpts.Intro == true and library.windowOpts.Theme == "Purple", "hub window options / intro enabled")
 check(library.windowOpts.Size.X == 800 and library.windowOpts.Size.Y == 620, "hub window size")
 check(#library.tabs == 3 and library.settingsTab, "three tabs plus settings")
 check(library.tabs[1].name == "ESP / World" and library.tabs[2].name == "Combat" and library.tabs[3].name == "Misc", "tab names")
 local expectedGroups = {
-    "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview", "World Visuals",
+    "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview",
     "Aimbot", "Aimbot Options",
     "Staff Detection", "Staff ESP", "Mining (Silent Insta-Hit)", "System",
 }
+for _, g in ipairs(library.groups) do
+    check(g.name ~= "World Visuals", "World Visuals group still registered")
+end
 for _, name in ipairs(expectedGroups) do
     local found = false
     for _, g in ipairs(library.groups) do if g.name == name then found = true end end
@@ -488,8 +479,7 @@ for _, name in ipairs(expectedGroups) do
 end
 for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "player_esp_hz",
     "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
-    "world_grass", "world_leaves", "world_fullbright", "world_fog",
-    "world_brightness", "world_fog_end", "world_leaf_transparency",
+    "world_fullbright",
     "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_key_list",
     "weakspot_auto_click", "weakspot_source", "weakspot_radius", "aim_bone",
     "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
@@ -497,6 +487,18 @@ for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "p
     check(library.Flags[flag] ~= nil, "missing flag: " .. flag)
 end
 check(#library.previews == 1 and library.previews[1].Elements.Box == "plr_box", "ESP preview wired to hub flags")
+local fullbrightGroup = nil
+for _, g in ipairs(library.groups) do
+    for _, c in ipairs(g.controls) do
+        if c.Flag == "world_fullbright" then fullbrightGroup = g end
+    end
+end
+check(fullbrightGroup ~= nil and fullbrightGroup.tab == "Misc" and fullbrightGroup.name == "System",
+    "Looped Fullbright is the only visual and lives in Misc / System")
+for _, f in ipairs({ "world_grass", "world_leaves", "world_fog", "world_brightness",
+    "world_fog_end", "world_leaf_transparency" }) do
+    check(library.Flags[f] == nil, "removed world visual flag still registered: " .. f)
+end
 check(type(renderSteps.ARC3USX_InstaHit) == "function", "insta-hit render step bound")
 check(renderSteps.ARC3USX_Aimbot == nil, "old bound aimbot render step removed")
 check(#drawings == 1, "a single aimbot FOV circle created")
@@ -799,62 +801,15 @@ uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
 check(library.Flags.aim_enabled == false, "Q is the active keybind again")
 library.Options.aim_enabled:Set(false)
 
--- ─── World Visuals ───────────────────────────────────────────────
--- Terrain.Decoration does NOT exist in this game; the grass toggle must use
--- the FustArcticTerrain attribute that the real Workspace.Terrain carries.
-check(terrain:GetAttribute("FustArcticTerrain") == 1, "real terrain attribute captured")
-library.controls.world_grass.Callback(true)
-check(terrain:GetAttribute("FustArcticTerrain") == 0, "remove grass drives FustArcticTerrain")
-check(not pcall(function() terrain.Decoration = false end), "Decoration remains an invalid Terrain member")
--- The game can re-set its attribute; the loop must correct it.
-terrain:SetAttribute("FustArcticTerrain", 1)
-step()
-check(terrain:GetAttribute("FustArcticTerrain") == 0, "looped grass re-applies the terrain attribute")
-library.controls.world_grass.Callback(false)
-check(terrain:GetAttribute("FustArcticTerrain") == 1, "disabling grass restores the captured original")
-local terrainDiag = nil
-for _, l in ipairs(library.labels) do
-    if l.text and l.text:find("FustArcticTerrain", 1, true) then terrainDiag = l end
-end
-check(terrainDiag ~= nil, "terrain diagnostic label reports the real path")
-library.buttons["Report Game Paths"]()
-local report = library.Notifications[#library.Notifications]
-check(report and report:find("FustArcticTerrain", 1, true) and report:find("FustWeakSpotMark", 1, true),
-    "Report Game Paths surfaces both real game paths")
-
-local leaf = node("BasePart", "LeafPart", workspace)
-leaf.Material = Enum.Material.Leaves
-leaf.Transparency = 0
-library.controls.world_leaves.Callback(true)
-check(leaf.Transparency == 1, "remove leaves applies the configured transparency")
-library.controls.world_leaf_transparency.Callback(0.5)
-check(leaf.Transparency == 0.5, "leaf transparency slider re-applies")
-local leaf2 = node("BasePart", "LeafPart2", workspace)
-leaf2.Material = Enum.Material.Leaves
-leaf2.Transparency = 0
-workspace.DescendantAdded:Fire(leaf2)
-check(leaf2.Transparency == 0.5, "newly streamed leaves inherit the transparency")
-library.controls.world_leaves.Callback(false)
-check(leaf.Transparency == 0 and leaf2.Transparency == 0, "disabling leaves restores originals")
-
-library.controls.world_fog.Callback(true)
-check(lighting.FogEnd == 100000 and lighting.FogStart == 100000, "remove fog pushes fog far away")
-check(atmosphere.Density == 0, "remove fog clears atmosphere density")
-library.controls.world_fog_end.Callback(500000)
-check(lighting.FogEnd == 500000 and lighting.FogStart == 500000, "fog end slider applies while enabled")
-library.controls.world_fog.Callback(false)
-check(lighting.FogEnd == 100000 and lighting.FogStart == 0, "disabling fog restores fog distances")
-check(atmosphere.Density == 0.35, "disabling fog restores atmosphere density")
-
-library.controls.world_brightness.Callback(3)
+-- ─── Looped Fullbright (Misc / System) ───────────────────────────
 library.controls.world_fullbright.Callback(true)
-check(lighting.Brightness == 3 and lighting.GlobalShadows == false and lighting.ClockTime == 12,
-    "fullbright applies immediately")
+check(lighting.Brightness == 2 and lighting.GlobalShadows == false and lighting.ClockTime == 12,
+    "fullbright applies immediately with its built-in brightness")
 -- The loop must re-apply each frame if the game resets Lighting.
 lighting.Brightness = 1
 lighting.GlobalShadows = true
 step()
-check(lighting.Brightness == 3 and lighting.GlobalShadows == false, "looped fullbright re-applies every frame")
+check(lighting.Brightness == 2 and lighting.GlobalShadows == false, "looped fullbright re-applies every frame")
 library.controls.world_fullbright.Callback(false)
 check(lighting.Brightness == 1 and lighting.GlobalShadows == true and lighting.ClockTime == 14,
     "disabling fullbright restores lighting")
@@ -870,19 +825,12 @@ step()
 check(targetLabel.Destroyed, "overlays destroyed when their character leaves")
 
 -- ─── Unload ──────────────────────────────────────────────────────
--- Leave every visual enabled so unload has to restore them.
-library.controls.world_grass.Callback(true)
-library.controls.world_leaves.Callback(true)
-library.controls.world_fog.Callback(true)
+-- Leave fullbright enabled so unload has to restore lighting.
 library.controls.world_fullbright.Callback(true)
 library.buttons["Unload Script & Clear Memory"]()
 check(library.unloaded, "unload closes the UI library")
-check(terrain:GetAttribute("FustArcticTerrain") == 1, "unload restores the terrain attribute")
-check(lighting.FogEnd == 100000 and lighting.FogStart == 0, "unload restores fog")
-check(atmosphere.Density == 0.35, "unload restores atmosphere density")
 check(lighting.Brightness == 1 and lighting.GlobalShadows == true and lighting.ClockTime == 14,
     "unload restores lighting")
-check(leaf.Transparency == 0 and leaf2.Transparency == 0, "unload restores leaf transparency")
 check(findNode(function(n) return n.Name == "ARC3USX_ESP_UI" and n.Parent == coreGui end) == nil,
     "unload destroys the ESP ScreenGui")
 check(renderSteps.ARC3USX_InstaHit == nil and renderSteps.ARC3USX_Aimbot == nil, "render steps unbound")

@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
 --  ARC3USX.EXE — ULTIMATE OPTIMIZED HUB
---  SMOOTH ESP + AUTO WEAKSPOT + AIMBOT + WORLD VISUALS + LIBRARY LOADING SCREEN
+--  SMOOTH ESP + AUTO WEAKSPOT + AIMBOT + LOOPED FULLBRIGHT + LIBRARY LOADING SCREEN
 --
 --  Entry point for the hub. The UI library lives in ARC3USX.lua at the
 --  repository root; everything below is the hub's feature set.
@@ -42,11 +42,9 @@ end
 
 -- ═══════════════════════════════════════════════════════════════
 --  SAFE INSTANCE ACCESS
---  Roblox throws when a member does not exist on an Instance. Terrain has no
---  "Decoration" member in this game, so the old hub aborted at load while
---  reading it. Every game-object read/write below goes through these helpers:
---  unsupported members are detected, skipped and reported instead of crashing
---  the whole script.
+--  Roblox throws when a member does not exist on an Instance; one bad read
+--  used to abort the whole hub at load. Every game-object read/write below
+--  goes through these helpers, so unsupported members are skipped instead.
 -- ═══════════════════════════════════════════════════════════════
 local function readProp(obj, prop)
     if not obj then return false, nil end
@@ -1174,163 +1172,20 @@ connect(RunService.RenderStepped, function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════
---  WORLD VISUALS (grass, leaves, looped fullbright, fog)
+--  LOOPED FULLBRIGHT — the only remaining world visual, on the Misc tab
+--  Original lighting is captured at load and restored when the toggle is
+--  switched off or the hub is unloaded. Every read/write is guarded.
 -- ═══════════════════════════════════════════════════════════════
--- Ported from the standalone @abusegpt visuals script. Its own ScreenGui,
--- toggle/slider buttons and input connections are replaced by the hub's
--- "World Visuals" group; every connection is tracked for Unload.
-pcall(function()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    local old = pg and pg:FindFirstChild("abusegpt_Visuals")
-    if old then old:Destroy() end
-end)
-
--- ═══════════════════════════════════════════════════════════════
---  WORLD VISUALS — real Fust terrain path
---  Source: game:GetService("Workspace").Terrain
---          attribute "FustArcticTerrain" = 1
---  Terrain.Decoration is NOT a valid member in this game. We probe it instead
---  of reading it, so an unsupported member can never abort the hub at load.
---  Every original is captured once and restored on toggle-off / unload.
--- ═══════════════════════════════════════════════════════════════
-local world = {
-    grass = false,
-    leaves = false,
-    fullbright = false,
-    fog = false,
-    brightness = 2,
-    fogEnd = 100000,
-    leafTransparency = 1,
-}
-local TERRAIN_ATTR = "FustArcticTerrain"
-local GRASS_OFF_VALUE = 0
-local terrain = Workspace.Terrain
-local terrainDiagLabel = nil
-local nextWorldDiag = 0
-
--- readAttr/readProp return (ok, value). A failed read is a missing member, not
--- an error: this is exactly the Decoration bug that used to kill the script.
-local attrOk, origArctic = readAttr(terrain, TERRAIN_ATTR)
-local decorationSupported, origDecoration = readProp(terrain, "Decoration")
-
+local world = { fullbright = false, brightness = 2 }
 local origLighting = {
     Brightness     = getProp(Lighting, "Brightness", 1),
     Ambient        = getProp(Lighting, "Ambient", nil),
     OutdoorAmbient = getProp(Lighting, "OutdoorAmbient", nil),
     GlobalShadows  = getProp(Lighting, "GlobalShadows", true),
     ClockTime      = getProp(Lighting, "ClockTime", 12),
-    FogEnd         = getProp(Lighting, "FogEnd", 100000),
-    FogStart       = getProp(Lighting, "FogStart", 0),
 }
-
--- Weak-keyed so streaming parts never leak through our restore bookkeeping.
-local atmosphereOriginals = setmetatable({}, { __mode = "k" })
-do
-    local ok, descendants = pcall(function() return Lighting:GetDescendants() end)
-    if ok and type(descendants) == "table" then
-        for _, obj in ipairs(descendants) do
-            local okIs, isAtmosphere = pcall(function() return obj:IsA("Atmosphere") end)
-            if okIs and isAtmosphere then
-                local okD, density = readProp(obj, "Density")
-                if okD then atmosphereOriginals[obj] = density end
-            end
-        end
-    end
-end
-
 local FULLBRIGHT_AMBIENT = Color3.fromRGB(200, 200, 200)
 
-local function currentTerrainAttr()
-    local _, value = readAttr(terrain, TERRAIN_ATTR)
-    return value
-end
-local function updateTerrainDiag()
-    if not terrainDiagLabel or type(terrainDiagLabel.SetText) ~= "function" then return end
-    pcall(function()
-        terrainDiagLabel:SetText(string.format(
-            "Terrain: Workspace.Terrain · %s = %s · Decoration: %s · grass: %s",
-            TERRAIN_ATTR, tostring(currentTerrainAttr()),
-            decorationSupported and "supported" or "invalid member (skipped)",
-            world.grass and "OFF" or "original"))
-    end)
-end
-
--- ── GRASS / ARCTIC TERRAIN ──────────────────────────────────────
-local function applyGrass()
-    if not terrain then return end
-    if world.grass then
-        writeAttr(terrain, TERRAIN_ATTR, GRASS_OFF_VALUE)
-        if decorationSupported then writeProp(terrain, "Decoration", false) end
-    else
-        -- If the game never had the attribute, remove ours instead of leaving
-        -- a fake value behind. SetAttribute(name, nil) deletes it in Roblox.
-        if attrOk and origArctic ~= nil then
-            writeAttr(terrain, TERRAIN_ATTR, origArctic)
-        else
-            writeAttr(terrain, TERRAIN_ATTR, nil)
-        end
-        if decorationSupported and origDecoration ~= nil then
-            writeProp(terrain, "Decoration", origDecoration)
-        end
-    end
-    updateTerrainDiag()
-end
-
--- The game can re-set its own terrain attribute. Only write when it differs.
-local function reapplyTerrain()
-    if not world.grass or not terrain then return end
-    if currentTerrainAttr() ~= GRASS_OFF_VALUE then
-        writeAttr(terrain, TERRAIN_ATTR, GRASS_OFF_VALUE)
-    end
-    if decorationSupported then
-        local ok, current = readProp(terrain, "Decoration")
-        if ok and current ~= false then writeProp(terrain, "Decoration", false) end
-    end
-end
-
--- ── LEAVES ──────────────────────────────────────────────────────
-local leafOriginals = setmetatable({}, { __mode = "k" })
-local function isLeaf(part)
-    local okIs, isBasePart = pcall(function() return part:IsA("BasePart") end)
-    if not okIs or not isBasePart then return false end
-    local okMat, material = readProp(part, "Material")
-    return okMat and material == Enum.Material.Leaves
-end
-local function applyLeaves()
-    if world.leaves then
-        local ok, descendants = pcall(function() return Workspace:GetDescendants() end)
-        if not ok or type(descendants) ~= "table" then return end
-        for _, obj in ipairs(descendants) do
-            if isLeaf(obj) then
-                if leafOriginals[obj] == nil then
-                    local okT, transparency = readProp(obj, "Transparency")
-                    if okT then leafOriginals[obj] = transparency end
-                end
-                local okNow, current = readProp(obj, "Transparency")
-                if okNow and current ~= world.leafTransparency then
-                    writeProp(obj, "Transparency", world.leafTransparency)
-                end
-            end
-        end
-    else
-        for part, transparency in pairs(leafOriginals) do
-            if part and part.Parent then writeProp(part, "Transparency", transparency) end
-        end
-        table.clear(leafOriginals)
-    end
-end
-
-connect(Workspace.DescendantAdded, function(obj)
-    if unloaded or not world.leaves or not obj then return end
-    if not isLeaf(obj) then return end
-    if leafOriginals[obj] == nil then
-        local okT, transparency = readProp(obj, "Transparency")
-        if okT then leafOriginals[obj] = transparency end
-    end
-    writeProp(obj, "Transparency", world.leafTransparency)
-end)
-
--- ── FULLBRIGHT ──────────────────────────────────────────────────
 local function restoreLighting()
     writeProp(Lighting, "Brightness", origLighting.Brightness)
     writeProp(Lighting, "Ambient", origLighting.Ambient)
@@ -1347,33 +1202,10 @@ local function applyFullbright()
     if getProp(Lighting, "ClockTime", nil) ~= 12 then writeProp(Lighting, "ClockTime", 12) end
 end
 
--- ── FOG ─────────────────────────────────────────────────────────
-local function applyFog()
-    if world.fog then
-        writeProp(Lighting, "FogEnd", world.fogEnd)
-        writeProp(Lighting, "FogStart", world.fogEnd)
-    else
-        writeProp(Lighting, "FogEnd", origLighting.FogEnd)
-        writeProp(Lighting, "FogStart", origLighting.FogStart)
-    end
-    for atmosphere, density in pairs(atmosphereOriginals) do
-        if atmosphere and atmosphere.Parent then
-            writeProp(atmosphere, "Density", world.fog and 0 or density)
-        end
-    end
-end
-
-local function restoreWorldVisuals()
-    world.grass, world.leaves, world.fullbright, world.fog = false, false, false, false
+local function restoreFullbright()
+    world.fullbright = false
     restoreLighting()
-    applyFog()
-    applyLeaves()
-    applyGrass()
 end
-
--- Everything starts off. Confirming captured originals must never throw.
-applyGrass()
-applyFog()
 
 -- ═══════════════════════════════════════════════════════════════
 --  MAIN RENDER LOOP (throttled, reconciled ESP)
@@ -1408,11 +1240,6 @@ connect(RunService.RenderStepped, function(dt)
     -- Looped fullbright runs every frame (before the ESP throttle) so the game
     -- cannot reset Lighting behind our back.
     if world.fullbright then applyFullbright() end
-    if world.grass then reapplyTerrain() end
-    if now >= nextWorldDiag then
-        nextWorldDiag = now + 1
-        updateTerrainDiag()
-    end
 
     -- One throttled pass drives every ESP category. Flags are read once per
     -- pass rather than once per target, line-of-sight raycasts are cached,
@@ -1766,60 +1593,6 @@ pcall(function()
     })
 end)
 
--- WORLD VISUALS
-local WorldGroup = Visuals:AddGroup("World Visuals", "Left")
-WorldGroup:AddToggle({
-    Name = "Remove Grass", Flag = "world_grass", Default = false,
-    Callback = function(v) world.grass = v; applyGrass() end
-})
-WorldGroup:AddToggle({
-    Name = "Remove Leaves", Flag = "world_leaves", Default = false,
-    Callback = function(v) world.leaves = v; applyLeaves() end
-})
-WorldGroup:AddToggle({
-    Name = "Looped Fullbright", Flag = "world_fullbright", Default = false,
-    Callback = function(v)
-        world.fullbright = v
-        if v then applyFullbright() else restoreLighting() end
-    end
-})
-WorldGroup:AddToggle({
-    Name = "Remove Fog", Flag = "world_fog", Default = false,
-    Callback = function(v) world.fog = v; applyFog() end
-})
-WorldGroup:AddSlider({
-    Name = "Fullbright Brightness", Flag = "world_brightness", Min = 0, Max = 5, Default = 2, Rounding = 2,
-    Callback = function(v) world.brightness = v end
-})
-WorldGroup:AddSlider({
-    Name = "Fog End Distance", Flag = "world_fog_end", Min = 1000, Max = 1000000, Default = 100000, Rounding = 0,
-    Callback = function(v)
-        world.fogEnd = v
-        if world.fog then applyFog() end
-    end
-})
-WorldGroup:AddSlider({
-    Name = "Leaf Transparency", Flag = "world_leaf_transparency", Min = 0, Max = 1, Default = 1, Rounding = 2,
-    Callback = function(v)
-        world.leafTransparency = v
-        if world.leaves then applyLeaves() end
-    end
-})
-terrainDiagLabel = WorldGroup:AddLabel("Terrain: detecting…")
-updateTerrainDiag()
-WorldGroup:AddButton({
-    Name = "Report Game Paths",
-    Callback = function()
-        local mark = getWeakspotMark()
-        Library:Notify(string.format(
-            "Terrain: Workspace.Terrain (%s=%s, Decoration %s) | FustWeakSpotMark: %s",
-            TERRAIN_ATTR, tostring(currentTerrainAttr()),
-            decorationSupported and "available" or "invalid",
-            mark and "found" or "not found"), 8)
-    end
-})
-WorldGroup:AddLabel("Remove Grass drives Workspace.Terrain's FustArcticTerrain attribute (set to 0 while on). Terrain.Decoration is only touched if the engine actually exposes it, so an invalid member never crashes the hub. Grass, leaves, fog and fullbright restore their captured originals when switched off or unloaded; fullbright and grass re-apply every frame.")
-
 -- ═══════════════════════════════════════════════════════════════
 --  COMBAT TAB
 -- ═══════════════════════════════════════════════════════════════
@@ -1946,11 +1719,18 @@ weakspotDiagLabel = WeakspotGroup:AddLabel("FustWeakSpotMark: scanning…")
 WeakspotGroup:AddLabel("Aims from LocalPlayer.PlayerGui.FustWeakSpotMark (attribute, Adornee, child part or screen point), then falls back to node weakspot names. Silently snaps the camera, activates the tool and restores it. No synthetic mouse click unless Auto Click is on, so equipping a tool near a node will not auto-click.")
 
 local MiscGroup = MiscTab:AddGroup("System", "Left")
+MiscGroup:AddToggle({
+    Name = "Looped Fullbright", Flag = "world_fullbright", Default = false,
+    Callback = function(v)
+        world.fullbright = v
+        if v then applyFullbright() else restoreLighting() end
+    end
+})
 MiscGroup:AddButton({
     Name = "Unload Script & Clear Memory",
     Callback = function()
         unloaded = true
-        restoreWorldVisuals()
+        restoreFullbright()
         aiming.enabled = false
         aimLock.active = false
         for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
