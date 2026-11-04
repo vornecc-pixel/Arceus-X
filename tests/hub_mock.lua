@@ -133,6 +133,10 @@ local validProps = {
     Destroyed=true, children=true, attributes=true, activations=true,
     obstruction=true, DescendantAdded=true, DescendantRemoving=true,
     connected=true,
+    -- world visuals
+    Brightness=true, OutdoorAmbient=true, GlobalShadows=true, ClockTime=true,
+    FogEnd=true, FogStart=true, Density=true, Decoration=true,
+    Transparency=true, Material=true,
 }
 local function node(class, name, parent)
     -- Roblox lets `model.Humanoid` resolve to a child; mirror that here.
@@ -248,6 +252,18 @@ players.LocalPlayer = newPlayer("Local")
 players.LocalPlayer.Team = "blue"
 
 local coreGui = node("CoreGui", "CoreGui")
+local lighting = node("Lighting", "Lighting")
+lighting.Brightness = 1
+lighting.Ambient = newColor(0.2, 0.2, 0.2)
+lighting.OutdoorAmbient = newColor(0.3, 0.3, 0.3)
+lighting.GlobalShadows = true
+lighting.ClockTime = 14
+lighting.FogEnd = 100000
+lighting.FogStart = 0
+local atmosphere = node("Atmosphere", "Atmosphere", lighting)
+atmosphere.Density = 0.35
+local terrain = node("Terrain", "Terrain", workspace)
+terrain.Decoration = true
 local rep = node("ReplicatedStorage", "ReplicatedStorage")
 local fust = node("Folder", "Fust", rep)
 local iconsScript = node("ModuleScript", "ItemIcons", fust)
@@ -286,6 +302,7 @@ function uis:GetMouseLocation() return mouseLocation end
 local services = {
     Players = players, RunService = run, CoreGui = coreGui,
     ReplicatedStorage = rep, UserInputService = uis, Workspace = workspace,
+    Lighting = lighting,
     StarterGui = { SetCore = function() end },
 }
 local requestedLibraryUrl = nil
@@ -439,7 +456,7 @@ check(library.windowOpts.Size.X == 800 and library.windowOpts.Size.Y == 620, "hu
 check(#library.tabs == 3 and library.settingsTab, "three tabs plus settings")
 check(library.tabs[1].name == "ESP / World" and library.tabs[2].name == "Combat" and library.tabs[3].name == "Misc", "tab names")
 local expectedGroups = {
-    "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview",
+    "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview", "World Visuals",
     "Aimbot", "Aimbot Options",
     "Staff Detection", "Staff ESP", "Mining (Silent Insta-Hit)", "System",
 }
@@ -450,6 +467,8 @@ for _, name in ipairs(expectedGroups) do
 end
 for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "player_esp_hz",
     "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
+    "world_grass", "world_leaves", "world_fullbright", "world_fog",
+    "world_brightness", "world_fog_end", "world_leaf_transparency",
     "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_rmb",
     "weakspot_auto_click", "aim_bone",
     "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
@@ -710,6 +729,49 @@ library.Options.aim_key.Key = Enum.KeyCode.Q
 library.Flags.aim_rmb = true
 library.controls.aim_enabled.Callback(false)
 
+-- ─── World Visuals ───────────────────────────────────────────────
+library.controls.world_grass.Callback(true)
+check(terrain.Decoration == false, "remove grass disables terrain decoration")
+library.controls.world_grass.Callback(false)
+check(terrain.Decoration == true, "disabling grass restores terrain decoration")
+
+local leaf = node("BasePart", "LeafPart", workspace)
+leaf.Material = Enum.Material.Leaves
+leaf.Transparency = 0
+library.controls.world_leaves.Callback(true)
+check(leaf.Transparency == 1, "remove leaves applies the configured transparency")
+library.controls.world_leaf_transparency.Callback(0.5)
+check(leaf.Transparency == 0.5, "leaf transparency slider re-applies")
+local leaf2 = node("BasePart", "LeafPart2", workspace)
+leaf2.Material = Enum.Material.Leaves
+leaf2.Transparency = 0
+workspace.DescendantAdded:Fire(leaf2)
+check(leaf2.Transparency == 0.5, "newly streamed leaves inherit the transparency")
+library.controls.world_leaves.Callback(false)
+check(leaf.Transparency == 0 and leaf2.Transparency == 0, "disabling leaves restores originals")
+
+library.controls.world_fog.Callback(true)
+check(lighting.FogEnd == 100000 and lighting.FogStart == 100000, "remove fog pushes fog far away")
+check(atmosphere.Density == 0, "remove fog clears atmosphere density")
+library.controls.world_fog_end.Callback(500000)
+check(lighting.FogEnd == 500000 and lighting.FogStart == 500000, "fog end slider applies while enabled")
+library.controls.world_fog.Callback(false)
+check(lighting.FogEnd == 100000 and lighting.FogStart == 0, "disabling fog restores fog distances")
+check(atmosphere.Density == 0.35, "disabling fog restores atmosphere density")
+
+library.controls.world_brightness.Callback(3)
+library.controls.world_fullbright.Callback(true)
+check(lighting.Brightness == 3 and lighting.GlobalShadows == false and lighting.ClockTime == 12,
+    "fullbright applies immediately")
+-- The loop must re-apply each frame if the game resets Lighting.
+lighting.Brightness = 1
+lighting.GlobalShadows = true
+step()
+check(lighting.Brightness == 3 and lighting.GlobalShadows == false, "looped fullbright re-applies every frame")
+library.controls.world_fullbright.Callback(false)
+check(lighting.Brightness == 1 and lighting.GlobalShadows == true and lighting.ClockTime == 14,
+    "disabling fullbright restores lighting")
+
 -- ─── ESP ScreenGui rebuild + cleanup ─────────────────────────────
 espGui.Parent = nil
 step()
@@ -721,8 +783,19 @@ step()
 check(targetLabel.Destroyed, "overlays destroyed when their character leaves")
 
 -- ─── Unload ──────────────────────────────────────────────────────
+-- Leave every visual enabled so unload has to restore them.
+library.controls.world_grass.Callback(true)
+library.controls.world_leaves.Callback(true)
+library.controls.world_fog.Callback(true)
+library.controls.world_fullbright.Callback(true)
 library.buttons["Unload Script & Clear Memory"]()
 check(library.unloaded, "unload closes the UI library")
+check(terrain.Decoration == true, "unload restores terrain decoration")
+check(lighting.FogEnd == 100000 and lighting.FogStart == 0, "unload restores fog")
+check(atmosphere.Density == 0.35, "unload restores atmosphere density")
+check(lighting.Brightness == 1 and lighting.GlobalShadows == true and lighting.ClockTime == 14,
+    "unload restores lighting")
+check(leaf.Transparency == 0 and leaf2.Transparency == 0, "unload restores leaf transparency")
 check(findNode(function(n) return n.Name == "ARC3USX_ESP_UI" and n.Parent == coreGui end) == nil,
     "unload destroys the ESP ScreenGui")
 check(renderSteps.ARC3USX_InstaHit == nil and renderSteps.ARC3USX_Aimbot == nil, "render steps unbound")

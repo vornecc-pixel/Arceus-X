@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
 --  ARC3USX.EXE — ULTIMATE OPTIMIZED HUB
---  SMOOTH ESP + AUTO WEAKSPOT + MOUSE-RELATIVE AIMBOT + LIBRARY LOADING SCREEN
+--  SMOOTH ESP + AUTO WEAKSPOT + AIMBOT + WORLD VISUALS + LIBRARY LOADING SCREEN
 --
 --  Entry point for the hub. The UI library lives in ARC3USX.lua at the
 --  repository root; everything below is the hub's feature set.
@@ -12,6 +12,7 @@ local CoreGui           = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService  = game:GetService("UserInputService")
 local Workspace         = game:GetService("Workspace")
+local Lighting          = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
@@ -957,6 +958,141 @@ connect(RunService.RenderStepped, function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════
+--  WORLD VISUALS (grass, leaves, looped fullbright, fog)
+-- ═══════════════════════════════════════════════════════════════
+-- Ported from the standalone @abusegpt visuals script. Its own ScreenGui,
+-- toggle/slider buttons and input connections are replaced by the hub's
+-- "World Visuals" group; every connection is tracked for Unload.
+pcall(function()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local old = pg and pg:FindFirstChild("abusegpt_Visuals")
+    if old then old:Destroy() end
+end)
+
+local world = {
+    grass = false,
+    leaves = false,
+    fullbright = false,
+    fog = false,
+    brightness = 2,
+    fogEnd = 100000,
+    leafTransparency = 1,
+}
+
+local origLighting = {
+    Brightness = Lighting.Brightness,
+    Ambient = Lighting.Ambient,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    GlobalShadows = Lighting.GlobalShadows,
+    ClockTime = Lighting.ClockTime,
+    FogEnd = Lighting.FogEnd,
+    FogStart = Lighting.FogStart,
+}
+
+local terrain = Workspace.Terrain
+local origTerrainDecoration = terrain and terrain.Decoration
+
+local atmosphereOriginals = {}
+for _, obj in ipairs(Lighting:GetDescendants()) do
+    if obj:IsA("Atmosphere") then
+        atmosphereOriginals[obj] = obj.Density
+    end
+end
+
+local FULLBRIGHT_AMBIENT = Color3.fromRGB(200, 200, 200)
+
+-- ── GRASS ───────────────────────────────────────────────────────
+local function applyGrass()
+    if not terrain then return end
+    pcall(function()
+        -- `grass and false or original` always picks the original in Lua
+        -- because false is falsy, so branch explicitly instead.
+        if world.grass then
+            terrain.Decoration = false
+        else
+            terrain.Decoration = origTerrainDecoration
+        end
+    end)
+end
+
+-- ── LEAVES ──────────────────────────────────────────────────────
+local leafOriginals = {}
+local function isLeaf(part)
+    return part:IsA("BasePart") and part.Material == Enum.Material.Leaves
+end
+local function applyLeaves()
+    if world.leaves then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            local ok, leaf = pcall(function() return isLeaf(obj) end)
+            if ok and leaf then
+                if leafOriginals[obj] == nil then leafOriginals[obj] = obj.Transparency end
+                if obj.Transparency ~= world.leafTransparency then
+                    obj.Transparency = world.leafTransparency
+                end
+            end
+        end
+    else
+        for part, transparency in pairs(leafOriginals) do
+            if part and part.Parent then part.Transparency = transparency end
+        end
+        leafOriginals = {}
+    end
+end
+
+connect(Workspace.DescendantAdded, function(obj)
+    if unloaded or not world.leaves or not obj then return end
+    local ok, leaf = pcall(function() return isLeaf(obj) end)
+    if not ok or not leaf then return end
+    if leafOriginals[obj] == nil then leafOriginals[obj] = obj.Transparency end
+    obj.Transparency = world.leafTransparency
+end)
+
+-- ── FULLBRIGHT ──────────────────────────────────────────────────
+local function restoreLighting()
+    Lighting.Brightness = origLighting.Brightness
+    Lighting.Ambient = origLighting.Ambient
+    Lighting.OutdoorAmbient = origLighting.OutdoorAmbient
+    Lighting.GlobalShadows = origLighting.GlobalShadows
+    Lighting.ClockTime = origLighting.ClockTime
+end
+
+local function applyFullbright()
+    if Lighting.Brightness ~= world.brightness then Lighting.Brightness = world.brightness end
+    if Lighting.Ambient ~= FULLBRIGHT_AMBIENT then Lighting.Ambient = FULLBRIGHT_AMBIENT end
+    if Lighting.OutdoorAmbient ~= FULLBRIGHT_AMBIENT then Lighting.OutdoorAmbient = FULLBRIGHT_AMBIENT end
+    if Lighting.GlobalShadows ~= false then Lighting.GlobalShadows = false end
+    if Lighting.ClockTime ~= 12 then Lighting.ClockTime = 12 end
+end
+
+-- ── FOG ─────────────────────────────────────────────────────────
+local function applyFog()
+    if world.fog then
+        Lighting.FogEnd = world.fogEnd
+        Lighting.FogStart = world.fogEnd
+    else
+        Lighting.FogEnd = origLighting.FogEnd
+        Lighting.FogStart = origLighting.FogStart
+    end
+    for atmosphere, density in pairs(atmosphereOriginals) do
+        if atmosphere and atmosphere.Parent then
+            atmosphere.Density = world.fog and 0 or density
+        end
+    end
+end
+
+local function restoreWorldVisuals()
+    world.grass, world.leaves, world.fullbright, world.fog = false, false, false, false
+    restoreLighting()
+    applyFog()
+    applyLeaves()
+    applyGrass()
+end
+
+-- Initial apply simply confirms the captured originals; everything starts off.
+applyGrass()
+applyFog()
+
+-- ═══════════════════════════════════════════════════════════════
 --  MAIN RENDER LOOP (throttled, reconciled ESP)
 -- ═══════════════════════════════════════════════════════════════
 local lastEspTick = 0
@@ -985,6 +1121,10 @@ connect(RunService.RenderStepped, function(dt)
     if not Camera then return end
 
     local now = tick()
+
+    -- Looped fullbright runs every frame (before the ESP throttle) so the game
+    -- cannot reset Lighting behind our back.
+    if world.fullbright then applyFullbright() end
 
     -- One throttled pass drives every ESP category. Flags are read once per
     -- pass rather than once per target, line-of-sight raycasts are cached,
@@ -1338,6 +1478,47 @@ pcall(function()
     })
 end)
 
+-- WORLD VISUALS
+local WorldGroup = Visuals:AddGroup("World Visuals", "Left")
+WorldGroup:AddToggle({
+    Name = "Remove Grass", Flag = "world_grass", Default = false,
+    Callback = function(v) world.grass = v; applyGrass() end
+})
+WorldGroup:AddToggle({
+    Name = "Remove Leaves", Flag = "world_leaves", Default = false,
+    Callback = function(v) world.leaves = v; applyLeaves() end
+})
+WorldGroup:AddToggle({
+    Name = "Looped Fullbright", Flag = "world_fullbright", Default = false,
+    Callback = function(v)
+        world.fullbright = v
+        if v then applyFullbright() else restoreLighting() end
+    end
+})
+WorldGroup:AddToggle({
+    Name = "Remove Fog", Flag = "world_fog", Default = false,
+    Callback = function(v) world.fog = v; applyFog() end
+})
+WorldGroup:AddSlider({
+    Name = "Fullbright Brightness", Flag = "world_brightness", Min = 0, Max = 5, Default = 2, Rounding = 2,
+    Callback = function(v) world.brightness = v end
+})
+WorldGroup:AddSlider({
+    Name = "Fog End Distance", Flag = "world_fog_end", Min = 1000, Max = 1000000, Default = 100000, Rounding = 0,
+    Callback = function(v)
+        world.fogEnd = v
+        if world.fog then applyFog() end
+    end
+})
+WorldGroup:AddSlider({
+    Name = "Leaf Transparency", Flag = "world_leaf_transparency", Min = 0, Max = 1, Default = 1, Rounding = 2,
+    Callback = function(v)
+        world.leafTransparency = v
+        if world.leaves then applyLeaves() end
+    end
+})
+WorldGroup:AddLabel("Grass, leaves, fog and fullbright are restored to their captured originals when a toggle is switched off or the hub is unloaded. Fullbright re-applies every frame.")
+
 -- ═══════════════════════════════════════════════════════════════
 --  COMBAT TAB
 -- ═══════════════════════════════════════════════════════════════
@@ -1444,6 +1625,7 @@ MiscGroup:AddButton({
     Name = "Unload Script & Clear Memory",
     Callback = function()
         unloaded = true
+        restoreWorldVisuals()
         aiming.enabled = false
         aimLock.active = false
         for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
