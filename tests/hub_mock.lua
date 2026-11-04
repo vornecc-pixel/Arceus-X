@@ -442,6 +442,9 @@ end
 check(hubSource:find("okEsp, espErr = pcall", 1, true), "ESP pass is not isolated")
 check(hubSource:find("Aimbot step error", 1, true), "aimbot step is not isolated")
 check(hubSource:find("MouseButton2", 1, true), "RMB keybind support missing")
+check(hubSource:find("Keybind List", 1, true), "keybind list control missing")
+check(not hubSource:find("aim_rmb", 1, true), "separate RMB toggle still present")
+check(library.Flags.aim_rmb == nil, "no separate RMB flag registered")
 -- The loading screen is embedded in the library the hub actually downloads.
 check(requestedLibraryUrl and requestedLibraryUrl:find("arena/6af703ac-arceus-x/ARC3USX.lua", 1, true),
     "hub does not load this branch's library")
@@ -469,7 +472,7 @@ for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "p
     "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
     "world_grass", "world_leaves", "world_fullbright", "world_fog",
     "world_brightness", "world_fog_end", "world_leaf_transparency",
-    "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_rmb",
+    "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_key_list",
     "weakspot_auto_click", "aim_bone",
     "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
     "aim_prediction", "aim_target_npcs", "aim_wall_check", "aim_team_check" }) do
@@ -700,34 +703,38 @@ library.Flags.Aim_FOV_Circle = false
 step()
 check(not drawings[1].Visible, "FOV circle hidden when its toggle is off")
 
--- RMB (MouseButton2) is a second aim key and toggles the aimbot on/off.
-library.Flags.aim_rmb = true
+-- RMB is a normal option in the Keybind List, not a separate toggle.
+library.controls.aim_key_list.Callback("RMB (Right Mouse)")
 library.Options.aim_enabled:Set(true)
 check(library.Flags.aim_enabled == true, "aimbot starts enabled before the RMB test")
 uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
-check(library.Flags.aim_enabled == false, "RMB toggles the aimbot off")
+check(library.Flags.aim_enabled == false, "RMB from the keybind list toggles the aimbot off")
 uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
-check(library.Flags.aim_enabled == true, "RMB toggles the aimbot back on")
--- Hold mode also accepts RMB.
+check(library.Flags.aim_enabled == true, "RMB from the keybind list toggles it back on")
+
+-- Hold mode must work even with Aimbot Enabled OFF (the reported bug).
 library.controls.aim_lock_mode.Callback("Hold")
+library.Options.aim_enabled:Set(false)
 movesBefore = #mouseMoves
 step()
-check(#mouseMoves == movesBefore, "hold mode still needs a key or RMB")
+check(#mouseMoves == movesBefore, "hold mode does not aim without the key")
 uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
 step()
-check(#mouseMoves > movesBefore, "RMB aims while held in hold mode")
+check(#mouseMoves > movesBefore, "hold mode aims while held even with Aimbot Enabled off")
+movesBefore = #mouseMoves
 uis.InputEnded:Fire({ UserInputType = Enum.UserInputType.MouseButton2 })
+step()
+check(#mouseMoves == movesBefore, "hold mode stops aiming on release")
 library.controls.aim_lock_mode.Callback("Toggle")
 
--- The keybind itself can be rebound to MouseButton2.
-library.Options.aim_key.Key = Enum.UserInputType.MouseButton2
-library.Flags.aim_rmb = false
+-- Switching the list back to a keyboard key removes RMB as the aim key.
+library.controls.aim_key_list.Callback("Q")
 library.Options.aim_enabled:Set(true)
 uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
-check(library.Flags.aim_enabled == false, "keybind rebound to RMB toggles the aimbot")
-library.Options.aim_key.Key = Enum.KeyCode.Q
-library.Flags.aim_rmb = true
-library.controls.aim_enabled.Callback(false)
+check(library.Flags.aim_enabled == true, "RMB no longer acts as the key after rebinding to Q")
+uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
+check(library.Flags.aim_enabled == false, "Q is the active keybind again")
+library.Options.aim_enabled:Set(false)
 
 -- ─── World Visuals ───────────────────────────────────────────────
 library.controls.world_grass.Callback(true)

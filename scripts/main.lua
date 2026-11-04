@@ -780,10 +780,15 @@ local function isTeammate(player)
     return string.find(padded, "," .. tostring(player.UserId) .. ",", 1, true) ~= nil
 end
 
+-- Toggle mode is gated by the "Aimbot Enabled" switch; Hold mode is gated
+-- only by the bound input being physically held. Requiring BOTH (as the
+-- snippet did) made Hold do nothing while Aimbot Enabled was off.
 local function lockActive()
     local lk = flags["aim_lock"]
-    if lk and lk.mode == "always" then return true end
-    return lk ~= nil and lk.active == true
+    if lk and lk.mode == "hold" then
+        return lk.active == true
+    end
+    return aiming.enabled == true
 end
 
 local function bonePart(model)
@@ -817,15 +822,30 @@ local function isNpc(model)
         and not players:GetPlayerFromCharacter(model)
 end
 
--- ── Keybind: toggles the aimbot on/off, and works with RMB ─────────
--- The keybind can be rebound to a keyboard key, RMB (MouseButton2) or MMB.
--- RMB can also be enabled as a second aim key without rebinding anything.
+-- ── Keybind: one bound input, pickable from a list ────────────────
+-- RMB / MMB are ordinary choices in the "Keybind List" dropdown (and can
+-- also be captured by clicking the keybind button). There is no separate
+-- RMB toggle: RMB only acts as the aim key when it IS the bound input.
 local RMB = Enum.UserInputType.MouseButton2
+local MMB = Enum.UserInputType.MouseButton3
 
-local function aimKey()
-    local opt = Library.Options and Library.Options.aim_key
-    return opt and opt.Key or nil
+local KEYBIND_CHOICES = {
+    "Q", "E", "F", "C", "X", "Z", "R", "V", "T", "G",
+    "RMB (Right Mouse)", "MMB (Middle Mouse)",
+}
+local KEYBIND_SPECIAL = {
+    ["RMB (Right Mouse)"] = RMB,
+    ["MMB (Middle Mouse)"] = MMB,
+}
+local function resolveKeybind(label)
+    if KEYBIND_SPECIAL[label] then return KEYBIND_SPECIAL[label] end
+    local ok, keyCode = pcall(function() return Enum.KeyCode[label] end)
+    if ok and keyCode then return keyCode end
+    return nil
 end
+
+-- Single source of truth: updated by both the keybind capture and the list.
+local aimBind = Enum.KeyCode.Q
 
 local function inputMatches(input, bound)
     if not bound then return false end
@@ -834,9 +854,7 @@ local function inputMatches(input, bound)
 end
 
 local function isAimInput(input)
-    if inputMatches(input, aimKey()) then return true end
-    if getFlag("aim_rmb", true) and input.UserInputType == RMB then return true end
-    return false
+    return inputMatches(input, aimBind)
 end
 
 local function toggleAim()
@@ -849,8 +867,9 @@ end
 
 connect(uis.InputBegan, function(input, gp)
     if unloaded or Library._listening then return end
-    -- RMB is frequently reported as game-processed; let it through anyway.
-    if gp and input.UserInputType ~= RMB then return end
+    -- Mouse buttons are frequently reported as game-processed; let them
+    -- through anyway so RMB/MMB work while the game handles right-click.
+    if gp and input.UserInputType ~= RMB and input.UserInputType ~= MMB then return end
     if not isAimInput(input) then return end
     if aimLock.mode == "hold" then
         aimLock.active = true
@@ -873,7 +892,7 @@ connect(RunService.RenderStepped, function()
         if not camera then return end
 
         local circle = aiming.fovCircle
-        if aiming.enabled and flags["Aim_FOV_Circle"] and aiming.fov > 0 then
+        if lockActive() and flags["Aim_FOV_Circle"] and aiming.fov > 0 then
             circle.Radius = aiming.fov
             circle.Position = uis:GetMouseLocation()
             circle.Color = colornew(255, 255, 255)
@@ -882,7 +901,7 @@ connect(RunService.RenderStepped, function()
             circle.Visible = false
         end
 
-        if not (aiming.enabled and lockActive()) then return end
+        if not lockActive() then return end
 
         local mouseLocation = uis:GetMouseLocation()
         local cameraPosition = camera.CFrame.Position
@@ -1536,10 +1555,24 @@ AimbotGroup:AddDropdown({
 })
 AimbotGroup:AddKeybind({
     Name = "Aimbot Keybind", Flag = "aim_key", Default = Enum.KeyCode.Q, NoFire = true,
-    Changed = function(k) if not k then aimLock.active = false end end
+    Changed = function(k)
+        aimBind = k or Enum.KeyCode.Q
+        if not k then aimLock.active = false end
+    end
 })
-AimbotGroup:AddToggle({
-    Name = "RMB Keybind (MouseButton2)", Flag = "aim_rmb", Default = true
+AimbotGroup:AddDropdown({
+    Name = "Keybind List", Flag = "aim_key_list", Options = KEYBIND_CHOICES, Default = "Q",
+    Callback = function(label)
+        local bound = resolveKeybind(label)
+        if not bound then return end
+        aimBind = bound
+        aimLock.active = false
+        -- Keep the keybind button's displayed value in sync with the list.
+        local opt = Library.Options and Library.Options.aim_key
+        if opt and type(opt.Set) == "function" then
+            pcall(function() opt:Set(bound.Name) end)
+        end
+    end
 })
 AimbotGroup:AddDropdown({
     Name = "Bone", Flag = "aim_bone", Options = {"Head", "Hrp"}, Default = "Head",
@@ -1580,7 +1613,7 @@ AimOptionsGroup:AddToggle({
     Name = "Team Check", Flag = "aim_team_check", Default = false,
     Callback = function(v) aiming.teamCheck = v end
 })
-AimOptionsGroup:AddLabel("Toggle: the keybind / RMB switches the aimbot on and off. Hold: aim only while held. The keybind can be rebound to a key, RMB (MouseButton2) or MMB. FOV is a pixel radius; distance 0 = unlimited.")
+AimOptionsGroup:AddLabel("Toggle: the keybind switches the aimbot on and off. Hold: aim only while the key is held, even with Aimbot Enabled off. Pick a key, RMB or MMB in Keybind List, or click the keybind button and press any input. FOV is a pixel radius; distance 0 = unlimited.")
 
 -- ═══════════════════════════════════════════════════════════════
 --  MISC TAB

@@ -1197,12 +1197,19 @@ function Group:AddKeybind(o)
     function obj:Set(name)
         local k = nil
         if name and name ~= "" then
-            local ok, keyCode = pcall(function() return Enum.KeyCode[name] end)
-            if ok and keyCode then
-                k = keyCode
+            -- Mouse buttons belong to UserInputType, never KeyCode, even on
+            -- clients that expose a same-named KeyCode entry.
+            if name == "MouseButton2" or name == "MouseButton3" then
+                local ok, uiType = pcall(function() return Enum.UserInputType[name] end)
+                if ok then k = uiType end
             else
-                local ok2, uiType = pcall(function() return Enum.UserInputType[name] end)
-                if ok2 then k = uiType end
+                local ok, keyCode = pcall(function() return Enum.KeyCode[name] end)
+                if ok and keyCode then
+                    k = keyCode
+                else
+                    local ok2, uiType = pcall(function() return Enum.UserInputType[name] end)
+                    if ok2 then k = uiType end
+                end
             end
         end
         st:SetKey(k)

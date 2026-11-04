@@ -77,9 +77,13 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
   optional `Drawing` FOV circle that follows the mouse. The connection is `pcall`-isolated
   from the ESP pass.
   - **Keybind** — `Toggle` (default) makes the bound input switch the aimbot on and off;
-    `Hold` aims only while it is held. The keybind defaults to `Q` and can be rebound to any
-    keyboard key, **RMB (`MouseButton2`)** or MMB (`MouseButton3`). **RMB Keybind** is on by
-    default, so right-click also acts as the aim key without rebinding anything.
+    `Hold` aims **only while the input is held, even when `Aimbot Enabled` is off** (it is
+    gated by the held state alone, not by the enabled toggle). There is exactly one bound
+    input. **Keybind List** is a dropdown that includes `Q`, `E`, `F`, `C`, `X`, `Z`, `R`,
+    `V`, `T`, `G`, **RMB (Right Mouse / `MouseButton2`)** and **MMB (Middle Mouse /
+    `MouseButton3`)** — pick one and it becomes the keybind. Clicking the `Aimbot Keybind`
+    button and pressing any key / RMB / MMB also binds it. RMB is not a separate toggle;
+    it only acts as the aim key when it is the selected binding.
 - **Staff detection** — reads `AdminRole` attributes or the game's optional
   `Fust.StaffState` / `Fust.AdminPerms` modules; role labels, ranks, colors, a monitor with
   notifications, role-change hooks, and staff highlights.
@@ -99,7 +103,7 @@ Master switches start **on**, but every category's ESP toggle starts **off** —
 individual **ESP Toggle** and any elements you want. The aimbot, staff monitor, staff ESP and
 insta-hit all start off. Aimbot defaults: FOV 220 px, bone `Head`, unlimited distance,
 smoothing 2, prediction on, bullet speed 900, FOV circle off, NPC/wall/team checks off,
-keybind mode `Toggle` with the `Q` keybind and RMB enabled. Weakspot auto-click starts off.
+keybind mode `Toggle` with `Q` selected in the Keybind List. Weakspot auto-click starts off.
 All four world visuals start off, with brightness 2, fog end 100000 and leaf transparency 1.
 The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 
@@ -244,7 +248,8 @@ nothing in the game itself. The hub uses this in the **ESP Preview** group.
 
 - The library is client-side UI only; the hub wires up the game-specific callbacks.
 - Click a keybind's `[...]` button then press a key, **RMB** or **MMB** to rebind it;
-  `Escape` clears it. The hub treats the bound input and RMB as a toggle (or hold).
+  `Escape` clears it. The hub uses that one bound input as a toggle (or hold); the
+  **Keybind List** dropdown is a quicker way to pick the same inputs.
 - Config files are only written when the environment provides file functions; otherwise
   configs stay in memory for the session. `Library:Serialize()` always works.
 - The hub enables the loading screen with `Intro = true`. Set `Intro = false` in
