@@ -21,6 +21,14 @@ The hub downloads the UI library from `refs/heads/main/ARC3USX.lua` at startup. 
 - **UI ESP engine** — overlays built from `ScreenGui` frames/labels (no Drawing dependency):
   corner or full boxes, names, distance in metres, equipped weapon, health bar, R6/R15
   skeleton, and visible/occluded chams via `Highlight`.
+  - **No stuck overlays** — every frame reconciles what was actually drawn: anything that
+    died, left, went off screen/out of range, or was toggled off is hidden exactly once,
+    and overlays for removed objects are destroyed. The `ScreenGui` is rebuilt if it is
+    removed externally.
+  - **No stutter** — one throttled `RenderStepped` pass drives all ESP categories, flags
+    are read once per pass, line-of-sight raycasts are cached for 0.12 s, property writes
+    are skipped when unchanged, box corners reuse scratch tables, and new ore
+    `ViewportFrame` icons are capped to two per pass.
   - **Player ESP** — adjustable update rate (30–240 Hz), max distance, box style, and per-element
     colors for box, name, health, distance, weapon, skeleton and chams.
   - **NPC ESP** — models under `workspace.Npcs`, with the same box/name/distance/weapon/chams
@@ -33,11 +41,13 @@ The hub downloads the UI library from `refs/heads/main/ARC3USX.lua` at startup. 
 - **Silent Insta-Hit weakspot** — snaps the camera at the nearest resource weakspot for one
   tick, activates the equipped mining tool (and a synthetic click), then restores the camera.
   Radius: 50 studs; 0.12 s cooldown; no visible camera lock.
-- **Fust combat aim assist** — target selection by Head / HumanoidRootPart / Closest / Random,
-  FOV and distance limits, team and wall checks, velocity prediction, smoothing, and a ballistic
-  solver for bows (draw time, speed base/charge, gravity, full-charge crossbow mode).
-  `Z` toggles, `Q` holds, `X` cycles the target part. A FOV circle, target marker and info text
-  are drawn with the executor's `Drawing` API.
+- **Aimbot (mouse-relative lock)** — picks the valid target closest to the mouse inside a
+  pixel FOV, then nudges the mouse toward it with `mousemoverel`. Head or `HumanoidRootPart`
+  bone, optional bullet-travel prediction from `AssemblyLinearVelocity` and a configurable
+  bullet speed, smoothing divisor, max distance, NPC targets, `FustMates` team check, and
+  an optional line-of-sight wall check. An optional `Drawing` FOV circle follows the mouse.
+  - **Lock modes** — `Always` (the keybind toggles the aimbot) or `Hold` (the aimbot only
+    runs while the key is held). The keybind defaults to `Q` and is rebindable in the UI.
 - **Staff detection** — reads `AdminRole` attributes or the game's optional
   `Fust.StaffState` / `Fust.AdminPerms` modules; role labels, ranks, colors, a monitor with
   notifications, role-change hooks, and staff highlights.
@@ -49,22 +59,27 @@ The hub downloads the UI library from `refs/heads/main/ARC3USX.lua` at startup. 
 | Tab | Groups |
 | --- | --- |
 | ESP / World | Player ESP, NPC ESP, Ore ESP (Icons), Heli ESP, ESP Preview |
-| Combat | Aimbot, Aimbot Visuals, Bow Assist, Aimbot Keys |
+| Combat | Aimbot, Aimbot Options |
 | Misc | Staff Detection, Staff ESP, Mining (Silent Insta-Hit), System |
 | Settings | themes, config/auto-load, appearance (`Window:AddSettingsTab()`) |
 
 Master switches start **on**, but every category's ESP toggle starts **off** — enable the
 individual **ESP Toggle** and any elements you want. The aimbot, staff monitor, staff ESP and
-insta-hit all start off.
+insta-hit all start off. Aimbot defaults: FOV 220 px, bone `Head`, unlimited distance,
+smoothing 2, prediction on, bullet speed 900, FOV circle off, NPC/wall/team checks off,
+lock mode `Always` with the `Q` keybind. The ESP pass runs at 60 Hz by default
+(`ESP Update Rate (Hz)`).
 
 ### Requirements and caveats
 
 - Needs an executor with `loadstring`, `HttpGet`, `CoreGui` parenting and `RenderStepped`.
-  The aimbot additionally needs the `Drawing` API; if it is unavailable the aimbot warns and
-  the rest of the hub still runs.
-- Ore icons, staff labels and bow state depend on game-specific replicated modules/attributes
-  (`ReplicatedStorage.Fust`). Missing modules fall back to abbreviations, built-in role labels
-  and gun mode. Only client-replicated objects can be detected, so streaming affects ESP.
+  The aimbot needs `mousemoverel` to move the mouse; its FOV circle uses the executor's
+  `Drawing` API, and both are optional — a no-op stand-in keeps the rest of the hub running
+  if they are unavailable.
+- Ore icons, staff labels and the `FustMates`/`Fust` data the aimbot reads depend on
+  game-specific replicated modules/attributes. Missing modules fall back to abbreviations
+  and built-in role labels. Only client-replicated objects can be detected, so streaming
+  affects ESP. `workspace.Npcs` is used for optional NPC targets.
 - The hub is client-side and is not verified against the live game or its anticheat. The
   decompiled game scripts in `ItemIcons.lua` and `Vex.txt` are reference material only.
 - `tests/hub_mock.lua` checks the feature set, ESP/insta-hit/aimbot/staff lifecycles and
@@ -78,7 +93,7 @@ insta-hit all start off.
 | File | What it is |
 | --- | --- |
 | `ARC3USX.lua` | The UI library (loaded by the hub at runtime) |
-| `scripts/main.lua` | The hub: ESP, insta-hit, aim assist, staff detection and UI |
+| `scripts/main.lua` | The hub: ESP, insta-hit, mouse-relative aimbot, staff detection and UI |
 | `tests/hub_mock.lua`, `tests/run_hub_mock.js` | Mocked lifecycle/feature test for the hub (Lua 5.3 or fengari) |
 | `ItemIcons.lua` | Decompiled reference copy of the game's `Fust.ItemIcons` module |
 | `Vex.txt` | Decompiled reference copy of game combat code |

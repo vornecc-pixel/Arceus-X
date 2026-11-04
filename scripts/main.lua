@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
 --  ARC3USX.EXE — ULTIMATE OPTIMIZED HUB
---  SMOOTH ESP + SILENT INSTA-HIT + FUST COMBAT AIM ASSIST
+--  SMOOTH ESP + SILENT INSTA-HIT + MOUSE-RELATIVE AIMBOT
 --
 --  Entry point for the hub. The UI library lives in ARC3USX.lua at the
 --  repository root; everything below is the hub's feature set.
@@ -111,20 +111,78 @@ local function createBox(z)
     return frame
 end
 
+-- Scratch tables are reused every frame so box drawing never allocates.
+local boxCorners = {}
+for i = 1, 8 do boxCorners[i] = { 0, 0, 0, 0 } end
+
+-- An overlay is "seen" only when something was actually drawn for it this frame.
+-- Anything not seen at the end of a frame is hidden exactly once, so no ESP can
+-- stay stuck on screen after a target dies, leaves, goes out of range or is
+-- disabled.
+local currentFrame = 0
+
+local function setFrame(frame, x, y, w, h)
+    local ox, oy, ow, oh = math.floor(x), math.floor(y), math.floor(w), math.floor(h)
+    if frame.lastX ~= ox or frame.lastY ~= oy then
+        frame.Position = UDim2.fromOffset(ox, oy)
+        frame.lastX, frame.lastY = ox, oy
+    end
+    if frame.lastW ~= ow or frame.lastH ~= oh then
+        frame.Size = UDim2.fromOffset(ow, oh)
+        frame.lastW, frame.lastH = ow, oh
+    end
+end
+
+local function setCentered(frame, x, y, size)
+    local ox, oy, sz = math.floor(x), math.floor(y), math.floor(size)
+    if frame.lastX ~= ox or frame.lastY ~= oy then
+        frame.Position = UDim2.fromOffset(ox, oy)
+        frame.lastX, frame.lastY = ox, oy
+    end
+    if frame.lastW ~= sz then
+        frame.Size = UDim2.fromOffset(sz, sz)
+        frame.lastW = sz
+    end
+    if not frame.Visible then frame.Visible = true end
+end
+
+local function setLabel(lbl, visible, text, color, x, y)
+    if not visible then
+        if lbl.Visible then lbl.Visible = false end
+        return
+    end
+    if lbl.Text ~= text then lbl.Text = text end
+    if lbl.TextColor3 ~= color then lbl.TextColor3 = color end
+    local ox, oy = math.floor(x), math.floor(y)
+    if lbl.lastX ~= ox or lbl.lastY ~= oy then
+        lbl.Position = UDim2.fromOffset(ox, oy)
+        lbl.lastX, lbl.lastY = ox, oy
+    end
+    if not lbl.Visible then lbl.Visible = true end
+end
+
 local function drawLine(line, fromX, fromY, toX, toY, color)
     if not line then return end
-    local dx = toX - fromX
-    local dy = toY - fromY
+    local dx, dy = toX - fromX, toY - fromY
     local length = math.sqrt(dx * dx + dy * dy)
     if length < 0.5 then
         if line.Visible then line.Visible = false end
+        line.lastX, line.lastY = nil, nil
         return
     end
+    local ox, oy = math.floor(fromX), math.floor(fromY)
+    local len = math.floor(length)
     local angle = math.deg(math.atan2(dy, dx))
-    line.Position = UDim2.fromOffset(math.floor(fromX), math.floor(fromY))
-    line.Size = UDim2.fromOffset(math.floor(length), 1)
-    line.Rotation = angle
-    line.BackgroundColor3 = color
+    if line.lastX ~= ox or line.lastY ~= oy then
+        line.Position = UDim2.fromOffset(ox, oy)
+        line.lastX, line.lastY = ox, oy
+    end
+    if line.lastLen ~= len then
+        line.Size = UDim2.fromOffset(len, 1)
+        line.lastLen = len
+    end
+    if line.lastAngle ~= angle then line.Rotation = angle; line.lastAngle = angle end
+    if line.BackgroundColor3 ~= color then line.BackgroundColor3 = color end
     if not line.Visible then line.Visible = true end
 end
 
@@ -132,7 +190,8 @@ local function buildEsp()
     local esp = {
         box = createBox(1), name = createText(3), distance = createText(3), weapon = createText(3),
         healthBg = createBox(1), healthFill = createBox(1), highlight = nil,
-        corners = {}, skeleton = {}, lastHp = -1, lastDist = -1, lastVisible = nil
+        corners = {}, skeleton = {}, lastHp = -1, lastDist = -1, lastVisible = nil,
+        hidden = false, frameId = 0, nextVisCheck = 0,
     }
     esp.healthBg.BackgroundTransparency = 0; esp.healthBg.BorderSizePixel = 0; esp.healthBg.BackgroundColor3 = Color3.new(0,0,0)
     esp.healthFill.BackgroundTransparency = 0; esp.healthFill.BorderSizePixel = 0
@@ -150,8 +209,10 @@ local function destroyEsp(esp)
     for _, l in ipairs(esp.skeleton) do l:Destroy() end
 end
 
+-- Idempotent: a hidden overlay is left alone, so stale entries cost nothing.
 local function hideEsp(esp)
-    if not esp then return end
+    if not esp or esp.hidden then return end
+    esp.hidden = true; esp.frameId = 0
     esp.box.Visible = false; esp.name.Visible = false; esp.distance.Visible = false
     esp.weapon.Visible = false; esp.healthBg.Visible = false; esp.healthFill.Visible = false
     if esp.highlight then esp.highlight.Enabled = false end
@@ -159,24 +220,37 @@ local function hideEsp(esp)
     for _, l in ipairs(esp.skeleton) do l.Visible = false end
 end
 
+local function markEsp(esp)
+    esp.frameId = currentFrame
+    esp.hidden = false
+end
+
+local function hideBox(esp)
+    if esp.box.Visible then esp.box.Visible = false end
+    for _, c in ipairs(esp.corners) do if c.Visible then c.Visible = false end end
+end
+
 local function drawBox(esp, bLeft, bTop, bRight, bBot, style, color)
     if style == "Full" then
-        for _, c in ipairs(esp.corners) do c.Visible = false end
-        esp.box.Visible = true
+        for _, c in ipairs(esp.corners) do if c.Visible then c.Visible = false end end
+        if not esp.box.Visible then esp.box.Visible = true end
         esp.box.BackgroundTransparency = 1
-        esp.box.BorderColor3 = color
-        esp.box.Position = UDim2.fromOffset(math.floor(bLeft), math.floor(bTop))
-        esp.box.Size = UDim2.fromOffset(math.floor(bRight - bLeft), math.floor(bBot - bTop))
+        if esp.box.BorderColor3 ~= color then esp.box.BorderColor3 = color end
+        setFrame(esp.box, bLeft, bTop, bRight - bLeft, bBot - bTop)
     else
-        esp.box.Visible = false
-        local w = bRight - bLeft; local h = bBot - bTop; local cl = math.max(w * 0.22, h * 0.14)
-        local corners = {
-            {bLeft, bTop, bLeft + cl, bTop}, {bLeft, bTop, bLeft, bTop + cl},
-            {bRight, bTop, bRight - cl, bTop}, {bRight, bTop, bRight, bTop + cl},
-            {bLeft, bBot, bLeft + cl, bBot}, {bLeft, bBot, bLeft, bBot - cl},
-            {bRight, bBot, bRight - cl, bBot}, {bRight, bBot, bRight, bBot - cl}
-        }
-        for i, c in ipairs(corners) do drawLine(esp.corners[i], c[1], c[2], c[3], c[4], color) end
+        if esp.box.Visible then esp.box.Visible = false end
+        local w, h = bRight - bLeft, bBot - bTop
+        local cl = math.max(w * 0.22, h * 0.14)
+        local c = boxCorners
+        c[1][1], c[1][2], c[1][3], c[1][4] = bLeft, bTop, bLeft + cl, bTop
+        c[2][1], c[2][2], c[2][3], c[2][4] = bLeft, bTop, bLeft, bTop + cl
+        c[3][1], c[3][2], c[3][3], c[3][4] = bRight, bTop, bRight - cl, bTop
+        c[4][1], c[4][2], c[4][3], c[4][4] = bRight, bTop, bRight, bTop + cl
+        c[5][1], c[5][2], c[5][3], c[5][4] = bLeft, bBot, bLeft + cl, bBot
+        c[6][1], c[6][2], c[6][3], c[6][4] = bLeft, bBot, bLeft, bBot - cl
+        c[7][1], c[7][2], c[7][3], c[7][4] = bRight, bBot, bRight - cl, bBot
+        c[8][1], c[8][2], c[8][3], c[8][4] = bRight, bBot, bRight, bBot - cl
+        for i = 1, 8 do drawLine(esp.corners[i], c[i][1], c[i][2], c[i][3], c[i][4], color) end
     end
 end
 
@@ -464,12 +538,18 @@ local Colors = {
     plr_hp_high = Color3.fromRGB(0, 255, 0), plr_hp_low = Color3.fromRGB(255, 0, 0),
     npc_box = Color3.new(1,1,1), npc_name = Color3.new(1,1,1), npc_dist = Color3.new(1,1,1), npc_wep = Color3.fromRGB(255, 180, 60),
     npc_chams_vis = Color3.fromRGB(60, 255, 120), npc_chams_occ = Color3.fromRGB(255, 50, 80),
+    heli = Color3.fromRGB(255, 170, 0), white = Color3.new(1, 1, 1),
 }
 
 local function getScreenPos(pos)
     local sp, onScreen = Camera:WorldToViewportPoint(pos)
     if sp.Z <= 0 then onScreen = false end
     return sp.X, sp.Y, onScreen
+end
+
+local function nearViewport(x, y)
+    local size = Camera.ViewportSize
+    return x >= -160 and y >= -160 and x <= size.X + 160 and y <= size.Y + 160
 end
 
 local rayParams = RaycastParams.new()
@@ -479,7 +559,9 @@ local function isVisible(model, root)
     if not root then return false end
     local origin = Camera.CFrame.Position; local dir = root.Position - origin
     if dir.Magnitude < 0.1 then return true end
-    rayParams.FilterDescendantsInstances = { model, LocalPlayer.Character }
+    local ignore = { model }
+    if LocalPlayer.Character then ignore[#ignore + 1] = LocalPlayer.Character end
+    rayParams.FilterDescendantsInstances = ignore
     local result = Workspace:Raycast(origin, dir, rayParams)
     return not result or result.Instance:IsDescendantOf(model)
 end
@@ -517,7 +599,7 @@ end
 
 local function createOreIcon(desc)
     local itemName = OreItemMap[desc.Name] or desc.Name
-    local entry = {}
+    local entry = { hidden = false, frameId = 0 }
     local data = safeIconGet(itemName)
 
     if data and data.model and data.camCF then
@@ -571,9 +653,15 @@ local function destroyOreIcon(entry)
 end
 
 local function hideOreIcon(entry)
-    if not entry then return end
+    if not entry or entry.hidden then return end
+    entry.hidden = true; entry.frameId = 0
     if entry.view then entry.view.Visible = false end
     if entry.distLabel then entry.distLabel.Visible = false end
+end
+
+local function markOre(entry)
+    entry.frameId = currentFrame
+    entry.hidden = false
 end
 
 local function trackOre(desc)
@@ -609,538 +697,557 @@ connect(Players.PlayerRemoving, function(plr)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
---  FUST COMBAT AIM ASSIST (ported)
+--  AIMBOT (mouse-relative lock)
 -- ═══════════════════════════════════════════════════════════════
-local Aimbot
-do
-    local function createAimbot()
-        local P          = game:GetService("Players")
-        local RS         = game:GetService("RunService")
-        local UIS        = game:GetService("UserInputService")
-        local WS         = game:GetService("Workspace")
-        local LP         = P.LocalPlayer
-        local Cam        = WS.CurrentCamera
+-- Adapted from the standalone aiming snippet: it picks the target closest to
+-- the mouse inside a pixel FOV, leads it using bullet travel time, then nudges
+-- the mouse toward it. Everything is driven by flags set in the Combat tab.
+local lp      = LocalPlayer
+local ws      = Workspace
+local uis     = UserInputService
+local players = Players
+local vec2    = Vector2.new
+local colornew = Color3.fromRGB
+local flags   = Library.Flags
 
-        local Config = {
-            Enabled         = false,
-            ToggleKey       = Enum.KeyCode.Z,
-            HoldKey         = Enum.KeyCode.Q,
-            CycleModeKey    = Enum.KeyCode.X,
-            TargetPart      = "Head",
-            FallbackOrder   = {"Head","UpperTorso","Torso","HumanoidRootPart"},
-            FOV             = 180,
-            MaxDistance     = 600,
-            TeamCheck       = true,
-            WallCheck       = true,
-            Prediction      = 0.12,
-            PingComp        = 0.0,
-            MaxVel          = 500,
-            Smoothness      = 0.10,
-            BowAutoLock     = true,
-            BowDrawTime     = 0.8,
-            BowSpeedBase    = 95,
-            BowSpeedCharge  = 125,
-            BowGravity      = 50,
-            BowMuzzle       = 1,
-            BowChargeMode   = "auto",
-            BowSmoothness   = 0.05,
-            BowFOV          = 180,
-            BowMaxDistance  = 300,
-            BowSolveIters   = 5,
-            ShowFOV         = true,
-            ShowTarget      = true,
-            ShowInfo        = true,
-        }
-        local MODES = { "Head", "HumanoidRootPart", "Closest", "Random" }
-        local State = { Locked = false, Target = nil, Bow = false }
+local aiming = {
+    enabled     = false,
+    fov         = 220,
+    bone        = "Head",
+    distance    = 0,
+    smoothing   = 2,
+    prediction  = true,
+    bulletSpeed = 900,
+    targetNpcs  = false,
+    wallCheck   = false,
+    teamCheck   = false,
+}
 
-        local vFOV = Drawing.new("Circle")
-        vFOV.Thickness = 1.5; vFOV.NumSides = 64
-        vFOV.Color = Color3.fromRGB(255,255,255); vFOV.Filled = false; vFOV.Transparency = 0.7
+-- The UI library stores a keybind's flag as a key-name string, so the lock
+-- state (mode + active) lives in its own table, exactly as lockActive expects.
+flags.aim_lock = { mode = "always", active = false }
+flags.Aim_FOV_Circle = false
+local aimLock = flags.aim_lock
 
-        local vTarget = Drawing.new("Circle")
-        vTarget.Thickness = 2; vTarget.NumSides = 32
-        vTarget.Radius = 28; vTarget.Color = Color3.fromRGB(255,60,60); vTarget.Filled = false
-
-        local vInfo = Drawing.new("Text")
-        vInfo.Size = 14; vInfo.Center = true; vInfo.Outline = true
-        vInfo.Color = Color3.fromRGB(255,255,255)
-
-        local rmbPressTime = nil
-        local connections = {}
-        local function track(c) table.insert(connections, c); return c end
-
-        track(UIS.InputBegan:Connect(function(i, gp)
-            if gp then return end
-            if i.UserInputType == Enum.UserInputType.MouseButton2 then
-                rmbPressTime = os.clock()
-            end
-        end))
-        track(UIS.InputEnded:Connect(function(i)
-            if i.UserInputType == Enum.UserInputType.MouseButton2 then
-                rmbPressTime = nil
-            end
-        end))
-
-        local function isBowActive() return LP:GetAttribute("FustAimBow") == true end
-
-        local function isCrossbow()
-            local char = LP.Character
-            if not char then return false end
-            local tool = char:FindFirstChildOfClass("Tool")
-            if not tool then return false end
-            local id = tool:GetAttribute("ItemId")
-            if type(id) ~= "string" then return false end
-            local lower = string.lower(id)
-            return string.find(lower, "crossbow", 1, true) ~= nil or string.find(lower, "xbow", 1, true) ~= nil
-        end
-
-        local function getBowSpeed()
-            if Config.BowChargeMode == "full" or isCrossbow() then
-                return Config.BowSpeedBase + Config.BowSpeedCharge
-            end
-            local charge = 0
-            if rmbPressTime then
-                charge = math.clamp((os.clock() - rmbPressTime) / Config.BowDrawTime, 0, 1)
-            end
-            return Config.BowSpeedBase + Config.BowSpeedCharge * charge
-        end
-
-        local function solveBallistic(camPos, targetPos, targetVel, speed, gravity, muzzle, iters)
-            speed  = math.max(speed, 1)
-            muzzle = muzzle or 0
-            iters  = iters  or 5
-            local dir = (targetPos - camPos).Unit
-            local t   = (targetPos - camPos).Magnitude / speed
-            local aimPos
-            for _ = 1, iters do
-                local origin = camPos + dir * muzzle
-                local D = targetPos + targetVel * t - origin + Vector3.new(0, 0.5 * gravity * t * t, 0)
-                t   = D.Magnitude / speed
-                dir = D.Unit
-                aimPos = camPos + dir * math.max(t * speed, 10)
-            end
-            return dir, t, aimPos
-        end
-
-        local function alive(plr)
-            local c = plr.Character
-            if not c then return false end
-            local h = c:FindFirstChildOfClass("Humanoid")
-            return h and h.Health > 0
-        end
-
-        local function visible(char, targetPos, camPos)
-            if not Config.WallCheck then return true end
-            local params = RaycastParams.new()
-            params.FilterType = Enum.RaycastFilterType.Exclude
-            params.FilterDescendantsInstances = { LP.Character }
-            params.IgnoreWater = true
-            local hit = WS:Raycast(camPos, targetPos - camPos, params)
-            return not hit or hit.Instance:IsDescendantOf(char)
-        end
-
-        local function resolvePart(char)
-            local want = Config.TargetPart
-            if type(want) == "string" then
-                if want == "Closest" or want == "Random" then return nil end
-                local p = char:FindFirstChild(want)
-                if p and p:IsA("BasePart") then return p end
-            end
-            for _, name in ipairs(Config.FallbackOrder) do
-                local p = char:FindFirstChild(name)
-                if p and p:IsA("BasePart") then return p end
-            end
-            return nil
-        end
-
-        local function allAimParts(char)
-            local out = {}
-            for _, name in ipairs(Config.FallbackOrder) do
-                local p = char:FindFirstChild(name)
-                if p and p:IsA("BasePart") then table.insert(out, p) end
-            end
-            if #out == 0 then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then table.insert(out, hrp) end
-            end
-            return out
-        end
-
-        local function findBest(bowMode)
-            local camPos = Cam.CFrame.Position
-            local center = Cam.ViewportSize / 2
-            local fov     = bowMode and Config.BowFOV       or Config.FOV
-            local maxDist = bowMode and Config.BowMaxDistance or Config.MaxDistance
-            local speed   = bowMode and getBowSpeed()      or nil
-            local best, bestScore = nil, math.huge
-
-            for _, plr in ipairs(P:GetPlayers()) do
-                if plr ~= LP and alive(plr) and not (Config.TeamCheck and plr.Team == LP.Team) then
-                    local char = plr.Character
-                    local hrp  = char:FindFirstChild("HumanoidRootPart")
-                    local candidates = {}
-                    if Config.TargetPart == "Closest" or Config.TargetPart == "Random" then
-                        candidates = allAimParts(char)
-                    else
-                        local p = resolvePart(char)
-                        if p then candidates = { p } end
-                    end
-                    for _, part in ipairs(candidates) do
-                        local dist = (part.Position - camPos).Magnitude
-                        if dist <= maxDist then
-                            local vel = (hrp and hrp.AssemblyLinearVelocity) or part.AssemblyLinearVelocity
-                            if vel.Magnitude > Config.MaxVel then vel = Vector3.zero end
-                            local sp, on = Cam:WorldToViewportPoint(part.Position)
-                            if on and sp.Z > 0 then
-                                local delta = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                                if delta <= fov and visible(char, part.Position, camPos) then
-                                    local aimDir, aimPos, flyT
-                                    if bowMode then
-                                        aimDir, flyT, aimPos = solveBallistic(camPos, part.Position, vel, speed, Config.BowGravity, Config.BowMuzzle, Config.BowSolveIters)
-                                    else
-                                        local lead = Config.Prediction + Config.PingComp
-                                        aimPos = part.Position + vel * lead
-                                        aimDir = (aimPos - camPos).Unit
-                                    end
-                                    local score = delta + dist * 0.02
-                                    if Config.TargetPart == "Random" then
-                                        score = score * (0.85 + math.random() * 0.3)
-                                    end
-                                    if score < bestScore then
-                                        bestScore = score
-                                        best = {
-                                            char = char, part = part, pos = part.Position,
-                                            vel = vel, dist = dist, aimDir = aimDir, aimPos = aimPos,
-                                            flyT = flyT, isBow = bowMode, speed = speed,
-                                        }
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-            return best
-        end
-
-        track(UIS.InputBegan:Connect(function(input, gp)
-            if gp then return end
-            if input.KeyCode == Config.ToggleKey then
-                Config.Enabled = not Config.Enabled
-            elseif input.KeyCode == Config.HoldKey then
-                State.Locked = true
-            elseif input.KeyCode == Config.CycleModeKey then
-                local idx = 1
-                for i, m in ipairs(MODES) do
-                    if m == Config.TargetPart then idx = i break end
-                end
-                Config.TargetPart = MODES[(idx % #MODES) + 1]
-            end
-        end))
-
-        track(UIS.InputEnded:Connect(function(input)
-            if input.KeyCode == Config.HoldKey then
-                State.Locked = false
-            end
-        end))
-
-        RS:BindToRenderStep("ARC3USX_Aimbot", Enum.RenderPriority.Camera.Value + 10, function(dt)
-            Cam = WS.CurrentCamera
-            if not Cam then return end
-            local bowMode = isBowActive()
-            State.Bow = bowMode
-
-            local active
-            if bowMode and Config.BowAutoLock then
-                active = Config.Enabled
-            else
-                active = Config.Enabled and State.Locked
-            end
-
-            local center = Cam.ViewportSize / 2
-            local fov    = bowMode and Config.BowFOV or Config.FOV
-
-            vFOV.Position = center
-            vFOV.Radius   = fov
-            vFOV.Visible  = Config.ShowFOV and Config.Enabled
-
-            if Config.ShowInfo and Config.Enabled then
-                local label = bowMode and ("bow (" .. Config.BowChargeMode .. "  spd=" .. math.floor(getBowSpeed()) .. ")") or "gun"
-                vInfo.Text = ("%s | %s%s"):format(label, Config.TargetPart, active and "  [LOCKED]" or "  [hold Q]")
-                vInfo.Position = center + Vector2.new(0, fov + 14)
-                vInfo.Visible = true
-            else
-                vInfo.Visible = false
-            end
-
-            if not active then
-                vTarget.Visible = false
-                State.Target = nil
-                return
-            end
-
-            local t = findBest(bowMode)
-            State.Target = t
-            if not t then
-                vTarget.Visible = false
-                return
-            end
-
-            local cur = Cam.CFrame
-            local lookAt = t.isBow and (cur.Position + t.aimDir) or t.aimPos
-            local desired = CFrame.lookAt(cur.Position, lookAt)
-            local smooth = t.isBow and Config.BowSmoothness or Config.Smoothness
-            local alpha = smooth <= 0 and 1 or (1 - math.exp(-dt / math.max(smooth, 0.0001)))
-            Cam.CFrame = cur:Lerp(desired, alpha)
-
-            local sp = Cam:WorldToViewportPoint(t.isBow and t.aimPos or t.pos)
-            if sp.Z > 0 then
-                vTarget.Position = Vector2.new(sp.X, sp.Y)
-                vTarget.Visible = Config.ShowTarget
-            else
-                vTarget.Visible = false
-            end
-        end)
-
-        local function cleanup()
-            pcall(function() RS:UnbindFromRenderStep("ARC3USX_Aimbot") end)
-            for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
-            connections = {}
-            pcall(function() vFOV:Remove() end)
-            pcall(function() vTarget:Remove() end)
-            pcall(function() vInfo:Remove() end)
-        end
-
-        return { Config = Config, State = State, Cleanup = cleanup, MODES = MODES }
+-- Executor Drawing objects are optional: a no-op stand-in keeps the rest of
+-- the hub alive on executors without Drawing support.
+local function drawing(kind, props)
+    local obj
+    local ok, res = pcall(function()
+        local factory = Drawing and Drawing.new
+        if type(factory) ~= "function" then return nil end
+        return factory(kind)
+    end)
+    if ok and res then obj = res end
+    if not obj then
+        obj = {}
+        function obj:Remove() self.Visible = false end
     end
+    for k, v in pairs(props) do obj[k] = v end
+    return obj
+end
 
-    local ok, result = pcall(createAimbot)
-    if ok and result then
-        Aimbot = result
+aiming.fovCircle = drawing("Circle", {
+    Thickness = 1, NumSides = 64, Filled = false, Visible = false,
+})
+
+local aimRayParams = RaycastParams.new()
+aimRayParams.FilterType = Enum.RaycastFilterType.Exclude
+aimRayParams.IgnoreWater = true
+
+local function aimKey()
+    local opt = Library.Options and Library.Options.aim_key
+    return opt and opt.Key or nil
+end
+
+local function isTeammate(player)
+    local ok, mates = pcall(function() return lp:GetAttribute("FustMates") end)
+    if not ok or type(mates) ~= "string" or mates == "" then return false end
+    local clean = mates:gsub("%s+", "")
+    local padded = "," .. clean .. ","
+    return string.find(padded, "," .. tostring(player.UserId) .. ",", 1, true) ~= nil
+end
+
+local function lockActive()
+    local lk = flags.aim_lock
+    if not lk then return false end
+    if lk.mode == "always" then return true end
+    return lk.active == true
+end
+
+-- In "always" mode the keybind toggles the aimbot; in "hold" mode the aimbot
+-- only runs while the key is held. Both are tracked here (the library's
+-- AddKeybind is press-only and does not report releases).
+connect(uis.InputBegan, function(input, gp)
+    if gp or unloaded or Library._listening then return end
+    local key = aimKey()
+    if not key or input.KeyCode ~= key then return end
+    if aimLock.mode == "hold" then
+        aimLock.active = true
     else
-        warn("[ARC3USX] Aimbot init failed: " .. tostring(result))
-        Aimbot = { Config = {}, State = {}, Cleanup = function() end, MODES = {} }
+        aiming.enabled = not aiming.enabled
+        local opt = Library.Options and Library.Options.aim_enabled
+        if opt and type(opt.Set) == "function" then
+            pcall(function() opt:Set(aiming.enabled) end)
+        end
     end
+end)
+connect(uis.InputEnded, function(input)
+    if input.KeyCode == aimKey() then aimLock.active = false end
+end)
+
+local function getBonePart(model)
+    if aiming.bone == "Hrp" then
+        return model:FindFirstChild("HumanoidRootPart")
+    end
+    return model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
+end
+
+local function predictPosition(model, basePos, cameraPos)
+    if not aiming.prediction or aiming.bulletSpeed <= 0 then
+        return basePos
+    end
+
+    local hrp = model:FindFirstChild("HumanoidRootPart")
+    local vel = hrp and hrp.AssemblyLinearVelocity
+    if not vel or vel.Magnitude <= 1 then
+        return basePos
+    end
+
+    local dist = (basePos - cameraPos).Magnitude
+    local travelTime = dist / aiming.bulletSpeed
+    return basePos + vel * travelTime
+end
+
+local function screenDelta(camera, worldPos, mouseLocation)
+    local point, onScreen = camera:WorldToViewportPoint(worldPos)
+    if not onScreen or point.Z < 0 then
+        return nil, math.huge
+    end
+
+    local dx = point.X - mouseLocation.X
+    local dy = point.Y - mouseLocation.Y
+    return vec2(dx, dy), dx * dx + dy * dy
+end
+
+local function checkLineOfSight(camera, model)
+    local root = getRoot(model)
+    if not root then return false end
+    local origin = camera.CFrame.Position
+    local dir = root.Position - origin
+    if dir.Magnitude < 0.1 then return true end
+    local ignore = { model }
+    if lp.Character then ignore[#ignore + 1] = lp.Character end
+    aimRayParams.FilterDescendantsInstances = ignore
+    local ok, hit = pcall(function() return ws:Raycast(origin, dir, aimRayParams) end)
+    if not ok or not hit then return true end
+    return hit.Instance:IsDescendantOf(model)
+end
+
+local function isNpc(model)
+    return model and model:IsA("Model")
+        and model:FindFirstChildOfClass("Humanoid") ~= nil
+        and not players:GetPlayerFromCharacter(model)
+end
+
+local function considerTarget(model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta)
+    local humanoid = model:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then
+        return best, bestDelta
+    end
+
+    local bone = getBonePart(model)
+    if not bone then
+        return best, bestDelta
+    end
+
+    if aiming.wallCheck and not checkLineOfSight(camera, model) then
+        return best, bestDelta
+    end
+
+    local aimPos = predictPosition(model, bone.Position, cameraPos)
+    if maxDist > 0 and (aimPos - cameraPos).Magnitude > maxDist then
+        return best, bestDelta
+    end
+
+    local deltaVec, delta = screenDelta(camera, aimPos, mouseLocation)
+    if not deltaVec then
+        return best, bestDelta
+    end
+
+    if aiming.fov > 0 and delta > aiming.fov * aiming.fov then
+        return best, bestDelta
+    end
+
+    if delta < bestDelta then
+        return { delta = deltaVec }, delta
+    end
+
+    return best, bestDelta
+end
+
+local function moveMouse(x, y)
+    if type(mousemoverel) == "function" then pcall(mousemoverel, x, y) end
+end
+
+local function aimStep()
+    local camera = ws.CurrentCamera
+    if not camera then return end
+
+    local circle = aiming.fovCircle
+    local mouseLocation = nil
+    if aiming.enabled and flags.Aim_FOV_Circle and aiming.fov > 0 then
+        mouseLocation = uis:GetMouseLocation()
+        circle.Radius = aiming.fov
+        circle.Position = mouseLocation
+        circle.Color = colornew(255, 255, 255)
+        circle.Visible = true
+    elseif circle.Visible then
+        circle.Visible = false
+    end
+
+    if not (aiming.enabled and lockActive()) then
+        return
+    end
+
+    mouseLocation = mouseLocation or uis:GetMouseLocation()
+    local cameraPos = camera.CFrame.Position
+    local maxDist = aiming.distance
+    local best, bestDelta = nil, math.huge
+
+    for _, player in ipairs(players:GetPlayers()) do
+        if player ~= lp and not (aiming.teamCheck and isTeammate(player)) then
+            local model = player.Character
+            if model then
+                best, bestDelta = considerTarget(
+                    model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta
+                )
+            end
+        end
+    end
+
+    if aiming.targetNpcs then
+        local npcsFolder = ws:FindFirstChild("Npcs")
+        if npcsFolder then
+            for _, model in ipairs(npcsFolder:GetChildren()) do
+                if isNpc(model) then
+                    best, bestDelta = considerTarget(
+                        model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta
+                    )
+                end
+            end
+        end
+    end
+
+    if not best then return end
+
+    local divisor = aiming.smoothing > 0 and aiming.smoothing or 1
+    local step = best.delta / divisor
+    moveMouse(math.floor(step.X + 0.5), math.floor(step.Y + 0.5))
 end
 
 -- ═══════════════════════════════════════════════════════════════
---  MAIN RENDER LOOP
+--  MAIN RENDER LOOP (one connection: aimbot + throttled, reconciled ESP)
 -- ═══════════════════════════════════════════════════════════════
-local lastPlayerTick = 0
-local lastOtherTick = 0
+local lastEspTick = 0
+local nextPrune = 0
+
+-- If the ScreenGui is removed externally (respawn cleanup, another script),
+-- rebuild it and drop all stale overlays instead of drawing into a dead GUI.
+local function rebuildEspGui()
+    for _, e in pairs(plrStore) do destroyEsp(e) end; table.clear(plrStore)
+    for _, e in pairs(npcStore) do destroyEsp(e) end; table.clear(npcStore)
+    for _, e in pairs(heliStore) do destroyEsp(e) end; table.clear(heliStore)
+    for _, e in pairs(oreIcons) do destroyOreIcon(e) end; table.clear(oreIcons)
+    espGui = Instance.new("ScreenGui")
+    espGui.Name = "ARC3USX_ESP_UI"
+    espGui.ResetOnSpawn = false
+    espGui.IgnoreGuiInset = true
+    espGui.DisplayOrder = 999
+    espGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    espGui.Parent = CoreGui
+end
 
 connect(RunService.RenderStepped, function(dt)
     if unloaded then return end
     Camera = Workspace.CurrentCamera
     if not Camera then return end
+
+    aimStep()
+
+    -- One throttled pass drives every ESP category. Flags are read once per
+    -- pass rather than once per target, line-of-sight raycasts are cached,
+    -- and property writes are skipped when values have not changed.
+    local now = tick()
+    local hz = getFlag("player_esp_hz", 60)
+    if type(hz) ~= "number" or hz < 15 or hz > 240 then hz = 60 end
+    if now - lastEspTick < (1 / hz) then return end
+    lastEspTick = now
+    currentFrame = currentFrame + 1
+    local frame = currentFrame
+    if not espGui or not espGui.Parent then pcall(rebuildEspGui) end
+
     local camPos = Camera.CFrame.Position
-    local currentTick = tick()
+    local plrOn  = getFlag("plr_master", true) and getFlag("plr_enabled", false)
+    local npcOn  = getFlag("npc_master", true) and getFlag("npc_enabled", false)
+    local oreOn  = getFlag("ore_master", true) and getFlag("ore_enabled", false)
+    local heliOn = getFlag("heli_master", true) and getFlag("heli_enabled", false)
 
-    -- Players
-    local playerHz = getFlag("player_esp_hz", 60)
-    if currentTick - lastPlayerTick >= (1 / playerHz) then
-        lastPlayerTick = currentTick
-        if getFlag("plr_master", true) and getFlag("plr_enabled", false) then
-            for _, plr in ipairs(Players:GetPlayers()) do
+    -- ─── Players ─────────────────────────────────────────────────
+    if plrOn then
+        local maxDistStuds = getFlag("plr_max_dist", 500) * METER_TO_STUD
+        local boxOn, boxStyle = getFlag("plr_box", true), getFlag("plr_style", "Corners")
+        local nameOn, distOn, wepOn = getFlag("plr_name", true), getFlag("plr_dist", true), getFlag("plr_weapon", true)
+        local hpOn, skelOn, chamsOn = getFlag("plr_health", true), getFlag("plr_skel", true), getFlag("plr_chams", true)
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
                 local char = plr.Character
-                if plr ~= LocalPlayer and char and char.Parent and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
-                    if not plrStore[char] then plrStore[char] = buildEsp() end
-                    local esp = plrStore[char]
-                    local root = char.HumanoidRootPart
+                local hum  = char and char:FindFirstChild("Humanoid")
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if char and char.Parent and hum and root and hum.Health > 0 then
                     local distStuds = (root.Position - camPos).Magnitude
-                    if distStuds <= (getFlag("plr_max_dist", 500) * METER_TO_STUD) then
-                        local cf, size = char:GetBoundingBox()
-                        local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
-                        local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
-                        if topOn and botOn then
-                            local h = math.max(botY - topY, 1); local w = math.max(h * 0.55, 1)
-                            local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
+                    if distStuds <= maxDistStuds then
+                        local rx, ry, rOn = getScreenPos(root.Position)
+                        if rOn and nearViewport(rx, ry) then
+                            local cf, size = char:GetBoundingBox()
+                            local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
+                            local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
+                            if topOn and botOn then
+                                local esp = plrStore[char]
+                                if not esp then esp = buildEsp(); plrStore[char] = esp end
+                                markEsp(esp)
+                                local h = math.max(botY - topY, 1); local w = math.max(h * 0.55, 1)
+                                local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
 
-                            if getFlag("plr_chams", true) then
-                                local vis = isVisible(char, root)
-                                if esp.lastVisible ~= vis then
-                                    ensureHighlight(esp, char, vis and Colors.plr_chams_vis or Colors.plr_chams_occ)
-                                    esp.lastVisible = vis
-                                elseif esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
-                            elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
-
-                            if getFlag("plr_box", true) then drawBox(esp, bLeft, topY, bRight, botY, getFlag("plr_style", "Corners"), Colors.plr_box)
-                            else for _, c in ipairs(esp.corners) do c.Visible = false end; esp.box.Visible = false end
-
-                            esp.name.Visible = getFlag("plr_name", true)
-                            if esp.name.Visible then esp.name.Text = plr.Name; esp.name.TextColor3 = Colors.plr_name; esp.name.Position = UDim2.fromOffset(math.floor(topX), math.floor(topY - 16)) end
-
-                            local meters = math.floor(distStuds * STUD_TO_METER)
-                            if esp.lastDist ~= meters then esp.lastDist = meters; esp.distance.Text = tostring(meters) .. "m" end
-                            esp.distance.Visible = getFlag("plr_dist", true)
-                            if esp.distance.Visible then esp.distance.TextColor3 = Colors.plr_dist; esp.distance.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 16)) end
-
-                            esp.weapon.Visible = getFlag("plr_weapon", true)
-                            if esp.weapon.Visible then local tool = char:FindFirstChildWhichIsA("Tool"); esp.weapon.Text = tool and tool.Name or "Unarmed"; esp.weapon.TextColor3 = Colors.plr_wep; esp.weapon.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 32)) end
-
-                            if getFlag("plr_health", true) then
-                                local hpPerc = math.clamp(char.Humanoid.Health / char.Humanoid.MaxHealth, 0, 1)
-                                esp.healthBg.Visible = true; esp.healthBg.Position = UDim2.fromOffset(math.floor(bLeft - 6), math.floor(topY)); esp.healthBg.Size = UDim2.fromOffset(4, math.floor(h))
-                                esp.healthFill.Visible = true; esp.healthFill.BackgroundColor3 = Colors.plr_hp_low:Lerp(Colors.plr_hp_high, hpPerc); esp.healthFill.Position = UDim2.fromOffset(math.floor(bLeft - 5), math.floor(topY + (h * (1 - hpPerc)))); esp.healthFill.Size = UDim2.fromOffset(2, math.floor(h * hpPerc))
-                            else esp.healthBg.Visible = false; esp.healthFill.Visible = false end
-
-                            if getFlag("plr_skel", true) then
-                                local activeBones = char:FindFirstChild("UpperTorso") and bonesR15 or bonesR6
-                                for i, bone in ipairs(activeBones) do
-                                    local p1, p2 = char:FindFirstChild(bone[1]), char:FindFirstChild(bone[2])
-                                    local line = esp.skeleton[i]
-                                    if p1 and p2 then
-                                        local x1, y1, on1 = getScreenPos(p1.Position); local x2, y2, on2 = getScreenPos(p2.Position)
-                                        if on1 and on2 then drawLine(line, x1, y1, x2, y2, Colors.plr_skel) else line.Visible = false end
-                                    else line.Visible = false end
+                                if chamsOn then
+                                    if now >= (esp.nextVisCheck or 0) then
+                                        esp.nextVisCheck = now + 0.12
+                                        local vis = isVisible(char, root)
+                                        if esp.lastVisible ~= vis then
+                                            ensureHighlight(esp, char, vis and Colors.plr_chams_vis or Colors.plr_chams_occ)
+                                            esp.lastVisible = vis
+                                        end
+                                    end
+                                    if esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
+                                elseif esp.highlight and esp.highlight.Enabled then
+                                    esp.highlight.Enabled = false
                                 end
-                                for i = #activeBones + 1, #esp.skeleton do esp.skeleton[i].Visible = false end
-                            else for _, l in ipairs(esp.skeleton) do l.Visible = false end end
-                        else hideEsp(esp) end
-                    else hideEsp(esp) end
+
+                                if boxOn then drawBox(esp, bLeft, topY, bRight, botY, boxStyle, Colors.plr_box) else hideBox(esp) end
+                                setLabel(esp.name, nameOn, plr.Name, Colors.plr_name, topX, topY - 16)
+                                local meters = math.floor(distStuds * STUD_TO_METER)
+                                esp.lastDist = meters
+                                setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.plr_dist, topX, botY + 16)
+                                local tool = char:FindFirstChildWhichIsA("Tool")
+                                setLabel(esp.weapon, wepOn, tool and tool.Name or "Unarmed", Colors.plr_wep, topX, botY + 32)
+
+                                if hpOn then
+                                    local hpPerc = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                                    setFrame(esp.healthBg, bLeft - 6, topY, 4, h)
+                                    setFrame(esp.healthFill, bLeft - 5, topY + h * (1 - hpPerc), 2, h * hpPerc)
+                                    local hpColor = Colors.plr_hp_low:Lerp(Colors.plr_hp_high, hpPerc)
+                                    if esp.healthFill.BackgroundColor3 ~= hpColor then esp.healthFill.BackgroundColor3 = hpColor end
+                                    if not esp.healthBg.Visible then esp.healthBg.Visible = true end
+                                    if not esp.healthFill.Visible then esp.healthFill.Visible = true end
+                                else
+                                    if esp.healthBg.Visible then esp.healthBg.Visible = false end
+                                    if esp.healthFill.Visible then esp.healthFill.Visible = false end
+                                end
+
+                                if skelOn then
+                                    local activeBones = char:FindFirstChild("UpperTorso") and bonesR15 or bonesR6
+                                    for i, bone in ipairs(activeBones) do
+                                        local p1, p2 = char:FindFirstChild(bone[1]), char:FindFirstChild(bone[2])
+                                        local line = esp.skeleton[i]
+                                        if p1 and p2 then
+                                            local x1, y1, on1 = getScreenPos(p1.Position)
+                                            local x2, y2, on2 = getScreenPos(p2.Position)
+                                            if on1 and on2 then drawLine(line, x1, y1, x2, y2, Colors.plr_skel)
+                                            elseif line.Visible then line.Visible = false end
+                                        elseif line.Visible then line.Visible = false end
+                                    end
+                                    for i = #activeBones + 1, #esp.skeleton do
+                                        if esp.skeleton[i].Visible then esp.skeleton[i].Visible = false end
+                                    end
+                                else
+                                    for _, l in ipairs(esp.skeleton) do if l.Visible then l.Visible = false end end
+                                end
+                            end
+                        end
+                    end
                 end
             end
-            for char, esp in pairs(plrStore) do if not char.Parent then destroyEsp(esp); plrStore[char] = nil end end
-        else for _, e in pairs(plrStore) do hideEsp(e) end end
+        end
     end
 
-    if currentTick - lastOtherTick >= (1 / 60) then
-        lastOtherTick = currentTick
-
-        -- NPCs
-        if getFlag("npc_master", true) and getFlag("npc_enabled", false) then
-            local npcFolder = Workspace:FindFirstChild("Npcs")
-            if npcFolder then
-                for _, model in ipairs(npcFolder:GetChildren()) do
-                    if model:IsA("Model") and not Players:GetPlayerFromCharacter(model) then
-                        local hum = model:FindFirstChildOfClass("Humanoid")
-                        if hum and hum.Health > 0 then
-                            if not npcStore[model] then npcStore[model] = buildEsp() end
-                            local esp = npcStore[model]; local root = getRoot(model)
-                            local distStuds = root and (root.Position - camPos).Magnitude or math.huge
-                            if root and distStuds <= (getFlag("npc_max_dist", 500) * METER_TO_STUD) then
+    -- ─── NPCs ────────────────────────────────────────────────────
+    if npcOn then
+        local maxDistStuds = getFlag("npc_max_dist", 500) * METER_TO_STUD
+        local boxOn, boxStyle = getFlag("npc_box", true), getFlag("npc_style", "Corners")
+        local nameOn, distOn, wepOn = getFlag("npc_name", true), getFlag("npc_dist", true), getFlag("npc_weapon", true)
+        local chamsOn = getFlag("npc_chams", true)
+        local npcFolder = Workspace:FindFirstChild("Npcs")
+        if npcFolder then
+            for _, model in ipairs(npcFolder:GetChildren()) do
+                if model:IsA("Model") and not Players:GetPlayerFromCharacter(model) then
+                    local hum = model:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then
+                        local root = getRoot(model)
+                        local distStuds = root and (root.Position - camPos).Magnitude or math.huge
+                        if root and distStuds <= maxDistStuds then
+                            local rx, ry, rOn = getScreenPos(root.Position)
+                            if rOn and nearViewport(rx, ry) then
                                 local cf, size = model:GetBoundingBox()
                                 local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
                                 local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
                                 if topOn and botOn then
+                                    local esp = npcStore[model]
+                                    if not esp then esp = buildEsp(); npcStore[model] = esp end
+                                    markEsp(esp)
                                     local h = math.max(botY - topY, 1); local w = math.max(h * 0.55, 1)
                                     local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
 
-                                    if getFlag("npc_chams", true) then
-                                        local vis = isVisible(model, root)
-                                        if esp.lastVisible ~= vis then
-                                            ensureHighlight(esp, model, vis and Colors.npc_chams_vis or Colors.npc_chams_occ); esp.lastVisible = vis
-                                        elseif esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
-                                    elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
-
-                                    if getFlag("npc_box", true) then drawBox(esp, bLeft, topY, bRight, botY, getFlag("npc_style", "Corners"), Colors.npc_box)
-                                    else for _, c in ipairs(esp.corners) do c.Visible = false end; esp.box.Visible = false end
-
-                                    esp.name.Visible = getFlag("npc_name", true)
-                                    if esp.name.Visible then esp.name.Text = model.Name; esp.name.TextColor3 = Colors.npc_name; esp.name.Position = UDim2.fromOffset(math.floor(topX), math.floor(topY - 16)) end
-
-                                    local meters = math.floor(distStuds * STUD_TO_METER)
-                                    if esp.lastDist ~= meters then esp.lastDist = meters; esp.distance.Text = tostring(meters) .. "m" end
-                                    esp.distance.Visible = getFlag("npc_dist", true)
-                                    if esp.distance.Visible then esp.distance.TextColor3 = Colors.npc_dist; esp.distance.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 16)) end
-
-                                    esp.weapon.Visible = getFlag("npc_weapon", true)
-                                    if esp.weapon.Visible then local tool = model:FindFirstChildWhichIsA("Tool"); esp.weapon.Text = tool and tool.Name or "Unarmed"; esp.weapon.TextColor3 = Colors.npc_wep; esp.weapon.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 32)) end
-                                else hideEsp(esp) end
-                            else hideEsp(esp) end
-                        end
-                    end
-                end
-            end
-            for model, esp in pairs(npcStore) do if not model.Parent then destroyEsp(esp); npcStore[model] = nil end end
-        else for _, e in pairs(npcStore) do hideEsp(e) end end
-
-        -- Ores (icon viewports)
-        if getFlag("ore_master", true) and getFlag("ore_enabled", false) then
-            local maxDistStuds = getFlag("ore_max_dist", 300) * METER_TO_STUD
-            for desc in pairs(trackedOres) do
-                if desc.Parent then
-                    if not getFlag("ore_" .. desc.Name, true) then
-                        hideOreIcon(oreIcons[desc])
-                    else
-                        local root = getRoot(desc)
-                        if root then
-                            local distStuds = (root.Position - camPos).Magnitude
-                            if distStuds <= maxDistStuds then
-                                local px, py, onScreen = getScreenPos(root.Position)
-                                if onScreen then
-                                    local entry = oreIcons[desc]
-                                    if not entry then
-                                        entry = createOreIcon(desc)
-                                        oreIcons[desc] = entry
-                                    end
-                                    if entry and entry.view then
-                                        local size = math.clamp(3000 / math.max(distStuds, 1), 22, 64)
-                                        entry.view.AnchorPoint = Vector2.new(0.5, 0.5)
-                                        entry.view.Position = UDim2.fromOffset(math.floor(px), math.floor(py))
-                                        entry.view.Size = UDim2.fromOffset(math.floor(size), math.floor(size))
-                                        entry.view.Visible = true
-
-                                        if getFlag("ore_dist", true) then
-                                            local meters = math.floor(distStuds * STUD_TO_METER)
-                                            entry.distLabel.Text = tostring(meters) .. "m"
-                                            entry.distLabel.Position = UDim2.fromOffset(math.floor(px), math.floor(py + size * 0.5 + 8))
-                                            entry.distLabel.Visible = true
-                                        else
-                                            entry.distLabel.Visible = false
+                                    if chamsOn then
+                                        if now >= (esp.nextVisCheck or 0) then
+                                            esp.nextVisCheck = now + 0.12
+                                            local vis = isVisible(model, root)
+                                            if esp.lastVisible ~= vis then
+                                                ensureHighlight(esp, model, vis and Colors.npc_chams_vis or Colors.npc_chams_occ)
+                                                esp.lastVisible = vis
+                                            end
                                         end
+                                        if esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
+                                    elseif esp.highlight and esp.highlight.Enabled then
+                                        esp.highlight.Enabled = false
                                     end
-                                else
-                                    hideOreIcon(oreIcons[desc])
+
+                                    if boxOn then drawBox(esp, bLeft, topY, bRight, botY, boxStyle, Colors.npc_box) else hideBox(esp) end
+                                    setLabel(esp.name, nameOn, model.Name, Colors.npc_name, topX, topY - 16)
+                                    local meters = math.floor(distStuds * STUD_TO_METER)
+                                    esp.lastDist = meters
+                                    setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.npc_dist, topX, botY + 16)
+                                    local tool = model:FindFirstChildWhichIsA("Tool")
+                                    setLabel(esp.weapon, wepOn, tool and tool.Name or "Unarmed", Colors.npc_wep, topX, botY + 32)
                                 end
-                            else
-                                hideOreIcon(oreIcons[desc])
                             end
-                        else
-                            hideOreIcon(oreIcons[desc])
                         end
                     end
                 end
             end
-        else
-            for _, e in pairs(oreIcons) do hideOreIcon(e) end
         end
+    end
 
-        -- Helis
-        if getFlag("heli_master", true) and getFlag("heli_enabled", false) then
-            for desc in pairs(trackedHelis) do
-                if desc.Parent then
-                    local root = getRoot(desc)
-                    if root then
-                        local distStuds = (root.Position - camPos).Magnitude
-                        if distStuds <= (getFlag("heli_max_dist", 2000) * METER_TO_STUD) then
+    -- ─── Ores (3D ViewportFrame icons) ───────────────────────────
+    -- Cap new icons per pass so a batch of nodes entering render distance
+    -- cannot spike the frame; the rest appear on the following pass.
+    if oreOn then
+        local maxDistStuds = getFlag("ore_max_dist", 300) * METER_TO_STUD
+        local distOn = getFlag("ore_dist", true)
+        local newIcons = 0
+        for desc in pairs(trackedOres) do
+            if desc.Parent and getFlag("ore_" .. desc.Name, true) then
+                local root = getRoot(desc)
+                if root then
+                    local distStuds = (root.Position - camPos).Magnitude
+                    if distStuds <= maxDistStuds then
+                        local px, py, onScreen = getScreenPos(root.Position)
+                        if onScreen and nearViewport(px, py) then
+                            local entry = oreIcons[desc]
+                            if not entry and newIcons < 2 then
+                                entry = createOreIcon(desc)
+                                oreIcons[desc] = entry
+                                newIcons = newIcons + 1
+                            end
+                            if entry and entry.view then
+                                markOre(entry)
+                                local size = math.clamp(3000 / math.max(distStuds, 1), 22, 64)
+                                setCentered(entry.view, px, py, size)
+                                local meters = math.floor(distStuds * STUD_TO_METER)
+                                setLabel(entry.distLabel, distOn, tostring(meters) .. "m", Colors.white, px, py + size * 0.5 + 8)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- ─── Helis ───────────────────────────────────────────────────
+    if heliOn then
+        local maxDistStuds = getFlag("heli_max_dist", 2000) * METER_TO_STUD
+        local distOn, chamsOn = getFlag("heli_dist", true), getFlag("heli_chams", true)
+        local style = getFlag("heli_style", "Full")
+        for desc in pairs(trackedHelis) do
+            if desc.Parent then
+                local root = getRoot(desc)
+                if root then
+                    local distStuds = (root.Position - camPos).Magnitude
+                    if distStuds <= maxDistStuds then
+                        local rx, ry, rOn = getScreenPos(root.Position)
+                        if rOn and nearViewport(rx, ry) then
                             local cf, size = desc:GetBoundingBox()
                             local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
                             local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
                             if topOn and botOn then
-                                if not heliStore[desc] then heliStore[desc] = buildEsp() end
                                 local esp = heliStore[desc]
+                                if not esp then esp = buildEsp(); heliStore[desc] = esp end
+                                markEsp(esp)
                                 local h = math.max(botY - topY, 1); local w = math.max(h * 0.8, 1)
                                 local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
-
-                                if getFlag("heli_chams", true) then ensureHighlight(esp, desc, Color3.fromRGB(255, 170, 0))
+                                if chamsOn then ensureHighlight(esp, desc, Colors.heli)
                                 elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
-
-                                drawBox(esp, bLeft, topY, bRight, botY, getFlag("heli_style", "Full"), Color3.fromRGB(255, 170, 0))
-
-                                esp.distance.Visible = getFlag("heli_dist", true)
-                                if esp.distance.Visible then
-                                    local meters = math.floor(distStuds * STUD_TO_METER)
-                                    if esp.lastDist ~= meters then esp.lastDist = meters; esp.distance.Text = tostring(meters) .. "m" end
-                                    esp.distance.TextColor3 = Color3.new(1,1,1); esp.distance.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 16))
-                                end
-                            elseif heliStore[desc] then hideEsp(heliStore[desc]) end
-                        elseif heliStore[desc] then hideEsp(heliStore[desc]) end
-                    elseif heliStore[desc] then hideEsp(heliStore[desc]) end
+                                drawBox(esp, bLeft, topY, bRight, botY, style, Colors.heli)
+                                local meters = math.floor(distStuds * STUD_TO_METER)
+                                esp.lastDist = meters
+                                setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.white, topX, botY + 16)
+                            end
+                        end
+                    end
                 end
             end
-        else for _, e in pairs(heliStore) do hideEsp(e) end end
+        end
+    end
+
+    -- ─── Reconciliation ──────────────────────────────────────────
+    -- Anything not drawn this frame (dead, gone, out of range, off screen,
+    -- toggled off) is hidden exactly once. Overlays for objects that left
+    -- the workspace are destroyed so memory does not grow over time.
+    for char, esp in pairs(plrStore) do
+        if esp.frameId ~= frame then hideEsp(esp) end
+        if not char.Parent then destroyEsp(esp); plrStore[char] = nil end
+    end
+    for model, esp in pairs(npcStore) do
+        if esp.frameId ~= frame then hideEsp(esp) end
+        if not model.Parent then destroyEsp(esp); npcStore[model] = nil end
+    end
+    for desc, esp in pairs(heliStore) do
+        if esp.frameId ~= frame then hideEsp(esp) end
+        if not desc.Parent then destroyEsp(esp); heliStore[desc] = nil end
+    end
+    for desc, entry in pairs(oreIcons) do
+        if entry.frameId ~= frame then hideOreIcon(entry) end
+        if not desc.Parent then destroyOreIcon(entry); oreIcons[desc] = nil end
+    end
+
+    if now >= nextPrune then
+        nextPrune = now + 0.5
+        for desc in pairs(trackedOres) do
+            if not desc.Parent then
+                trackedOres[desc] = nil
+                local e = oreIcons[desc]
+                if e then destroyOreIcon(e); oreIcons[desc] = nil end
+            end
+        end
+        for desc in pairs(trackedHelis) do
+            if not desc.Parent then
+                trackedHelis[desc] = nil
+                local e = heliStore[desc]
+                if e then destroyEsp(e); heliStore[desc] = nil end
+            end
+        end
+        for i = #cachedNodes, 1, -1 do
+            if not cachedNodes[i].Parent then table.remove(cachedNodes, i) end
+        end
     end
 end)
 
@@ -1156,7 +1263,7 @@ local MiscTab = Window:AddTab("Misc")
 local PlayerGroup = Visuals:AddGroup("Player ESP", "Left")
 PlayerGroup:AddToggle({ Name = "Master Enable (Players)", Flag = "plr_master", Default = true })
 PlayerGroup:AddToggle({ Name = "Player ESP Toggle", Flag = "plr_enabled", Default = false })
-PlayerGroup:AddSlider({ Name = "Update Rate (Hz)", Flag = "player_esp_hz", Min = 30, Max = 240, Default = 60, Suffix = " Hz" })
+PlayerGroup:AddSlider({ Name = "ESP Update Rate (Hz)", Flag = "player_esp_hz", Min = 30, Max = 240, Default = 60, Suffix = " Hz" })
 PlayerGroup:AddDropdown({ Name = "Box Style", Flag = "plr_style", Options = {"Corners", "Full"}, Default = "Corners" })
 PlayerGroup:AddSlider({ Name = "Max Distance", Flag = "plr_max_dist", Min = 10, Max = 2000, Default = 500, Suffix = "m" })
 PlayerGroup:AddToggle({ Name = "Box", Flag = "plr_box", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.plr_box = c end })
@@ -1212,71 +1319,60 @@ end)
 -- ═══════════════════════════════════════════════════════════════
 local AimbotGroup = CombatTab:AddGroup("Aimbot", "Left")
 AimbotGroup:AddToggle({
-    Name = "Master Enable", Default = false,
-    Callback = function(state) Aimbot.Config.Enabled = state end
-})
-AimbotGroup:AddToggle({
-    Name = "Team Check", Default = true,
-    Callback = function(state) Aimbot.Config.TeamCheck = state end
-})
-AimbotGroup:AddToggle({
-    Name = "Wall Check", Default = true,
-    Callback = function(state) Aimbot.Config.WallCheck = state end
+    Name = "Aimbot Enabled", Flag = "aim_enabled", Default = false,
+    Callback = function(v) aiming.enabled = v end
 })
 AimbotGroup:AddDropdown({
-    Name = "Target Part", Options = {"Head","HumanoidRootPart","Closest","Random"}, Default = "Head",
-    Callback = function(v) Aimbot.Config.TargetPart = v end
-})
-AimbotGroup:AddSlider({
-    Name = "FOV", Min = 10, Max = 360, Default = 180, Suffix = "°",
-    Callback = function(v) Aimbot.Config.FOV = v end
-})
-AimbotGroup:AddSlider({
-    Name = "Max Distance", Min = 50, Max = 2000, Default = 600, Suffix = " studs",
-    Callback = function(v) Aimbot.Config.MaxDistance = v end
-})
-AimbotGroup:AddSlider({
-    Name = "Prediction", Min = 0, Max = 0.5, Default = 0.12, Rounding = 3,
-    Callback = function(v) Aimbot.Config.Prediction = v end
-})
-AimbotGroup:AddSlider({
-    Name = "Smoothness", Min = 0, Max = 1, Default = 0.10, Rounding = 2,
-    Callback = function(v) Aimbot.Config.Smoothness = v end
-})
-
-local AimbotVisualGroup = CombatTab:AddGroup("Aimbot Visuals", "Right")
-AimbotVisualGroup:AddToggle({ Name = "Show FOV Circle", Default = true, Callback = function(v) Aimbot.Config.ShowFOV = v end })
-AimbotVisualGroup:AddToggle({ Name = "Show Target", Default = true, Callback = function(v) Aimbot.Config.ShowTarget = v end })
-AimbotVisualGroup:AddToggle({ Name = "Show Info", Default = true, Callback = function(v) Aimbot.Config.ShowInfo = v end })
-
-local BowGroup = CombatTab:AddGroup("Bow Assist", "Left")
-BowGroup:AddToggle({ Name = "Bow Auto Lock", Default = true, Callback = function(v) Aimbot.Config.BowAutoLock = v end })
-BowGroup:AddToggle({
-    Name = "Full Charge (Crossbow)", Default = false,
-    Callback = function(v) Aimbot.Config.BowChargeMode = v and "full" or "auto" end
-})
-BowGroup:AddSlider({ Name = "Bow FOV", Min = 10, Max = 360, Default = 180, Callback = function(v) Aimbot.Config.BowFOV = v end })
-BowGroup:AddSlider({ Name = "Bow Max Distance", Min = 50, Max = 1000, Default = 300, Callback = function(v) Aimbot.Config.BowMaxDistance = v end })
-BowGroup:AddSlider({ Name = "Bow Smoothness", Min = 0, Max = 0.5, Default = 0.05, Rounding = 3, Callback = function(v) Aimbot.Config.BowSmoothness = v end })
-BowGroup:AddSlider({ Name = "Draw Time", Min = 0.1, Max = 2, Default = 0.8, Rounding = 2, Callback = function(v) Aimbot.Config.BowDrawTime = v end })
-BowGroup:AddSlider({ Name = "Speed Base", Min = 20, Max = 200, Default = 95, Callback = function(v) Aimbot.Config.BowSpeedBase = v end })
-BowGroup:AddSlider({ Name = "Speed Charge", Min = 0, Max = 200, Default = 125, Callback = function(v) Aimbot.Config.BowSpeedCharge = v end })
-BowGroup:AddSlider({ Name = "Gravity", Min = 0, Max = 200, Default = 50, Callback = function(v) Aimbot.Config.BowGravity = v end })
-
-local AimbotKeys = CombatTab:AddGroup("Aimbot Keys", "Right")
-AimbotKeys:AddLabel("Toggle: Z  |  Hold: Q  |  Cycle Mode: X")
-AimbotKeys:AddButton({
-    Name = "Cycle Target Part",
-    Callback = function()
-        local modes = Aimbot.MODES or {"Head","HumanoidRootPart","Closest","Random"}
-        local idx = 1
-        for i, m in ipairs(modes) do
-            if m == Aimbot.Config.TargetPart then idx = i break end
-        end
-        Aimbot.Config.TargetPart = modes[(idx % #modes) + 1]
-        Library:Notify("Target: " .. tostring(Aimbot.Config.TargetPart), 3)
+    Name = "Lock Mode", Flag = "aim_lock_mode", Options = {"Always", "Hold"}, Default = "Always",
+    Callback = function(v)
+        aimLock.mode = (v == "Hold") and "hold" or "always"
+        aimLock.active = false
     end
 })
+AimbotGroup:AddKeybind({
+    Name = "Aimbot Keybind", Flag = "aim_key", Default = Enum.KeyCode.Q, NoFire = true,
+    Changed = function(k) if not k then aimLock.active = false end end
+})
+AimbotGroup:AddDropdown({
+    Name = "Bone", Flag = "aim_bone", Options = {"Head", "Hrp"}, Default = "Head",
+    Callback = function(v) aiming.bone = v end
+})
+AimbotGroup:AddSlider({
+    Name = "FOV", Flag = "aim_fov", Min = 10, Max = 500, Default = 220, Suffix = " px",
+    Callback = function(v) aiming.fov = v end
+})
+AimbotGroup:AddSlider({
+    Name = "Max Distance", Flag = "aim_distance", Min = 0, Max = 2000, Default = 0, Suffix = " studs",
+    Callback = function(v) aiming.distance = v end
+})
+AimbotGroup:AddSlider({
+    Name = "Smoothing", Flag = "aim_smoothing", Min = 1, Max = 20, Default = 2,
+    Callback = function(v) aiming.smoothing = v end
+})
+AimbotGroup:AddSlider({
+    Name = "Bullet Speed", Flag = "aim_bullet_speed", Min = 50, Max = 3000, Default = 900,
+    Callback = function(v) aiming.bulletSpeed = v end
+})
+
+local AimOptionsGroup = CombatTab:AddGroup("Aimbot Options", "Right")
+AimOptionsGroup:AddToggle({ Name = "FOV Circle", Flag = "Aim_FOV_Circle", Default = false })
+AimOptionsGroup:AddToggle({
+    Name = "Prediction", Flag = "aim_prediction", Default = true,
+    Callback = function(v) aiming.prediction = v end
+})
+AimOptionsGroup:AddToggle({
+    Name = "Target NPCs", Flag = "aim_target_npcs", Default = false,
+    Callback = function(v) aiming.targetNpcs = v end
+})
+AimOptionsGroup:AddToggle({
+    Name = "Wall Check", Flag = "aim_wall_check", Default = false,
+    Callback = function(v) aiming.wallCheck = v end
+})
+AimOptionsGroup:AddToggle({
+    Name = "Team Check", Flag = "aim_team_check", Default = false,
+    Callback = function(v) aiming.teamCheck = v end
+})
+AimOptionsGroup:AddLabel("Always: the keybind toggles the aimbot. Hold: aim only while the key is held. FOV is a pixel radius; distance 0 = unlimited. Mouse-relative lock with bullet-travel prediction.")
 
 -- ═══════════════════════════════════════════════════════════════
 --  MISC TAB
@@ -1320,10 +1416,14 @@ MiscGroup:AddButton({
     Name = "Unload Script & Clear Memory",
     Callback = function()
         unloaded = true
+        aiming.enabled = false
+        aimLock.active = false
         for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
         table.clear(connections)
         pcall(function() RunService:UnbindFromRenderStep("ARC3USX_InstaHit") end)
-        pcall(function() Aimbot.Cleanup() end)
+        if aiming.fovCircle and type(aiming.fovCircle.Remove) == "function" then
+            pcall(function() aiming.fovCircle:Remove() end)
+        end
         StaffDetector:StopMonitor()
         for _, e in pairs(plrStore) do destroyEsp(e) end; table.clear(plrStore)
         for _, e in pairs(npcStore) do destroyEsp(e) end; table.clear(npcStore)

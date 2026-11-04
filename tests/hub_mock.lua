@@ -255,6 +255,8 @@ local run = { RenderStepped = signal() }
 function run:BindToRenderStep(name, _, fn) renderSteps[name] = fn end
 function run:UnbindFromRenderStep(name) renderSteps[name] = nil end
 local uis = { InputBegan = signal(), InputEnded = signal() }
+local mouseLocation = V2.new(400, 300)
+function uis:GetMouseLocation() return mouseLocation end
 local services = {
     Players = players, RunService = run, CoreGui = coreGui,
     ReplicatedStorage = rep, UserInputService = uis, Workspace = workspace,
@@ -268,6 +270,8 @@ os.clock = function() return clock end
 warn = function(message) print("[warn] " .. tostring(message)) end
 local clicks = 0
 mouse1click = function() clicks = clicks + 1 end
+local mouseMoves = {}
+mousemoverel = function(x, y) mouseMoves[#mouseMoves + 1] = { x, y } end
 task = {
     spawn = function(fn, ...) pcall(fn, ...) end,
     wait = function() error("__mock_yield__") end,
@@ -277,7 +281,7 @@ task = {
 
 -- ─── Mock UI library ────────────────────────────────────────────
 local library = {
-    Flags = {}, Notifications = {}, controls = {}, buttons = {}, labels = {},
+    Flags = {}, Options = {}, Notifications = {}, controls = {}, buttons = {}, labels = {},
     groups = {}, tabs = {}, previews = {}, settingsTab = false, unloaded = false,
 }
 function library:Notify(text) self.Notifications[#self.Notifications + 1] = text end
@@ -287,6 +291,12 @@ local function addControl(group, o)
     local key = o.Flag or o.Name
     library.controls[key] = o
     if o.Flag then library.Flags[o.Flag] = o.Default end
+    local obj = { Type = o.Type or "Control", Key = o.Default }
+    function obj:Set(v)
+        library.Flags[key] = v
+        if o.Callback then o.Callback(v) end
+    end
+    library.Options[key] = obj
     return o
 end
 local function newGroup(name, side)
@@ -295,6 +305,11 @@ local function newGroup(name, side)
     function g:AddSlider(o) return addControl(self, o) end
     function g:AddDropdown(o) return addControl(self, o) end
     function g:AddButton(o) library.buttons[o.Name] = o.Callback; return addControl(self, o) end
+    function g:AddKeybind(o)
+        local c = addControl(self, o)
+        if o.Flag then library.Flags[o.Flag] = o.Default and o.Default.Name or "" end
+        return c
+    end
     function g:AddLabel(text)
         local label = { text = text }
         function label:SetText(t) self.text = t end
@@ -359,7 +374,9 @@ assert(load(hubSource, "scripts/main.lua"))()
 
 -- No legacy feature code or controls may survive the swap.
 for _, removed in ipairs({ "GunMods", "BowMods", "getgc", "gunmods_enabled", "bowmods_enabled",
-    "universal_ammo", "ESP_URL", "ui_bootstrap", "ARC3USX_NH", "weakspotMarkers" }) do
+    "universal_ammo", "ESP_URL", "ui_bootstrap", "ARC3USX_NH", "weakspotMarkers",
+    "FustAimBow", "BowAutoLock", "solveBallistic", "ARC3USX_Aimbot", "Aimbot.Config",
+    "Cycle Target Part", "Toggle: Z" }) do
     check(not hubSource:find(removed, 1, true), "legacy feature still present: " .. removed)
 end
 for _, flag in ipairs({ "gunmods_enabled", "bowmods_enabled", "universal_ammo", "universal_noair" }) do
@@ -372,7 +389,7 @@ check(#library.tabs == 3 and library.settingsTab, "three tabs plus settings")
 check(library.tabs[1].name == "ESP / World" and library.tabs[2].name == "Combat" and library.tabs[3].name == "Misc", "tab names")
 local expectedGroups = {
     "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview",
-    "Aimbot", "Aimbot Visuals", "Bow Assist", "Aimbot Keys",
+    "Aimbot", "Aimbot Options",
     "Staff Detection", "Staff ESP", "Mining (Silent Insta-Hit)", "System",
 }
 for _, name in ipairs(expectedGroups) do
@@ -382,13 +399,17 @@ for _, name in ipairs(expectedGroups) do
 end
 for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "player_esp_hz",
     "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
-    "staff_monitor", "staff_esp" }) do
+    "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_bone",
+    "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
+    "aim_prediction", "aim_target_npcs", "aim_wall_check", "aim_team_check" }) do
     check(library.Flags[flag] ~= nil, "missing flag: " .. flag)
 end
 check(#library.previews == 1 and library.previews[1].Elements.Box == "plr_box", "ESP preview wired to hub flags")
 check(type(renderSteps.ARC3USX_InstaHit) == "function", "insta-hit render step bound")
-check(type(renderSteps.ARC3USX_Aimbot) == "function", "aimbot render step bound")
-check(#drawings == 3, "aimbot drawing objects created")
+check(renderSteps.ARC3USX_Aimbot == nil, "old bound aimbot render step removed")
+check(#drawings == 1, "a single aimbot FOV circle created")
+check(type(library.Options.aim_key.Key) == "table", "aimbot keybind registered with a default key")
+check(type(library.Flags.aim_lock) == "table", "aim lock state table registered")
 local espGui = findNode(function(n) return n.Name == "ARC3USX_ESP_UI" end)
 check(espGui and espGui.Parent == coreGui, "ESP ScreenGui parented to CoreGui")
 
@@ -435,6 +456,21 @@ library.Flags.plr_style = "Full"
 step()
 check(labelVisible("Target"), "full box style still draws player ESP")
 library.Flags.plr_style = "Corners"
+
+-- ESP must never stay stuck on screen for dead or removed targets.
+local targetHum = target.Character:FindFirstChild("Humanoid")
+targetHum.Health = 0
+step()
+check(not labelVisible("Target") and playerHighlight.Enabled == false, "dead player's ESP hidden on the next frame")
+targetHum.Health = 100
+step()
+check(labelVisible("Target"), "ESP returns when the target is alive again")
+library.Flags.plr_master = false
+step()
+check(not labelVisible("Target"), "master switch hides all player overlays")
+step()
+check(not labelVisible("Target"), "a hidden overlay stays hidden (idempotent hide)")
+library.Flags.plr_master = true
 
 -- ─── NPC ESP ────────────────────────────────────────────────────
 local npcFolder = node("Folder", "Npcs", workspace)
@@ -496,29 +532,119 @@ check(clicks == 1, "insta-hit also fires a synthetic click")
 check(camera.CFrame == savedCFrame, "insta-hit restores the camera without a visible lock")
 library.Flags.weakspot_enabled = false
 
--- ─── Combat aim assist ──────────────────────────────────────────
-library.controls["Master Enable"].Callback(true)
-uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
-renderSteps.ARC3USX_Aimbot(1 / 60)
-check(drawings[1].Visible and drawings[3].Visible, "FOV circle and info text shown when enabled")
-check(drawings[3].Text:find("gun", 1, true), "gun mode info text")
-check(drawings[2].Visible, "target marker shown for a valid enemy")
-players.LocalPlayer:SetAttribute("FustAimBow", true)
-renderSteps.ARC3USX_Aimbot(1 / 60)
-check(drawings[3].Text:find("bow", 1, true), "bow mode info text with ballistic speed")
-players.LocalPlayer:SetAttribute("FustAimBow", nil)
-uis.InputEnded:Fire({ KeyCode = Enum.KeyCode.Q })
-library.buttons["Cycle Target Part"]()
-check(library.Notifications[#library.Notifications]:find("Target:", 1, true), "cycle target part notifies")
+-- ─── Aimbot (mouse-relative lock) ───────────────────────────────
+library.controls.aim_enabled.Callback(true)
+library.Flags.Aim_FOV_Circle = true
+step()
+check(drawings[1].Visible and drawings[1].Radius == 220, "FOV circle shown with configured radius")
+check(#mouseMoves > 0 and mouseMoves[#mouseMoves][2] == -10, "aimbot nudges the mouse toward the head target")
+library.controls.aim_bone.Callback("Hrp")
+step()
+check(mouseMoves[#mouseMoves][2] == 0, "Hrp bone aims at the root instead of the head")
+library.controls.aim_bone.Callback("Head")
 
--- ─── Unload ─────────────────────────────────────────────────────
+-- Isolate one target so bullet-travel prediction is measurable.
+staff.Character:FindFirstChild("Humanoid").Health = 0
+local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
+targetRoot.AssemblyLinearVelocity = V3.new(90, 0, 0)
+step()
+check(mouseMoves[#mouseMoves][1] == 5, "prediction leads the target using bullet travel time")
+library.controls.aim_prediction.Callback(false)
+step()
+check(mouseMoves[#mouseMoves][1] == 0, "prediction can be disabled")
+library.controls.aim_prediction.Callback(true)
+targetRoot.AssemblyLinearVelocity = V3.zero
+staff.Character:FindFirstChild("Humanoid").Health = 100
+
+-- FOV and distance limits.
+library.controls.aim_fov.Callback(5)
+local movesBefore = #mouseMoves
+step()
+check(#mouseMoves == movesBefore, "targets outside the FOV are ignored")
+library.controls.aim_fov.Callback(220)
+library.controls.aim_distance.Callback(1)
+step()
+check(#mouseMoves == movesBefore, "targets beyond max distance are ignored")
+library.controls.aim_distance.Callback(0)
+
+-- Team check via the FustMates attribute.
+library.controls.aim_team_check.Callback(true)
+players.LocalPlayer:SetAttribute("FustMates", " " .. tostring(target.UserId) .. ", 999 ")
+step()
+check(#mouseMoves == movesBefore, "team check skips listed teammates")
+library.controls.aim_team_check.Callback(false)
+players.LocalPlayer:SetAttribute("FustMates", nil)
+
+-- Smoothing divides the mouse delta.
+library.controls.aim_smoothing.Callback(4)
+step()
+check(mouseMoves[#mouseMoves][2] == -5, "smoothing divides the mouse delta")
+library.controls.aim_smoothing.Callback(2)
+
+-- Wall check rejects blocked targets.
+library.controls.aim_wall_check.Callback(true)
+workspace.obstruction = { Instance = node("Part", "Wall", workspace) }
+movesBefore = #mouseMoves
+step()
+check(#mouseMoves == movesBefore, "wall check rejects blocked targets")
+workspace.obstruction = nil
+library.controls.aim_wall_check.Callback(false)
+step()
+
+-- NPC targets are opt-in.
+library.controls.aim_target_npcs.Callback(false)
+target.Character:FindFirstChild("Humanoid").Health = 0
+staff.Character:FindFirstChild("Humanoid").Health = 0
+movesBefore = #mouseMoves
+step()
+check(#mouseMoves == movesBefore, "NPCs are ignored when targetNpcs is off")
+library.controls.aim_target_npcs.Callback(true)
+step()
+check(#mouseMoves > movesBefore, "NPC targets can be included")
+library.controls.aim_target_npcs.Callback(false)
+target.Character:FindFirstChild("Humanoid").Health = 100
+staff.Character:FindFirstChild("Humanoid").Health = 100
+
+-- Hold mode gates on the keybind; Always mode uses the keybind as a toggle.
+library.controls.aim_lock_mode.Callback("Hold")
+movesBefore = #mouseMoves
+step()
+check(#mouseMoves == movesBefore, "hold mode does not aim without the key")
+uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
+step()
+check(#mouseMoves > movesBefore, "hold mode aims while the key is held")
+uis.InputEnded:Fire({ KeyCode = Enum.KeyCode.Q })
+library.controls.aim_lock_mode.Callback("Always")
+library.controls.aim_enabled.Callback(true)
+uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
+check(library.Flags.aim_enabled == false, "keybind toggles the aimbot in always mode")
+library.controls.aim_enabled.Callback(true)
+library.Flags.Aim_FOV_Circle = false
+step()
+check(not drawings[1].Visible, "FOV circle hidden when its toggle is off")
+
+-- ─── ESP ScreenGui rebuild + cleanup ─────────────────────────────
+espGui.Parent = nil
+step()
+local rebuiltGui = findNode(function(n) return n.Name == "ARC3USX_ESP_UI" and n.Parent == coreGui end)
+check(rebuiltGui and rebuiltGui ~= espGui, "ESP ScreenGui rebuilt if removed externally")
+local targetLabel = findNode(function(n) return n.ClassName == "TextLabel" and n.Text == "Target" end)
+target.Character.Parent = nil
+step()
+check(targetLabel.Destroyed, "overlays destroyed when their character leaves")
+
+-- ─── Unload ──────────────────────────────────────────────────────
 library.buttons["Unload Script & Clear Memory"]()
 check(library.unloaded, "unload closes the UI library")
-check(espGui.Destroyed, "unload destroys the ESP ScreenGui")
+check(findNode(function(n) return n.Name == "ARC3USX_ESP_UI" and n.Parent == coreGui end) == nil,
+    "unload destroys the ESP ScreenGui")
 check(renderSteps.ARC3USX_InstaHit == nil and renderSteps.ARC3USX_Aimbot == nil, "render steps unbound")
 check(run.RenderStepped:ActiveCount() == 0, "render connections disconnected")
 for _, d in ipairs(drawings) do check(d.removed, "aimbot drawing removed on unload") end
+check(not drawings[1].Visible, "FOV circle hidden on unload")
+movesBefore = #mouseMoves
 step()
+check(#mouseMoves == movesBefore, "no aimbot movement after unload")
 check(not labelVisible("Target"), "no ESP updates after unload")
 check(staffHighlight.Destroyed, "staff highlights cleaned on unload")
 
