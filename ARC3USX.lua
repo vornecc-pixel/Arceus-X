@@ -22,6 +22,10 @@ local Debris = game:GetService("Debris")
 
 local LocalPlayer = Players.LocalPlayer
 
+-- Lua 5.1 has math.atan2; Luau / Lua 5.3 use two-argument math.atan. The
+-- intro's reveal uses it, so resolve it once for both.
+local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+
 local Library = {
     Name = "ARC3USX.EXE",
     Version = "1.0.0",
@@ -1318,7 +1322,7 @@ function Group:AddESPPreview(o)
             AnchorPoint = Vector2.new(0.5, 0.5),
             Position = UDim2.fromOffset(m.X, m.Y),
             Size = UDim2.fromOffset(d.Magnitude, th or 1),
-            Rotation = math.deg(math.atan2(d.Y, d.X)),
+            Rotation = math.deg(atan2(d.Y, d.X)),
             BackgroundColor3 = Color3.new(1, 1, 1),
             BackgroundTransparency = 0,
             Parent = parent,
@@ -1489,7 +1493,7 @@ function Group:AddESPPreview(o)
             local m = (a + b) / 2
             tracer.Position = UDim2.fromOffset(m.X, m.Y)
             tracer.Size = UDim2.fromOffset(d.Magnitude, 1)
-            tracer.Rotation = math.deg(math.atan2(d.Y, d.X))
+            tracer.Rotation = math.deg(atan2(d.Y, d.X))
         end
     end)
     refresh()
@@ -2717,7 +2721,7 @@ function Library:_RunIntro(win)
     local X, Y = cx, hy
     local R0 = math.max(120, math.sqrt((X - tx) ^ 2 + (Y - ty) ^ 2))
     local Ro = math.max(60, math.min(130, tx - 8, R0))
-    local th0 = math.atan2(Y - ty, X - tx)
+    local th0 = atan2(Y - ty, X - tx)
     local s1 = 18 / heroH
     local done, t0 = false, os.clock()
     local conn

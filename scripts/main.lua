@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
 --  ARC3USX.EXE — ULTIMATE OPTIMIZED HUB
---  SMOOTH ESP + SILENT INSTA-HIT + MOUSE-RELATIVE AIMBOT
+--  SMOOTH ESP + AUTO WEAKSPOT + MOUSE-RELATIVE AIMBOT + LIBRARY LOADING SCREEN
 --
 --  Entry point for the hub. The UI library lives in ARC3USX.lua at the
 --  repository root; everything below is the hub's feature set.
@@ -16,7 +16,9 @@ local Workspace         = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local LIBRARY_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/main/ARC3USX.lua"
+-- Load the library from THIS branch: the animated loading screen is embedded
+-- in ARC3USX.lua here, so main's copy (which the hub used before) is not used.
+local LIBRARY_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/6af703ac-arceus-x/ARC3USX.lua"
 local libraryOk, Library = pcall(function()
     return assert(loadstring(game:HttpGet(LIBRARY_URL)))()
 end)
@@ -457,11 +459,13 @@ connect(Players.PlayerRemoving, function(plr)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
---  WEAKSPOT AIM (NO AUTO-HIT, NO AUTO-CLICK)
+--  SILENT INSTA-HIT WEAKSPOT (NO CAMERA LOCK)
 -- ═══════════════════════════════════════════════════════════════
 local NodeNames = { ["Tree"] = true, ["MetalNode"] = true, ["SulfurNode"] = true, ["StoneNode"] = true, ["Cactus"] = true, ["Meteor"] = true }
 local WeakspotNames = { "Weakspot", "WeakSpot", "WeakPoint", "Weakpoint", "CriticalSpot", "CriticalPart", "Critical", "CritSpot", "Hitpoint", "HitPoint", "HitSpot", "Mark", "MarkSpot", "Bonus", "BonusSpot" }
 local cachedNodes = {}
+local lastHitTime = 0
+local HIT_COOLDOWN = 0.12
 
 task.spawn(function()
     for _, v in ipairs(Workspace:GetDescendants()) do
@@ -506,33 +510,36 @@ local function getNearestNodeInRange(maxRange)
     return closest
 end
 
--- No automatic activation and no synthetic click. The camera is nudged toward
--- the nearest weakspot ONLY when the player presses MouseButton1, and is put
--- back on the very next rendered frame. Nothing swinging/hitting happens here.
-local pendingSnap = nil
+local function performInstaHit()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if not tool then return end
+    local name = tool.Name:lower()
+    if not (name:find("pickaxe") or name:find("hatchet") or name:find("rock") or name:find("jackhammer") or name:find("chainsaw")) then return end
 
-local function queueWeakspotSnap()
-    if unloaded or not getFlag("weakspot_enabled", false) then return end
     local node = getNearestNodeInRange(50)
     if not node then return end
+
     local targetPos = getWeakspotPosition(node)
     local camPos = Camera.CFrame.Position
     if (targetPos - camPos).Magnitude < 0.5 then return end
-    pendingSnap = Camera.CFrame
+
+    -- Silent snap: aim → activate → restore in the same tick.
+    local savedCFrame = Camera.CFrame
     Camera.CFrame = CFrame.lookAt(camPos, targetPos)
+    pcall(function() tool:Activate() end)
+    if type(mouse1click) == "function" then pcall(mouse1click) end
+    Camera.CFrame = savedCFrame
 end
 
-connect(UserInputService.InputBegan, function(input, gp)
-    if gp or unloaded or Library._listening then return end
-    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-    pcall(queueWeakspotSnap)
+RunService:BindToRenderStep("ARC3USX_InstaHit", Enum.RenderPriority.Camera.Value + 1, function(dt)
+    if unloaded or not getFlag("weakspot_enabled", false) then return end
+    local now = tick()
+    if now - lastHitTime < HIT_COOLDOWN then return end
+    lastHitTime = now
+    performInstaHit()
 end)
-
-local function restoreWeakspotSnap()
-    if not pendingSnap then return end
-    Camera.CFrame = pendingSnap
-    pendingSnap = nil
-end
 
 -- ═══════════════════════════════════════════════════════════════
 --  STORES & HELPERS
@@ -730,23 +737,7 @@ local aiming = {
     targetNpcs  = false,
     wallCheck   = false,
     teamCheck   = false,
-
-    -- Arc / gravity compensation (bows + crossbows)
-    arcCompensation = true,
-    gravity         = 50,
-    bowCharge       = 1.0,
-    bowBaseSpeed    = 95,
-    bowChargeSpeed  = 125,
-    currentKind     = "hitscan",
-
-    -- Auto-tune from the equipped tool
-    autoTune      = true,
-    fallbackSpeed = 900,
-    currentTool   = nil,
-    lastTune      = 0,
-    tuneInterval  = 0.25,
 }
-local weaponLabel = nil
 
 -- The UI library stores a keybind's flag as a key-name string, so the lock
 -- state (mode + active) lives in its own table, exactly as lockActive expects.
@@ -775,17 +766,6 @@ end
 aiming.fovCircle = drawing("Circle", {
     Thickness = 1, NumSides = 64, Filled = false, Visible = false,
 })
-
--- Bow detection mirrors the game's own Vex.txt logic: ItemId -> Items.Get ->
--- weapon == "bow". Missing module falls back to a name match.
-local Items = nil
-pcall(function()
-    local fust = ReplicatedStorage:FindFirstChild("Fust")
-    local items = fust and fust:FindFirstChild("Items")
-    if items and items:IsA("ModuleScript") then
-        Items = require(items)
-    end
-end)
 
 local aimRayParams = RaycastParams.new()
 aimRayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -839,138 +819,20 @@ local function getBonePart(model)
     return model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
 end
 
-local function isBowTool(tool)
-    if not tool then return false end
-
-    if Items and type(Items.Get) == "function" then
-        local itemId = tool:GetAttribute("ItemId")
-        if type(itemId) == "string" then
-            local ok, def = pcall(Items.Get, itemId)
-            if ok and type(def) == "table" and def.weapon == "bow" then
-                return true
-            end
-        end
+local function predictPosition(model, basePos, cameraPos)
+    if not aiming.prediction or aiming.bulletSpeed <= 0 then
+        return basePos
     end
 
-    return tool.Name:lower():find("bow", 1, true) ~= nil
-end
-
-local function resolveBowParams(tool)
-    local base, charge, grav = aiming.bowBaseSpeed, aiming.bowChargeSpeed, aiming.gravity
-
-    local aBase = tonumber(tool:GetAttribute("SpeedBase"))
-    local aCharge = tonumber(tool:GetAttribute("SpeedCharge"))
-    local aGrav = tonumber(tool:GetAttribute("Gravity"))
-    if aBase and aBase > 0 then base = aBase end
-    if aCharge and aCharge >= 0 then charge = aCharge end
-    if aGrav and aGrav > 0 then grav = aGrav end
-
-    if Items and type(Items.Get) == "function" and type(Items.BowSpec) == "function" then
-        local itemId = tool:GetAttribute("ItemId")
-        if type(itemId) == "string" then
-            local ok, def = pcall(Items.Get, itemId)
-            if ok and def then
-                local ok2, spec = pcall(Items.BowSpec, def)
-                if ok2 and type(spec) == "table" then
-                    if type(spec.speedBase) == "number" then base = spec.speedBase end
-                    if type(spec.speedCharge) == "number" then charge = spec.speedCharge end
-                    if type(spec.gravity) == "number" then grav = spec.gravity end
-                end
-            end
-        end
+    local hrp = model:FindFirstChild("HumanoidRootPart")
+    local vel = hrp and hrp.AssemblyLinearVelocity
+    if not vel or vel.Magnitude <= 1 then
+        return basePos
     end
 
-    local chargeFrac = math.clamp(aiming.bowCharge, 0, 1)
-    local speed = chargeFrac * charge + base
-    aiming.gravity = grav
-    return speed
-end
-
-local function getEquippedTool()
-    local char = lp.Character
-    if not char then return nil end
-    return char:FindFirstChildOfClass("Tool")
-end
-
-local function resolveWeapon(tool)
-    if not tool then
-        return aiming.fallbackSpeed, "hitscan"
-    end
-
-    if isBowTool(tool) then
-        return resolveBowParams(tool), "projectile"
-    end
-
-    local speedAttrs = {
-        "ProjectileSpeed", "BulletSpeed", "MuzzleVelocity",
-        "Velocity", "Speed", "ProjectileVelocity",
-    }
-    for _, name in ipairs(speedAttrs) do
-        local v = tonumber(tool:GetAttribute(name))
-        if v and v > 0 then return v, "hitscan" end
-    end
-
-    local lower = tool.Name:lower()
-    if lower:find("sniper") then return 2500, "hitscan" end
-    if lower:find("rifle") then return 1200, "hitscan" end
-    if lower:find("smg") then return 1000, "hitscan" end
-    if lower:find("pistol") then return 900, "hitscan" end
-
-    return aiming.fallbackSpeed, "hitscan"
-end
-
-local function updateEquippedWeapon(now)
-    if not aiming.autoTune then return end
-    if now - aiming.lastTune < aiming.tuneInterval then return end
-    aiming.lastTune = now
-
-    local tool = getEquippedTool()
-    if tool == aiming.currentTool then return end
-
-    aiming.currentTool = tool
-    local speed, kind = resolveWeapon(tool)
-    aiming.bulletSpeed = speed
-    aiming.currentKind = kind
-    if weaponLabel then
-        pcall(function()
-            weaponLabel:SetText(string.format("Weapon: %s | speed %d | gravity %d | %s",
-                kind, math.floor(speed), math.floor(aiming.gravity), tool and tool.Name or "none"))
-        end)
-    end
-end
-
-local function predictPosition(model, basePos, cameraPos, speed, kind)
-    -- 1) Target velocity prediction (horizontal + vertical).
-    local predictedPos = basePos
-    if aiming.prediction and speed > 0 then
-        local hrp = model:FindFirstChild("HumanoidRootPart")
-        local vel = hrp and hrp.AssemblyLinearVelocity
-        if vel and vel.Magnitude > 1 then
-            local dist = (basePos - cameraPos).Magnitude
-            local travelTime = dist / speed
-            predictedPos = basePos + vel * travelTime
-        end
-    end
-
-    -- 2) Gravity lead for projectiles (bows / crossbows).
-    if kind == "projectile" and aiming.arcCompensation and aiming.gravity > 0 then
-        local aimPos = predictedPos
-        for _ = 1, 3 do
-            local dist = (aimPos - cameraPos).Magnitude
-            if dist <= 0 then break end
-            local travelTime = dist / speed
-            local drop = 0.5 * aiming.gravity * travelTime * travelTime
-            local newAim = predictedPos + Vector3.new(0, drop, 0)
-            if (newAim - aimPos).Magnitude < 0.01 then
-                aimPos = newAim
-                break
-            end
-            aimPos = newAim
-        end
-        predictedPos = aimPos
-    end
-
-    return predictedPos
+    local dist = (basePos - cameraPos).Magnitude
+    local travelTime = dist / aiming.bulletSpeed
+    return basePos + vel * travelTime
 end
 
 local function screenDelta(camera, worldPos, mouseLocation)
@@ -1004,7 +866,7 @@ local function isNpc(model)
         and not players:GetPlayerFromCharacter(model)
 end
 
-local function considerTarget(model, camera, cameraPos, mouseLocation, maxDist, speed, kind, best, bestDelta)
+local function considerTarget(model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta)
     local humanoid = model:FindFirstChildOfClass("Humanoid")
     if not humanoid or humanoid.Health <= 0 then
         return best, bestDelta
@@ -1019,7 +881,7 @@ local function considerTarget(model, camera, cameraPos, mouseLocation, maxDist, 
         return best, bestDelta
     end
 
-    local aimPos = predictPosition(model, bone.Position, cameraPos, speed, kind)
+    local aimPos = predictPosition(model, bone.Position, cameraPos)
     if maxDist > 0 and (aimPos - cameraPos).Magnitude > maxDist then
         return best, bestDelta
     end
@@ -1048,8 +910,6 @@ local function aimStep()
     local camera = ws.CurrentCamera
     if not camera then return end
 
-    updateEquippedWeapon(tick())
-
     local circle = aiming.fovCircle
     local mouseLocation = nil
     if aiming.enabled and flags.Aim_FOV_Circle and aiming.fov > 0 then
@@ -1069,8 +929,6 @@ local function aimStep()
     mouseLocation = mouseLocation or uis:GetMouseLocation()
     local cameraPos = camera.CFrame.Position
     local maxDist = aiming.distance
-    local speed = aiming.bulletSpeed
-    local kind = aiming.currentKind
     local best, bestDelta = nil, math.huge
 
     for _, player in ipairs(players:GetPlayers()) do
@@ -1078,7 +936,7 @@ local function aimStep()
             local model = player.Character
             if model then
                 best, bestDelta = considerTarget(
-                    model, camera, cameraPos, mouseLocation, maxDist, speed, kind, best, bestDelta
+                    model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta
                 )
             end
         end
@@ -1090,7 +948,7 @@ local function aimStep()
             for _, model in ipairs(npcsFolder:GetChildren()) do
                 if isNpc(model) then
                     best, bestDelta = considerTarget(
-                        model, camera, cameraPos, mouseLocation, maxDist, speed, kind, best, bestDelta
+                        model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta
                     )
                 end
             end
@@ -1134,12 +992,8 @@ connect(RunService.RenderStepped, function(dt)
     if not Camera then return end
 
     local now = tick()
-    -- An aimbot error must never abort the ESP pass below: both subsystems are
-    -- isolated so one bad target/tool cannot freeze every overlay on screen.
-    local okAim, aimErr = pcall(function()
-        restoreWeakspotSnap()
-        aimStep()
-    end)
+    -- Isolate the aimbot step: an error here must never abort the ESP pass below.
+    local okAim, aimErr = pcall(aimStep)
     if not okAim and now >= nextAimWarn then
         nextAimWarn = now + 1
         warn("[ARC3USX] Aimbot step error: " .. tostring(aimErr))
@@ -1435,7 +1289,9 @@ end)
 -- ═══════════════════════════════════════════════════════════════
 --  UI BUILDING
 -- ═══════════════════════════════════════════════════════════════
-local Window = Library:CreateWindow({ Name = "ARC3USX.EXE", Size = Vector2.new(800, 620), Intro = false, Theme = "Purple" })
+-- Intro = true starts the loading screen that lives inside ARC3USX.lua
+-- (compatibility checks, progress bar, ACCESS GRANTED reveal).
+local Window = Library:CreateWindow({ Name = "ARC3USX.EXE", Size = Vector2.new(800, 620), Intro = true, Theme = "Purple" })
 local Visuals = Window:AddTab("ESP / World")
 local CombatTab = Window:AddTab("Combat")
 local MiscTab = Window:AddTab("Misc")
@@ -1553,42 +1409,7 @@ AimOptionsGroup:AddToggle({
     Name = "Team Check", Flag = "aim_team_check", Default = false,
     Callback = function(v) aiming.teamCheck = v end
 })
-AimOptionsGroup:AddLabel("Always: the keybind toggles the aimbot. Hold: aim only while the key is held. FOV is a pixel radius; distance 0 = unlimited.")
-
-local WeaponGroup = CombatTab:AddGroup("Weapon Tuning", "Left")
-WeaponGroup:AddToggle({
-    Name = "Arc Compensation", Flag = "aim_arc", Default = true,
-    Callback = function(v) aiming.arcCompensation = v end
-})
-WeaponGroup:AddToggle({
-    Name = "Auto Tune Weapon", Flag = "aim_auto_tune", Default = true,
-    Callback = function(v) aiming.autoTune = v end
-})
-WeaponGroup:AddSlider({
-    Name = "Gravity", Flag = "aim_gravity", Min = 0, Max = 200, Default = 50,
-    Callback = function(v) aiming.gravity = v end
-})
-WeaponGroup:AddSlider({
-    Name = "Bow Charge", Flag = "aim_bow_charge", Min = 0.15, Max = 1, Default = 1, Rounding = 2,
-    Callback = function(v) aiming.bowCharge = v end
-})
-WeaponGroup:AddSlider({
-    Name = "Bow Base Speed", Flag = "aim_bow_base", Min = 20, Max = 300, Default = 95,
-    Callback = function(v) aiming.bowBaseSpeed = v end
-})
-WeaponGroup:AddSlider({
-    Name = "Bow Charge Speed", Flag = "aim_bow_charge_speed", Min = 0, Max = 300, Default = 125,
-    Callback = function(v) aiming.bowChargeSpeed = v end
-})
-WeaponGroup:AddSlider({
-    Name = "Fallback Speed", Flag = "aim_fallback_speed", Min = 50, Max = 4000, Default = 900,
-    Callback = function(v) aiming.fallbackSpeed = v end
-})
-WeaponGroup:AddSlider({
-    Name = "Tune Interval", Flag = "aim_tune_interval", Min = 0.05, Max = 1, Default = 0.25, Rounding = 2,
-    Callback = function(v) aiming.tuneInterval = v end
-})
-weaponLabel = WeaponGroup:AddLabel("Weapon: hitscan | speed 900 | gravity 50 | no tool")
+AimOptionsGroup:AddLabel("Always: the keybind toggles the aimbot. Hold: aim only while the key is held. FOV is a pixel radius; distance 0 = unlimited. Mouse-relative lock with bullet-travel prediction.")
 
 -- ═══════════════════════════════════════════════════════════════
 --  MISC TAB
@@ -1623,9 +1444,9 @@ local function attachStaffToUI()
 end
 attachStaffToUI()
 
-local WeakspotGroup = MiscTab:AddGroup("Weakspot Aim (No Auto-Hit)", "Right")
-WeakspotGroup:AddToggle({ Name = "Weakspot Aim (No Auto-Hit)", Flag = "weakspot_enabled", Default = false })
-WeakspotGroup:AddLabel("On your own MouseButton1 press only, the camera is nudged toward the nearest weakspot and restored on the next frame. The tool is never activated and no synthetic click is fired. Radius: 50 studs.")
+local WeakspotGroup = MiscTab:AddGroup("Mining (Silent Insta-Hit)", "Right")
+WeakspotGroup:AddToggle({ Name = "Enable Insta-Hit Weakspot", Flag = "weakspot_enabled", Default = false })
+WeakspotGroup:AddLabel("Silently snaps the camera at the nearest weakspot for one tick, activates the tool, then restores the camera. No visible lock. Radius: 50 studs.")
 
 local MiscGroup = MiscTab:AddGroup("System", "Left")
 MiscGroup:AddButton({
@@ -1634,9 +1455,9 @@ MiscGroup:AddButton({
         unloaded = true
         aiming.enabled = false
         aimLock.active = false
-        pendingSnap = nil
         for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
         table.clear(connections)
+        pcall(function() RunService:UnbindFromRenderStep("ARC3USX_InstaHit") end)
         if aiming.fovCircle and type(aiming.fovCircle.Remove) == "function" then
             pcall(function() aiming.fovCircle:Remove() end)
         end

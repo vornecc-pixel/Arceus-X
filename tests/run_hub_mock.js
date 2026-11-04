@@ -14,12 +14,15 @@ try {
 const { lua, lauxlib, lualib, to_luastring } = fengari;
 const root = path.resolve(__dirname, '..');
 const hubSource = fs.readFileSync(path.join(root, 'scripts', 'main.lua'), 'utf8');
+const libSource = fs.readFileSync(path.join(root, 'ARC3USX.lua'), 'utf8');
 const testSource = fs.readFileSync(path.join(__dirname, 'hub_mock.lua'), 'utf8');
 
 const L = lauxlib.luaL_newstate();
 lualib.luaL_openlibs(L);
 lua.lua_pushstring(L, to_luastring(hubSource));
 lua.lua_setglobal(L, to_luastring('HUB_SOURCE'));
+lua.lua_pushstring(L, to_luastring(libSource));
+lua.lua_setglobal(L, to_luastring('LIB_SOURCE'));
 
 if (lauxlib.luaL_dostring(L, to_luastring(testSource)) !== lua.LUA_OK) {
     console.error('Hub mock tests failed:', lua.lua_tojsstring(L, -1));
