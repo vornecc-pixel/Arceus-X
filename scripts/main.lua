@@ -100,27 +100,18 @@ local function createLine(z)
     return frame
 end
 
-local function createBox(z, stroked, name)
+local function createBox(z)
     local frame = Instance.new("Frame")
     frame.BackgroundTransparency = 1
     frame.BorderColor3 = Color3.new(1,1,1)
-    frame.BorderSizePixel = stroked and 0 or 1
+    frame.BorderSizePixel = 1
     frame.Visible = false
     frame.ZIndex = z or 1
-    if name then frame.Name = name end
-    if stroked then
-        local stroke = Instance.new("UIStroke")
-        stroke.Name = "ARC3USX_BoxStroke"
-        stroke.Thickness = 1
-        stroke.Color = Color3.new(1,1,1)
-        stroke.Transparency = 0
-        stroke.Parent = frame
-    end
     frame.Parent = espGui
     return frame
 end
 
-local function drawLine(line, fromX, fromY, toX, toY, color, thickness)
+local function drawLine(line, fromX, fromY, toX, toY, color)
     if not line then return end
     local dx = toX - fromX
     local dy = toY - fromY
@@ -131,7 +122,7 @@ local function drawLine(line, fromX, fromY, toX, toY, color, thickness)
     end
     local angle = math.deg(math.atan2(dy, dx))
     line.Position = UDim2.fromOffset(math.floor(fromX), math.floor(fromY))
-    line.Size = UDim2.fromOffset(math.floor(length), math.max(1, math.floor(thickness or 1)))
+    line.Size = UDim2.fromOffset(math.floor(length), 1)
     line.Rotation = angle
     line.BackgroundColor3 = color
     if not line.Visible then line.Visible = true end
@@ -139,94 +130,53 @@ end
 
 local function buildEsp()
     local esp = {
-        box = createBox(1, true, "ARC3USX_Box"), outline = createBox(0, true, "ARC3USX_Outline"),
-        name = createText(3), distance = createText(3), weapon = createText(3),
+        box = createBox(1), name = createText(3), distance = createText(3), weapon = createText(3),
         healthBg = createBox(1), healthFill = createBox(1), highlight = nil,
-        corners = {}, outlineCorners = {}, skeleton = {},
-        lastHp = -1, lastDist = -1, lastVisible = nil
+        corners = {}, skeleton = {}, lastHp = -1, lastDist = -1, lastVisible = nil
     }
     esp.healthBg.BackgroundTransparency = 0; esp.healthBg.BorderSizePixel = 0; esp.healthBg.BackgroundColor3 = Color3.new(0,0,0)
     esp.healthFill.BackgroundTransparency = 0; esp.healthFill.BorderSizePixel = 0
-    for i = 1, 8 do esp.corners[i] = createLine(2); esp.outlineCorners[i] = createLine(1) end
+    for i = 1, 8 do esp.corners[i] = createLine(2) end
     for i = 1, 15 do esp.skeleton[i] = createLine(2) end
     return esp
 end
 
 local function destroyEsp(esp)
     if not esp then return end
-    esp.box:Destroy(); esp.outline:Destroy(); esp.name:Destroy(); esp.distance:Destroy(); esp.weapon:Destroy()
+    esp.box:Destroy(); esp.name:Destroy(); esp.distance:Destroy(); esp.weapon:Destroy()
     esp.healthBg:Destroy(); esp.healthFill:Destroy()
     if esp.highlight then esp.highlight:Destroy() end
     for _, c in ipairs(esp.corners) do c:Destroy() end
-    for _, c in ipairs(esp.outlineCorners) do c:Destroy() end
     for _, l in ipairs(esp.skeleton) do l:Destroy() end
 end
 
 local function hideEsp(esp)
     if not esp then return end
-    esp.box.Visible = false; esp.outline.Visible = false; esp.name.Visible = false; esp.distance.Visible = false
+    esp.box.Visible = false; esp.name.Visible = false; esp.distance.Visible = false
     esp.weapon.Visible = false; esp.healthBg.Visible = false; esp.healthFill.Visible = false
     if esp.highlight then esp.highlight.Enabled = false end
     for _, c in ipairs(esp.corners) do c.Visible = false end
-    for _, c in ipairs(esp.outlineCorners) do c.Visible = false end
     for _, l in ipairs(esp.skeleton) do l.Visible = false end
 end
 
-local function drawBox(esp, bLeft, bTop, bRight, bBot, style, color, options)
-    options = options or {}
-    local thickness = math.max(1, math.floor(options.thickness or 1))
-    local outlineColor = options.outlineColor or Color3.new(0, 0, 0)
-    local showOutline = options.outline ~= false
-    local filled = options.filled == true
-    local fillTransparency = options.fillTransparency or 0.7
-    local strokeOf = function(frame) return frame:FindFirstChildOfClass("UIStroke") end
-    local w, h = bRight - bLeft, bBot - bTop
-    local x, y = math.floor(bLeft), math.floor(bTop)
-    local sx, sy = math.max(1, math.floor(w)), math.max(1, math.floor(h))
-
+local function drawBox(esp, bLeft, bTop, bRight, bBot, style, color)
     if style == "Full" then
         for _, c in ipairs(esp.corners) do c.Visible = false end
-        for _, c in ipairs(esp.outlineCorners) do c.Visible = false end
         esp.box.Visible = true
-        esp.box.BackgroundTransparency = filled and (1 - fillTransparency) or 1
-        if filled then esp.box.BackgroundColor3 = color end
-        esp.box.Position = UDim2.fromOffset(x, y)
-        esp.box.Size = UDim2.fromOffset(sx, sy)
-        local stroke = strokeOf(esp.box)
-        if stroke then
-            stroke.Thickness, stroke.Color, stroke.Transparency = thickness, color, options.transparency or 0
-        else
-            esp.box.BorderColor3, esp.box.BorderSizePixel = color, thickness
-        end
-        esp.outline.Visible = showOutline
-        if showOutline then
-            esp.outline.BackgroundTransparency = 1
-            esp.outline.Position = UDim2.fromOffset(x - thickness, y - thickness)
-            esp.outline.Size = UDim2.fromOffset(sx + thickness * 2, sy + thickness * 2)
-            local outlineStroke = strokeOf(esp.outline)
-            if outlineStroke then
-                outlineStroke.Thickness, outlineStroke.Color, outlineStroke.Transparency = thickness + 2, outlineColor, 0
-            else
-                esp.outline.BorderColor3, esp.outline.BorderSizePixel = outlineColor, thickness + 2
-            end
-        end
+        esp.box.BackgroundTransparency = 1
+        esp.box.BorderColor3 = color
+        esp.box.Position = UDim2.fromOffset(math.floor(bLeft), math.floor(bTop))
+        esp.box.Size = UDim2.fromOffset(math.floor(bRight - bLeft), math.floor(bBot - bTop))
     else
-        esp.box.Visible = false; esp.outline.Visible = false
-        local cl = math.max(w * 0.22, h * 0.14)
-        local segments = {
+        esp.box.Visible = false
+        local w = bRight - bLeft; local h = bBot - bTop; local cl = math.max(w * 0.22, h * 0.14)
+        local corners = {
             {bLeft, bTop, bLeft + cl, bTop}, {bLeft, bTop, bLeft, bTop + cl},
             {bRight, bTop, bRight - cl, bTop}, {bRight, bTop, bRight, bTop + cl},
             {bLeft, bBot, bLeft + cl, bBot}, {bLeft, bBot, bLeft, bBot - cl},
             {bRight, bBot, bRight - cl, bBot}, {bRight, bBot, bRight, bBot - cl}
         }
-        for i, c in ipairs(segments) do
-            if showOutline then
-                drawLine(esp.outlineCorners[i], c[1], c[2], c[3], c[4], outlineColor, thickness + 2)
-            elseif esp.outlineCorners[i].Visible then
-                esp.outlineCorners[i].Visible = false
-            end
-            drawLine(esp.corners[i], c[1], c[2], c[3], c[4], color, thickness)
-        end
+        for i, c in ipairs(corners) do drawLine(esp.corners[i], c[1], c[2], c[3], c[4], color) end
     end
 end
 
@@ -249,160 +199,6 @@ local function ensureHighlight(esp, adornee, color)
         esp.highlight.FillColor = color; esp.highlight.OutlineColor = color
     end
     if esp.highlight.Adornee ~= adornee then esp.highlight.Adornee = adornee end
-end
-
--- ═══════════════════════════════════════════════════════════════
---  ESP CORE UTILITIES (ported from the adapter-based ESP framework)
---  3D box projection, dynamic label layout, throttled error isolation.
--- ═══════════════════════════════════════════════════════════════
-local CORNERS = {
-    { -1, -1, -1 }, { 1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 },
-    { -1, -1, 1 }, { 1, -1, 1 }, { -1, 1, 1 }, { 1, 1, 1 },
-}
-local EDGES = {
-    { 1, 2 }, { 1, 3 }, { 2, 4 }, { 3, 4 }, { 5, 6 }, { 5, 7 },
-    { 6, 8 }, { 7, 8 }, { 1, 5 }, { 2, 6 }, { 3, 7 }, { 4, 8 },
-}
-local NEAR_PLANE = 0.05
-
-local function finite(value)
-    return type(value) == "number" and value == value and math.abs(value) < math.huge
-end
-
--- Options may be static values or functions of the render context.
-local function readValue(value, context, fallback)
-    if type(value) == "function" then return value(context) end
-    if value ~= nil then return value end
-    return fallback
-end
-
-local function geometryOf(item)
-    if typeof(item) == "Instance" then
-        if item:IsA("BasePart") then return { cframe = item.CFrame, size = item.Size } end
-        return nil
-    end
-    if type(item) == "table" and item.cframe and item.size then return item end
-    return nil
-end
-
-local function cornersOf(geometry)
-    local result = {}
-    for index, signs in ipairs(CORNERS) do
-        result[index] = geometry.cframe * Vector3.new(
-            geometry.size.X * signs[1] / 2,
-            geometry.size.Y * signs[2] / 2,
-            geometry.size.Z * signs[3] / 2
-        )
-    end
-    return result
-end
-
--- Combines several parts/geometries into one oriented bounding box.
-local function boundsOfParts(parts, reference)
-    reference = reference or CFrame.new()
-    local minX, minY, minZ = math.huge, math.huge, math.huge
-    local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
-    for _, item in ipairs(parts) do
-        local geometry = geometryOf(item)
-        if geometry then
-            for _, corner in ipairs(cornersOf(geometry)) do
-                local point = reference:PointToObjectSpace(corner)
-                minX, minY, minZ = math.min(minX, point.X), math.min(minY, point.Y), math.min(minZ, point.Z)
-                maxX, maxY, maxZ = math.max(maxX, point.X), math.max(maxY, point.Y), math.max(maxZ, point.Z)
-            end
-        end
-    end
-    if minX == math.huge then return nil end
-    local center = Vector3.new((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2)
-    return { cframe = reference * CFrame.new(center), size = Vector3.new(maxX - minX, maxY - minY, maxZ - minZ) }
-end
-
--- Gathers physical parts so a box can be derived from the rig itself.
-local function collectParts(model, limit)
-    if model:IsA("BasePart") then return { model } end
-    local parts = {}
-    for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("BasePart") then
-            parts[#parts + 1] = child
-            if limit and #parts >= limit then break end
-        end
-    end
-    if #parts == 0 and model.PrimaryPart then parts[1] = model.PrimaryPart end
-    return parts
-end
-
--- Projects eight corners (plus near-plane clipped edges) into a screen rect.
--- Unlike a top/bottom estimate this handles rotation and partly off-screen models.
-local function projectBounds(camera, geometries, nearPlane)
-    nearPlane = nearPlane or NEAR_PLANE
-    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
-    local function include(point)
-        if finite(point.X) and finite(point.Y) then
-            minX, minY = math.min(minX, point.X), math.min(minY, point.Y)
-            maxX, maxY = math.max(maxX, point.X), math.max(maxY, point.Y)
-        end
-    end
-    for _, item in ipairs(geometries) do
-        local geometry = geometryOf(item)
-        if geometry then
-            local world, projected = cornersOf(geometry), {}
-            for index, corner in ipairs(world) do
-                local point = camera:WorldToViewportPoint(corner)
-                projected[index] = point
-                if point.Z >= nearPlane then include(point) end
-            end
-            for _, edge in ipairs(EDGES) do
-                local first, second = projected[edge[1]], projected[edge[2]]
-                if (first.Z >= nearPlane) ~= (second.Z >= nearPlane) then
-                    local alpha = (nearPlane - first.Z) / (second.Z - first.Z)
-                    include(camera:WorldToViewportPoint(world[edge[1]]:Lerp(world[edge[2]], alpha)))
-                end
-            end
-        end
-    end
-    local viewport = camera.ViewportSize
-    if minX == math.huge or maxX <= minX or maxY <= minY
-        or maxX < 0 or maxY < 0 or minX > viewport.X or minY > viewport.Y then
-        return nil
-    end
-    return { position = Vector2.new(minX, minY), size = Vector2.new(maxX - minX, maxY - minY) }
-end
-
--- Stacks enabled labels above/below the box with no gaps when one is hidden.
-local function newLabelLayout(rect)
-    local layout = { above = 2, below = 2 }
-    return function(side, height, gap)
-        local offset = layout[side]
-        layout[side] = offset + height + (gap or 2)
-        local centerX = rect.position.X + rect.size.X * 0.5
-        if side == "above" then
-            return Vector2.new(centerX, rect.position.Y - offset - height)
-        end
-        return Vector2.new(centerX, rect.position.Y + rect.size.Y + offset)
-    end
-end
-
--- One broken target must not kill the whole render frame.
-local errorCache = {}
-local function guarded(tag, target, fn, onError)
-    local ok, problem = pcall(fn)
-    if ok then return true end
-    local name = typeof(target) == "Instance" and target.Name or tostring(target)
-    local key = tag .. ":" .. name
-    local now = os.clock()
-    if not errorCache[key] or now - errorCache[key] >= 1 then
-        errorCache[key] = now
-        warn(string.format("[ARC3USX ESP] %s failed for %s: %s", tag, name, tostring(problem)))
-    end
-    if onError then pcall(onError) end
-    return false
-end
-
-local function formatDistance(studs, style)
-    local meters = math.floor(studs * STUD_TO_METER)
-    if style == "Brackets" then return string.format("[%d]", meters) end
-    if style == "Studs" then return tostring(math.floor(studs)) .. "s" end
-    return tostring(meters) .. "m"
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -666,12 +462,8 @@ local Colors = {
     plr_box = Color3.new(1,1,1), plr_name = Color3.new(1,1,1), plr_skel = Color3.new(1,1,1), plr_dist = Color3.new(1,1,1),
     plr_wep = Color3.fromRGB(0, 255, 255), plr_chams_vis = Color3.fromRGB(0, 255, 255), plr_chams_occ = Color3.fromRGB(255, 50, 80),
     plr_hp_high = Color3.fromRGB(0, 255, 0), plr_hp_low = Color3.fromRGB(255, 0, 0),
-    plr_box_outline = Color3.new(0,0,0),
     npc_box = Color3.new(1,1,1), npc_name = Color3.new(1,1,1), npc_dist = Color3.new(1,1,1), npc_wep = Color3.fromRGB(255, 180, 60),
     npc_chams_vis = Color3.fromRGB(60, 255, 120), npc_chams_occ = Color3.fromRGB(255, 50, 80),
-    npc_hp_high = Color3.fromRGB(0, 255, 0), npc_hp_low = Color3.fromRGB(255, 0, 0),
-    npc_box_outline = Color3.new(0,0,0),
-    heli_box_outline = Color3.new(0,0,0),
 }
 
 local function getScreenPos(pos)
@@ -698,59 +490,6 @@ local function getRoot(model)
 end
 local bonesR15 = { {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"}, {"UpperTorso", "LeftUpperArm"}, {"UpperTorso", "RightUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"RightUpperArm", "RightLowerArm"}, {"LowerTorso", "LeftUpperLeg"}, {"LowerTorso", "RightUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"RightUpperLeg", "RightLowerLeg"} }
 local bonesR6 = { {"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"}, {"Torso", "Left Leg"}, {"Torso", "Right Leg"} }
-
--- Either the model's bounding box or a box computed from its parts.
-local function boxGeometries(model)
-    if getFlag("esp_parts_bounds", false) then
-        local parts = collectParts(model, 24)
-        local bounds = boundsOfParts(parts)
-        return bounds and { bounds } or parts
-    end
-    local cf, size = model:GetBoundingBox()
-    return {{ cframe = cf, size = size }}
-end
-
-local function boxOptions(prefix, outlineColor)
-    return {
-        thickness = getFlag(prefix .. "_box_thickness", 1),
-        filled = getFlag(prefix .. "_box_fill", false),
-        fillTransparency = getFlag("esp_fill_transparency", 0.7),
-        outline = getFlag(prefix .. "_box_outline", true),
-        outlineColor = outlineColor,
-    }
-end
-
-local function setLabel(label, text, visible, color, size, gap, reserve, side, context)
-    label.Visible = visible
-    if not visible then return end
-    label.TextSize = size
-    label.TextColor3 = readValue(color, context, color)
-    label.Text = tostring(text)
-    local pos = reserve(side, size, gap)
-    label.Position = UDim2.fromOffset(math.floor(pos.X), math.floor(pos.Y))
-end
-
-local function setHealthBar(esp, bLeft, bTop, bRight, h, health, maxHealth, side, low, high, context)
-    if not finite(health) or not finite(maxHealth) or maxHealth <= 0 then
-        esp.healthBg.Visible = false; esp.healthFill.Visible = false
-        return
-    end
-    local ratio = math.clamp(health / maxHealth, 0, 1)
-    local barX = side == "Right" and (bRight + 3) or (bLeft - 6)
-    esp.healthBg.Visible = true
-    esp.healthBg.Position = UDim2.fromOffset(math.floor(barX), math.floor(bTop))
-    esp.healthBg.Size = UDim2.fromOffset(4, math.floor(h))
-    esp.healthFill.Visible = true
-    esp.healthFill.BackgroundColor3 = low:Lerp(high, ratio)
-    esp.healthFill.Position = UDim2.fromOffset(math.floor(barX + 1), math.floor(bTop + (h * (1 - ratio))))
-    esp.healthFill.Size = UDim2.fromOffset(2, math.floor(h * ratio))
-end
-
-local function hideBox(esp)
-    esp.box.Visible = false; esp.outline.Visible = false
-    for _, c in ipairs(esp.corners) do c.Visible = false end
-    for _, c in ipairs(esp.outlineCorners) do c.Visible = false end
-end
 
 -- ─── Ore icon helpers ─────────────────────────────────────────
 local function safeIconGet(itemName)
@@ -1197,11 +936,8 @@ connect(RunService.RenderStepped, function(dt)
     if not Camera then return end
     local camPos = Camera.CFrame.Position
     local currentTick = tick()
-    local textSize = getFlag("esp_text_size", 13)
-    local labelGap = getFlag("esp_label_gap", 2)
-    local distanceStyle = getFlag("esp_distance_style", "Metres")
 
-    -- Players have their own throttled resolve interval.
+    -- Players
     local playerHz = getFlag("player_esp_hz", 60)
     if currentTick - lastPlayerTick >= (1 / playerHz) then
         lastPlayerTick = currentTick
@@ -1211,66 +947,65 @@ connect(RunService.RenderStepped, function(dt)
                 if plr ~= LocalPlayer and char and char.Parent and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
                     if not plrStore[char] then plrStore[char] = buildEsp() end
                     local esp = plrStore[char]
-                    guarded("player", plr, function()
-                        local root = char.HumanoidRootPart
-                        local distStuds = (root.Position - camPos).Magnitude
-                        local vis = isVisible(char, root)
-                        if getFlag("plr_visible_only", false) and not vis then hideEsp(esp); return end
-                        if distStuds > (getFlag("plr_max_dist", 500) * METER_TO_STUD) then hideEsp(esp); return end
-                        local rect = projectBounds(Camera, boxGeometries(char), NEAR_PLANE)
-                        if not rect then hideEsp(esp); return end
-                        local bLeft, bTop = rect.position.X, rect.position.Y
-                        local bRight, bBot = bLeft + rect.size.X, bTop + rect.size.Y
-                        local h = math.max(bBot - bTop, 1)
-                        local reserve = newLabelLayout(rect)
-                        local context = { distance = math.floor(distStuds * STUD_TO_METER),
-                            state = { health = char.Humanoid.Health, maxHealth = char.Humanoid.MaxHealth }, visible = vis }
+                    local root = char.HumanoidRootPart
+                    local distStuds = (root.Position - camPos).Magnitude
+                    if distStuds <= (getFlag("plr_max_dist", 500) * METER_TO_STUD) then
+                        local cf, size = char:GetBoundingBox()
+                        local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
+                        local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
+                        if topOn and botOn then
+                            local h = math.max(botY - topY, 1); local w = math.max(h * 0.55, 1)
+                            local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
 
-                        if getFlag("plr_chams", true) then
-                            if esp.lastVisible ~= vis then
-                                ensureHighlight(esp, char, vis and Colors.plr_chams_vis or Colors.plr_chams_occ)
-                                esp.lastVisible = vis
-                            elseif esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
-                        elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
+                            if getFlag("plr_chams", true) then
+                                local vis = isVisible(char, root)
+                                if esp.lastVisible ~= vis then
+                                    ensureHighlight(esp, char, vis and Colors.plr_chams_vis or Colors.plr_chams_occ)
+                                    esp.lastVisible = vis
+                                elseif esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
+                            elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
 
-                        if getFlag("plr_box", true) then
-                            drawBox(esp, bLeft, bTop, bRight, bBot, getFlag("plr_style", "Corners"),
-                                readValue(Colors.plr_box, context, Colors.plr_box),
-                                boxOptions("plr", readValue(Colors.plr_box_outline, context, Colors.plr_box_outline)))
-                        else hideBox(esp) end
+                            if getFlag("plr_box", true) then drawBox(esp, bLeft, topY, bRight, botY, getFlag("plr_style", "Corners"), Colors.plr_box)
+                            else for _, c in ipairs(esp.corners) do c.Visible = false end; esp.box.Visible = false end
 
-                        setLabel(esp.name, plr.Name, getFlag("plr_name", true), Colors.plr_name, textSize, labelGap, reserve, "above", context)
-                        setLabel(esp.distance, formatDistance(distStuds, distanceStyle), getFlag("plr_dist", true), Colors.plr_dist, textSize, labelGap, reserve, "below", context)
-                        local tool = char:FindFirstChildWhichIsA("Tool")
-                        setLabel(esp.weapon, tool and tool.Name or "Unarmed", getFlag("plr_weapon", true), Colors.plr_wep, textSize, labelGap, reserve, "below", context)
+                            esp.name.Visible = getFlag("plr_name", true)
+                            if esp.name.Visible then esp.name.Text = plr.Name; esp.name.TextColor3 = Colors.plr_name; esp.name.Position = UDim2.fromOffset(math.floor(topX), math.floor(topY - 16)) end
 
-                        if getFlag("plr_health", true) then
-                            setHealthBar(esp, bLeft, bTop, bRight, h, char.Humanoid.Health, char.Humanoid.MaxHealth,
-                                getFlag("plr_hp_side", "Left"), Colors.plr_hp_low, Colors.plr_hp_high, context)
-                        else esp.healthBg.Visible = false; esp.healthFill.Visible = false end
+                            local meters = math.floor(distStuds * STUD_TO_METER)
+                            if esp.lastDist ~= meters then esp.lastDist = meters; esp.distance.Text = tostring(meters) .. "m" end
+                            esp.distance.Visible = getFlag("plr_dist", true)
+                            if esp.distance.Visible then esp.distance.TextColor3 = Colors.plr_dist; esp.distance.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 16)) end
 
-                        if getFlag("plr_skel", true) then
-                            local activeBones = char:FindFirstChild("UpperTorso") and bonesR15 or bonesR6
-                            for i, bone in ipairs(activeBones) do
-                                local p1, p2 = char:FindFirstChild(bone[1]), char:FindFirstChild(bone[2])
-                                local line = esp.skeleton[i]
-                                if p1 and p2 then
-                                    local x1, y1, on1 = getScreenPos(p1.Position); local x2, y2, on2 = getScreenPos(p2.Position)
-                                    if on1 and on2 then drawLine(line, x1, y1, x2, y2, readValue(Colors.plr_skel, context, Colors.plr_skel)) else line.Visible = false end
-                                else line.Visible = false end
-                            end
-                            for i = #activeBones + 1, #esp.skeleton do esp.skeleton[i].Visible = false end
-                        else for _, l in ipairs(esp.skeleton) do l.Visible = false end end
-                    end, function() hideEsp(esp) end)
+                            esp.weapon.Visible = getFlag("plr_weapon", true)
+                            if esp.weapon.Visible then local tool = char:FindFirstChildWhichIsA("Tool"); esp.weapon.Text = tool and tool.Name or "Unarmed"; esp.weapon.TextColor3 = Colors.plr_wep; esp.weapon.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 32)) end
+
+                            if getFlag("plr_health", true) then
+                                local hpPerc = math.clamp(char.Humanoid.Health / char.Humanoid.MaxHealth, 0, 1)
+                                esp.healthBg.Visible = true; esp.healthBg.Position = UDim2.fromOffset(math.floor(bLeft - 6), math.floor(topY)); esp.healthBg.Size = UDim2.fromOffset(4, math.floor(h))
+                                esp.healthFill.Visible = true; esp.healthFill.BackgroundColor3 = Colors.plr_hp_low:Lerp(Colors.plr_hp_high, hpPerc); esp.healthFill.Position = UDim2.fromOffset(math.floor(bLeft - 5), math.floor(topY + (h * (1 - hpPerc)))); esp.healthFill.Size = UDim2.fromOffset(2, math.floor(h * hpPerc))
+                            else esp.healthBg.Visible = false; esp.healthFill.Visible = false end
+
+                            if getFlag("plr_skel", true) then
+                                local activeBones = char:FindFirstChild("UpperTorso") and bonesR15 or bonesR6
+                                for i, bone in ipairs(activeBones) do
+                                    local p1, p2 = char:FindFirstChild(bone[1]), char:FindFirstChild(bone[2])
+                                    local line = esp.skeleton[i]
+                                    if p1 and p2 then
+                                        local x1, y1, on1 = getScreenPos(p1.Position); local x2, y2, on2 = getScreenPos(p2.Position)
+                                        if on1 and on2 then drawLine(line, x1, y1, x2, y2, Colors.plr_skel) else line.Visible = false end
+                                    else line.Visible = false end
+                                end
+                                for i = #activeBones + 1, #esp.skeleton do esp.skeleton[i].Visible = false end
+                            else for _, l in ipairs(esp.skeleton) do l.Visible = false end end
+                        else hideEsp(esp) end
+                    else hideEsp(esp) end
                 end
             end
             for char, esp in pairs(plrStore) do if not char.Parent then destroyEsp(esp); plrStore[char] = nil end end
         else for _, e in pairs(plrStore) do hideEsp(e) end end
     end
 
-    -- NPC / ore / heli share a separate throttled resolve interval.
-    local worldHz = getFlag("world_esp_hz", 60)
-    if currentTick - lastOtherTick >= (1 / worldHz) then
+    if currentTick - lastOtherTick >= (1 / 60) then
         lastOtherTick = currentTick
 
         -- NPCs
@@ -1282,44 +1017,38 @@ connect(RunService.RenderStepped, function(dt)
                         local hum = model:FindFirstChildOfClass("Humanoid")
                         if hum and hum.Health > 0 then
                             if not npcStore[model] then npcStore[model] = buildEsp() end
-                            local esp = npcStore[model]
-                            guarded("npc", model, function()
-                                local root = getRoot(model)
-                                local distStuds = root and (root.Position - camPos).Magnitude or math.huge
-                                local vis = isVisible(model, root)
-                                if getFlag("npc_visible_only", false) and not vis then hideEsp(esp); return end
-                                if not root or distStuds > (getFlag("npc_max_dist", 500) * METER_TO_STUD) then hideEsp(esp); return end
-                                local rect = projectBounds(Camera, boxGeometries(model), NEAR_PLANE)
-                                if not rect then hideEsp(esp); return end
-                                local bLeft, bTop = rect.position.X, rect.position.Y
-                                local bRight, bBot = bLeft + rect.size.X, bTop + rect.size.Y
-                                local h = math.max(bBot - bTop, 1)
-                                local reserve = newLabelLayout(rect)
-                                local context = { distance = math.floor(distStuds * STUD_TO_METER),
-                                    state = { health = hum.Health, maxHealth = hum.MaxHealth }, visible = vis }
+                            local esp = npcStore[model]; local root = getRoot(model)
+                            local distStuds = root and (root.Position - camPos).Magnitude or math.huge
+                            if root and distStuds <= (getFlag("npc_max_dist", 500) * METER_TO_STUD) then
+                                local cf, size = model:GetBoundingBox()
+                                local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
+                                local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
+                                if topOn and botOn then
+                                    local h = math.max(botY - topY, 1); local w = math.max(h * 0.55, 1)
+                                    local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
 
-                                if getFlag("npc_chams", true) then
-                                    if esp.lastVisible ~= vis then
-                                        ensureHighlight(esp, model, vis and Colors.npc_chams_vis or Colors.npc_chams_occ); esp.lastVisible = vis
-                                    elseif esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
-                                elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
+                                    if getFlag("npc_chams", true) then
+                                        local vis = isVisible(model, root)
+                                        if esp.lastVisible ~= vis then
+                                            ensureHighlight(esp, model, vis and Colors.npc_chams_vis or Colors.npc_chams_occ); esp.lastVisible = vis
+                                        elseif esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
+                                    elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
 
-                                if getFlag("npc_box", true) then
-                                    drawBox(esp, bLeft, bTop, bRight, bBot, getFlag("npc_style", "Corners"),
-                                        readValue(Colors.npc_box, context, Colors.npc_box),
-                                        boxOptions("npc", readValue(Colors.npc_box_outline, context, Colors.npc_box_outline)))
-                                else hideBox(esp) end
+                                    if getFlag("npc_box", true) then drawBox(esp, bLeft, topY, bRight, botY, getFlag("npc_style", "Corners"), Colors.npc_box)
+                                    else for _, c in ipairs(esp.corners) do c.Visible = false end; esp.box.Visible = false end
 
-                                setLabel(esp.name, model.Name, getFlag("npc_name", true), Colors.npc_name, textSize, labelGap, reserve, "above", context)
-                                setLabel(esp.distance, formatDistance(distStuds, distanceStyle), getFlag("npc_dist", true), Colors.npc_dist, textSize, labelGap, reserve, "below", context)
-                                local tool = model:FindFirstChildWhichIsA("Tool")
-                                setLabel(esp.weapon, tool and tool.Name or "Unarmed", getFlag("npc_weapon", true), Colors.npc_wep, textSize, labelGap, reserve, "below", context)
+                                    esp.name.Visible = getFlag("npc_name", true)
+                                    if esp.name.Visible then esp.name.Text = model.Name; esp.name.TextColor3 = Colors.npc_name; esp.name.Position = UDim2.fromOffset(math.floor(topX), math.floor(topY - 16)) end
 
-                                if getFlag("npc_health", true) then
-                                    setHealthBar(esp, bLeft, bTop, bRight, h, hum.Health, hum.MaxHealth,
-                                        getFlag("npc_hp_side", "Left"), Colors.npc_hp_low, Colors.npc_hp_high, context)
-                                else esp.healthBg.Visible = false; esp.healthFill.Visible = false end
-                            end, function() hideEsp(esp) end)
+                                    local meters = math.floor(distStuds * STUD_TO_METER)
+                                    if esp.lastDist ~= meters then esp.lastDist = meters; esp.distance.Text = tostring(meters) .. "m" end
+                                    esp.distance.Visible = getFlag("npc_dist", true)
+                                    if esp.distance.Visible then esp.distance.TextColor3 = Colors.npc_dist; esp.distance.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 16)) end
+
+                                    esp.weapon.Visible = getFlag("npc_weapon", true)
+                                    if esp.weapon.Visible then local tool = model:FindFirstChildWhichIsA("Tool"); esp.weapon.Text = tool and tool.Name or "Unarmed"; esp.weapon.TextColor3 = Colors.npc_wep; esp.weapon.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 32)) end
+                                else hideEsp(esp) end
+                            else hideEsp(esp) end
                         end
                     end
                 end
@@ -1327,7 +1056,7 @@ connect(RunService.RenderStepped, function(dt)
             for model, esp in pairs(npcStore) do if not model.Parent then destroyEsp(esp); npcStore[model] = nil end end
         else for _, e in pairs(npcStore) do hideEsp(e) end end
 
-        -- Ores (3D item icons)
+        -- Ores (icon viewports)
         if getFlag("ore_master", true) and getFlag("ore_enabled", false) then
             local maxDistStuds = getFlag("ore_max_dist", 300) * METER_TO_STUD
             for desc in pairs(trackedOres) do
@@ -1335,60 +1064,80 @@ connect(RunService.RenderStepped, function(dt)
                     if not getFlag("ore_" .. desc.Name, true) then
                         hideOreIcon(oreIcons[desc])
                     else
-                        guarded("ore", desc, function()
-                            local root = getRoot(desc)
-                            if not root then hideOreIcon(oreIcons[desc]); return end
+                        local root = getRoot(desc)
+                        if root then
                             local distStuds = (root.Position - camPos).Magnitude
-                            if distStuds > maxDistStuds then hideOreIcon(oreIcons[desc]); return end
-                            local px, py, onScreen = getScreenPos(root.Position)
-                            if not onScreen then hideOreIcon(oreIcons[desc]); return end
-                            local entry = oreIcons[desc]
-                            if not entry then entry = createOreIcon(desc); oreIcons[desc] = entry end
-                            if entry and entry.view then
-                                local size = math.clamp(3000 / math.max(distStuds, 1), 22, 64)
-                                entry.view.AnchorPoint = Vector2.new(0.5, 0.5)
-                                entry.view.Position = UDim2.fromOffset(math.floor(px), math.floor(py))
-                                entry.view.Size = UDim2.fromOffset(math.floor(size), math.floor(size))
-                                entry.view.Visible = true
-                                if getFlag("ore_dist", true) then
-                                    entry.distLabel.TextSize = math.max(8, textSize - 1)
-                                    entry.distLabel.Text = formatDistance(distStuds, distanceStyle)
-                                    entry.distLabel.Position = UDim2.fromOffset(math.floor(px), math.floor(py + size * 0.5 + 8))
-                                    entry.distLabel.Visible = true
-                                else entry.distLabel.Visible = false end
+                            if distStuds <= maxDistStuds then
+                                local px, py, onScreen = getScreenPos(root.Position)
+                                if onScreen then
+                                    local entry = oreIcons[desc]
+                                    if not entry then
+                                        entry = createOreIcon(desc)
+                                        oreIcons[desc] = entry
+                                    end
+                                    if entry and entry.view then
+                                        local size = math.clamp(3000 / math.max(distStuds, 1), 22, 64)
+                                        entry.view.AnchorPoint = Vector2.new(0.5, 0.5)
+                                        entry.view.Position = UDim2.fromOffset(math.floor(px), math.floor(py))
+                                        entry.view.Size = UDim2.fromOffset(math.floor(size), math.floor(size))
+                                        entry.view.Visible = true
+
+                                        if getFlag("ore_dist", true) then
+                                            local meters = math.floor(distStuds * STUD_TO_METER)
+                                            entry.distLabel.Text = tostring(meters) .. "m"
+                                            entry.distLabel.Position = UDim2.fromOffset(math.floor(px), math.floor(py + size * 0.5 + 8))
+                                            entry.distLabel.Visible = true
+                                        else
+                                            entry.distLabel.Visible = false
+                                        end
+                                    end
+                                else
+                                    hideOreIcon(oreIcons[desc])
+                                end
+                            else
+                                hideOreIcon(oreIcons[desc])
                             end
-                        end, function() hideOreIcon(oreIcons[desc]) end)
+                        else
+                            hideOreIcon(oreIcons[desc])
+                        end
                     end
                 end
             end
-        else for _, e in pairs(oreIcons) do hideOreIcon(e) end end
+        else
+            for _, e in pairs(oreIcons) do hideOreIcon(e) end
+        end
 
         -- Helis
         if getFlag("heli_master", true) and getFlag("heli_enabled", false) then
             for desc in pairs(trackedHelis) do
                 if desc.Parent then
-                    guarded("heli", desc, function()
-                        local root = getRoot(desc)
-                        if not root then if heliStore[desc] then hideEsp(heliStore[desc]) end; return end
+                    local root = getRoot(desc)
+                    if root then
                         local distStuds = (root.Position - camPos).Magnitude
-                        if distStuds > (getFlag("heli_max_dist", 2000) * METER_TO_STUD) then if heliStore[desc] then hideEsp(heliStore[desc]) end; return end
-                        local rect = projectBounds(Camera, boxGeometries(desc), NEAR_PLANE)
-                        if not rect then if heliStore[desc] then hideEsp(heliStore[desc]) end; return end
-                        if not heliStore[desc] then heliStore[desc] = buildEsp() end
-                        local esp = heliStore[desc]
-                        local bLeft, bTop = rect.position.X, rect.position.Y
-                        local bRight, bBot = bLeft + rect.size.X, bTop + rect.size.Y
-                        local reserve = newLabelLayout(rect)
-                        local context = { distance = math.floor(distStuds * STUD_TO_METER), visible = true }
+                        if distStuds <= (getFlag("heli_max_dist", 2000) * METER_TO_STUD) then
+                            local cf, size = desc:GetBoundingBox()
+                            local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
+                            local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
+                            if topOn and botOn then
+                                if not heliStore[desc] then heliStore[desc] = buildEsp() end
+                                local esp = heliStore[desc]
+                                local h = math.max(botY - topY, 1); local w = math.max(h * 0.8, 1)
+                                local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
 
-                        if getFlag("heli_chams", true) then ensureHighlight(esp, desc, Color3.fromRGB(255, 170, 0))
-                        elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
+                                if getFlag("heli_chams", true) then ensureHighlight(esp, desc, Color3.fromRGB(255, 170, 0))
+                                elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
 
-                        drawBox(esp, bLeft, bTop, bRight, bBot, getFlag("heli_style", "Full"),
-                            Color3.fromRGB(255, 170, 0), boxOptions("heli", Colors.heli_box_outline))
-                        setLabel(esp.distance, formatDistance(distStuds, distanceStyle), getFlag("heli_dist", true),
-                            Color3.new(1,1,1), textSize, labelGap, reserve, "below", context)
-                    end, function() if heliStore[desc] then hideEsp(heliStore[desc]) end end)
+                                drawBox(esp, bLeft, topY, bRight, botY, getFlag("heli_style", "Full"), Color3.fromRGB(255, 170, 0))
+
+                                esp.distance.Visible = getFlag("heli_dist", true)
+                                if esp.distance.Visible then
+                                    local meters = math.floor(distStuds * STUD_TO_METER)
+                                    if esp.lastDist ~= meters then esp.lastDist = meters; esp.distance.Text = tostring(meters) .. "m" end
+                                    esp.distance.TextColor3 = Color3.new(1,1,1); esp.distance.Position = UDim2.fromOffset(math.floor(topX), math.floor(botY + 16))
+                                end
+                            elseif heliStore[desc] then hideEsp(heliStore[desc]) end
+                        elseif heliStore[desc] then hideEsp(heliStore[desc]) end
+                    elseif heliStore[desc] then hideEsp(heliStore[desc]) end
                 end
             end
         else for _, e in pairs(heliStore) do hideEsp(e) end end
@@ -1403,16 +1152,6 @@ local Visuals = Window:AddTab("ESP / World")
 local CombatTab = Window:AddTab("Combat")
 local MiscTab = Window:AddTab("Misc")
 
--- ESP ENGINE (shared rendering options)
-local EngineGroup = Visuals:AddGroup("ESP Engine", "Left")
-EngineGroup:AddSlider({ Name = "World Update Rate (Hz)", Flag = "world_esp_hz", Min = 5, Max = 120, Default = 60, Suffix = " Hz" })
-EngineGroup:AddSlider({ Name = "Text Size", Flag = "esp_text_size", Min = 8, Max = 24, Default = 13 })
-EngineGroup:AddSlider({ Name = "Label Gap", Flag = "esp_label_gap", Min = 0, Max = 12, Default = 2 })
-EngineGroup:AddSlider({ Name = "Box Fill Transparency", Flag = "esp_fill_transparency", Min = 0, Max = 1, Default = 0.7, Rounding = 2 })
-EngineGroup:AddDropdown({ Name = "Distance Style", Flag = "esp_distance_style", Options = {"Metres", "Brackets", "Studs"}, Default = "Metres" })
-EngineGroup:AddToggle({ Name = "Parts Bounds", Flag = "esp_parts_bounds", Default = false })
-EngineGroup:AddLabel("Boxes project eight 3D corners with near-plane clipping; labels stack above/below automatically.")
-
 -- PLAYER ESP
 local PlayerGroup = Visuals:AddGroup("Player ESP", "Left")
 PlayerGroup:AddToggle({ Name = "Master Enable (Players)", Flag = "plr_master", Default = true })
@@ -1420,14 +1159,9 @@ PlayerGroup:AddToggle({ Name = "Player ESP Toggle", Flag = "plr_enabled", Defaul
 PlayerGroup:AddSlider({ Name = "Update Rate (Hz)", Flag = "player_esp_hz", Min = 30, Max = 240, Default = 60, Suffix = " Hz" })
 PlayerGroup:AddDropdown({ Name = "Box Style", Flag = "plr_style", Options = {"Corners", "Full"}, Default = "Corners" })
 PlayerGroup:AddSlider({ Name = "Max Distance", Flag = "plr_max_dist", Min = 10, Max = 2000, Default = 500, Suffix = "m" })
-PlayerGroup:AddToggle({ Name = "Box", Flag = "plr_box", Default = true, Colors = { Color3.new(1,1,1), Color3.new(0,0,0) }, ColorCallback = function(i, c) if i == 1 then Colors.plr_box = c else Colors.plr_box_outline = c end end })
-PlayerGroup:AddToggle({ Name = "Filled Box", Flag = "plr_box_fill", Default = false })
-PlayerGroup:AddSlider({ Name = "Box Thickness", Flag = "plr_box_thickness", Min = 1, Max = 5, Default = 1 })
-PlayerGroup:AddToggle({ Name = "Box Outline", Flag = "plr_box_outline", Default = true })
-PlayerGroup:AddToggle({ Name = "Only Visible", Flag = "plr_visible_only", Default = false })
+PlayerGroup:AddToggle({ Name = "Box", Flag = "plr_box", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.plr_box = c end })
 PlayerGroup:AddToggle({ Name = "Name", Flag = "plr_name", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.plr_name = c end })
 PlayerGroup:AddToggle({ Name = "Health Bar", Flag = "plr_health", Default = true, Colors = { Color3.fromRGB(0,255,0), Color3.fromRGB(255,0,0) }, ColorCallback = function(i, c) if i==1 then Colors.plr_hp_high = c else Colors.plr_hp_low = c end end })
-PlayerGroup:AddDropdown({ Name = "Health Bar Side", Flag = "plr_hp_side", Options = {"Left", "Right"}, Default = "Left" })
 PlayerGroup:AddToggle({ Name = "Distance", Flag = "plr_dist", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.plr_dist = c end })
 PlayerGroup:AddToggle({ Name = "Weapon", Flag = "plr_weapon", Default = true, Colors = { Color3.fromRGB(0, 255, 255) }, ColorCallback = function(i, c) Colors.plr_wep = c end })
 PlayerGroup:AddToggle({ Name = "Skeleton", Flag = "plr_skel", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.plr_skel = c end })
@@ -1439,14 +1173,8 @@ NPCGroup:AddToggle({ Name = "Master Enable (NPCs)", Flag = "npc_master", Default
 NPCGroup:AddToggle({ Name = "NPC ESP Toggle", Flag = "npc_enabled", Default = false })
 NPCGroup:AddDropdown({ Name = "Box Style", Flag = "npc_style", Options = {"Corners", "Full"}, Default = "Corners" })
 NPCGroup:AddSlider({ Name = "Max Distance", Flag = "npc_max_dist", Min = 10, Max = 2000, Default = 500, Suffix = "m" })
-NPCGroup:AddToggle({ Name = "Box", Flag = "npc_box", Default = true, Colors = { Color3.new(1,1,1), Color3.new(0,0,0) }, ColorCallback = function(i, c) if i == 1 then Colors.npc_box = c else Colors.npc_box_outline = c end end })
-NPCGroup:AddToggle({ Name = "Filled Box", Flag = "npc_box_fill", Default = false })
-NPCGroup:AddSlider({ Name = "Box Thickness", Flag = "npc_box_thickness", Min = 1, Max = 5, Default = 1 })
-NPCGroup:AddToggle({ Name = "Box Outline", Flag = "npc_box_outline", Default = true })
-NPCGroup:AddToggle({ Name = "Only Visible", Flag = "npc_visible_only", Default = false })
+NPCGroup:AddToggle({ Name = "Box", Flag = "npc_box", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.npc_box = c end })
 NPCGroup:AddToggle({ Name = "Name", Flag = "npc_name", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.npc_name = c end })
-NPCGroup:AddToggle({ Name = "Health Bar", Flag = "npc_health", Default = true, Colors = { Color3.fromRGB(0,255,0), Color3.fromRGB(255,0,0) }, ColorCallback = function(i, c) if i==1 then Colors.npc_hp_high = c else Colors.npc_hp_low = c end end })
-NPCGroup:AddDropdown({ Name = "Health Bar Side", Flag = "npc_hp_side", Options = {"Left", "Right"}, Default = "Left" })
 NPCGroup:AddToggle({ Name = "Distance", Flag = "npc_dist", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.npc_dist = c end })
 NPCGroup:AddToggle({ Name = "Weapon", Flag = "npc_weapon", Default = true, Colors = { Color3.fromRGB(255, 180, 60) }, ColorCallback = function(i, c) Colors.npc_wep = c end })
 NPCGroup:AddToggle({ Name = "Chams", Flag = "npc_chams", Default = true, Colors = { Color3.fromRGB(60, 255, 120), Color3.fromRGB(255, 50, 80) }, ColorCallback = function(i, c) if i == 1 then Colors.npc_chams_vis = c else Colors.npc_chams_occ = c end end })
@@ -1469,9 +1197,6 @@ HeliGroup:AddDropdown({ Name = "Box Style", Flag = "heli_style", Options = {"Cor
 HeliGroup:AddSlider({ Name = "Max Distance", Flag = "heli_max_dist", Min = 10, Max = 5000, Default = 2000, Suffix = "m" })
 HeliGroup:AddToggle({ Name = "Chams", Flag = "heli_chams", Default = true })
 HeliGroup:AddToggle({ Name = "Show Distance", Flag = "heli_dist", Default = true })
-HeliGroup:AddToggle({ Name = "Filled Box", Flag = "heli_box_fill", Default = false })
-HeliGroup:AddSlider({ Name = "Box Thickness", Flag = "heli_box_thickness", Min = 1, Max = 5, Default = 1 })
-HeliGroup:AddToggle({ Name = "Box Outline", Flag = "heli_box_outline", Default = true })
 
 -- ESP Preview
 local Preview = Visuals:AddGroup("ESP Preview", "Right")
@@ -1511,11 +1236,11 @@ AimbotGroup:AddSlider({
     Callback = function(v) Aimbot.Config.MaxDistance = v end
 })
 AimbotGroup:AddSlider({
-    Name = "Prediction", Min = 0, Max = 0.5, Default = 0.12, Rounding = 3,
+    Name = "Prediction", Min = 0, Max = 0.5, Default = 0.12,
     Callback = function(v) Aimbot.Config.Prediction = v end
 })
 AimbotGroup:AddSlider({
-    Name = "Smoothness", Min = 0, Max = 1, Default = 0.10, Rounding = 2,
+    Name = "Smoothness", Min = 0, Max = 1, Default = 0.10,
     Callback = function(v) Aimbot.Config.Smoothness = v end
 })
 
@@ -1532,8 +1257,8 @@ BowGroup:AddToggle({
 })
 BowGroup:AddSlider({ Name = "Bow FOV", Min = 10, Max = 360, Default = 180, Callback = function(v) Aimbot.Config.BowFOV = v end })
 BowGroup:AddSlider({ Name = "Bow Max Distance", Min = 50, Max = 1000, Default = 300, Callback = function(v) Aimbot.Config.BowMaxDistance = v end })
-BowGroup:AddSlider({ Name = "Bow Smoothness", Min = 0, Max = 0.5, Default = 0.05, Rounding = 3, Callback = function(v) Aimbot.Config.BowSmoothness = v end })
-BowGroup:AddSlider({ Name = "Draw Time", Min = 0.1, Max = 2, Default = 0.8, Rounding = 2, Callback = function(v) Aimbot.Config.BowDrawTime = v end })
+BowGroup:AddSlider({ Name = "Bow Smoothness", Min = 0, Max = 0.5, Default = 0.05, Callback = function(v) Aimbot.Config.BowSmoothness = v end })
+BowGroup:AddSlider({ Name = "Draw Time", Min = 0.1, Max = 2, Default = 0.8, Callback = function(v) Aimbot.Config.BowDrawTime = v end })
 BowGroup:AddSlider({ Name = "Speed Base", Min = 20, Max = 200, Default = 95, Callback = function(v) Aimbot.Config.BowSpeedBase = v end })
 BowGroup:AddSlider({ Name = "Speed Charge", Min = 0, Max = 200, Default = 125, Callback = function(v) Aimbot.Config.BowSpeedCharge = v end })
 BowGroup:AddSlider({ Name = "Gravity", Min = 0, Max = 200, Default = 50, Callback = function(v) Aimbot.Config.BowGravity = v end })
@@ -1604,7 +1329,7 @@ MiscGroup:AddButton({
         for _, e in pairs(npcStore) do destroyEsp(e) end; table.clear(npcStore)
         for _, e in pairs(heliStore) do destroyEsp(e) end; table.clear(heliStore)
         for _, e in pairs(oreIcons) do destroyOreIcon(e) end; table.clear(oreIcons)
-        table.clear(cachedNodes); table.clear(trackedOres); table.clear(trackedHelis); table.clear(errorCache)
+        table.clear(cachedNodes); table.clear(trackedOres); table.clear(trackedHelis)
         if espGui then espGui:Destroy() end
         pcall(function() Library:Unload() end)
     end

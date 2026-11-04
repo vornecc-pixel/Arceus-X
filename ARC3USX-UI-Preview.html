@@ -110,20 +110,17 @@
     const list = [T(`Master Enable (${name})`,`${prefix}_master`,true), T(`${name} ESP Toggle`,`${prefix}_enabled`)];
     if (p) list.push(R('Update Rate (Hz)','player_esp_hz',30,240,60,' Hz'));
     list.push(S('Box Style',`${prefix}_style`,['Corners','Full'],'Corners'), R('Max Distance',`${prefix}_max_dist`,10,2000,500,'m'),
-      T('Box',`${prefix}_box`,true,['#ffffff','#000000']), T('Filled Box',`${prefix}_box_fill`),
-      R('Box Thickness',`${prefix}_box_thickness`,1,5,1), T('Box Outline',`${prefix}_box_outline`,true),
-      T('Only Visible',`${prefix}_visible_only`), T('Name',`${prefix}_name`,true,['#ffffff']),
-      T('Health Bar',`${prefix}_health`,true,['#00ff00','#ff0000']),
-      S('Health Bar Side',`${prefix}_hp_side`,['Left','Right'],'Left'),
-      T('Distance',`${prefix}_dist`,true,['#ffffff']), T('Weapon',`${prefix}_weapon`,true,[p?'#00ffff':'#ffb43c']));
+      T('Box',`${prefix}_box`,true,['#ffffff']), T('Name',`${prefix}_name`,true,['#ffffff']));
+    if (p) list.push(T('Health Bar','plr_health',true,['#00ff00','#ff0000']));
+    list.push(T('Distance',`${prefix}_dist`,true,['#ffffff']), T('Weapon',`${prefix}_weapon`,true,[p?'#00ffff':'#ffb43c']));
     if (p) list.push(T('Skeleton','plr_skel',true,['#ffffff']));
     list.push(T('Chams',`${prefix}_chams`,true,[p?'#00ffff':'#3cff78','#ff3250']));
     return list;
   };
   const layout = {
     'ESP / World': [
-      [group('ESP Engine',[R('World Update Rate (Hz)','world_esp_hz',5,120,60,' Hz'),R('Text Size','esp_text_size',8,24,13),R('Label Gap','esp_label_gap',0,12,2),R('Box Fill Transparency','esp_fill_transparency',0,1,.7),S('Distance Style','esp_distance_style',['Metres','Brackets','Studs'],'Metres'),T('Parts Bounds','esp_parts_bounds'),L('3D box projection, dynamic label stacking and per-target error isolation.')]),group('Player ESP',human('plr')),group('Ore ESP (Icons)',[T('Master Enable (Ores)','ore_master',true),T('Ore ESP Toggle','ore_enabled'),R('Max Distance','ore_max_dist',10,2000,300,'m'),T('Show Distance','ore_dist',true),...['Cactus','MetalNode','SulfurNode','Tree','Meteor','StoneNode'].map(x=>T(x,'ore_'+x,true))])],
-      [group('NPC ESP',human('npc')),group('Heli ESP',[T('Master Enable (Heli)','heli_master',true),T('Heli ESP Toggle','heli_enabled'),S('Box Style','heli_style',['Corners','Full'],'Full'),R('Max Distance','heli_max_dist',10,5000,2000,'m'),T('Chams','heli_chams',true),T('Show Distance','heli_dist',true),T('Filled Box','heli_box_fill'),R('Box Thickness','heli_box_thickness',1,5,1),T('Box Outline','heli_box_outline',true)]),group('ESP Preview',[{type:'preview'}])]
+      [group('Player ESP',human('plr')),group('Ore ESP (Icons)',[T('Master Enable (Ores)','ore_master',true),T('Ore ESP Toggle','ore_enabled'),R('Max Distance','ore_max_dist',10,2000,300,'m'),T('Show Distance','ore_dist',true),...['Cactus','MetalNode','SulfurNode','Tree','Meteor','StoneNode'].map(x=>T(x,'ore_'+x,true))])],
+      [group('NPC ESP',human('npc')),group('Heli ESP',[T('Master Enable (Heli)','heli_master',true),T('Heli ESP Toggle','heli_enabled'),S('Box Style','heli_style',['Corners','Full'],'Full'),R('Max Distance','heli_max_dist',10,5000,2000,'m'),T('Chams','heli_chams',true),T('Show Distance','heli_dist',true)]),group('ESP Preview',[{type:'preview'}])]
     ],
     'Combat': [
       [group('Aimbot',[T('Master Enable','aim_enabled'),T('Team Check','aim_team',true),T('Wall Check','aim_wall',true),S('Target Part','aim_part',['Head','HumanoidRootPart','Closest','Random'],'Head'),R('FOV','aim_fov',10,360,180,'°'),R('Max Distance','aim_dist',50,2000,600,' studs'),R('Prediction','aim_pred',0,.5,.12),R('Smoothness','aim_smooth',0,1,.1)]),group('Bow Assist',[T('Bow Auto Lock','bow_auto',true),T('Full Charge (Crossbow)','bow_full'),R('Bow FOV','bow_fov',10,360,180),R('Bow Max Distance','bow_dist',50,1000,300),R('Bow Smoothness','bow_smooth',0,.5,.05),R('Draw Time','bow_draw',.1,2,.8),R('Speed Base','bow_speed',20,200,95),R('Speed Charge','bow_charge',0,200,125),R('Gravity','bow_gravity',0,200,50)])],
