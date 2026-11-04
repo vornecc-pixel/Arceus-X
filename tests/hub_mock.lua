@@ -138,6 +138,7 @@ local validProps = {
     -- world visuals
     Brightness=true, OutdoorAmbient=true, GlobalShadows=true, ClockTime=true,
     WorldPosition=true, AbsolutePosition=true, AbsoluteSize=true, PlayerGui=true,
+    Value=true,
 }
 local function node(class, name, parent)
     -- Roblox lets `model.Humanoid` resolve to a child; mirror that here.
@@ -205,6 +206,11 @@ local function node(class, name, parent)
     end
     function n:GetAttribute(key) return self.attributes[key] end
     function n:SetAttribute(key, value) self.attributes[key] = value end
+    function n:GetAttributes()
+        local copy = {}
+        for k, v in pairs(self.attributes) do copy[k] = v end
+        return copy
+    end
     function n:GetBoundingBox()
         return { Position = V3.new(0, 0, 10) }, V3.new(4, 6, 2)
     end
@@ -453,6 +459,9 @@ check(libSource:find("function Library:_RunIntro", 1, true), "loading screen mis
 check(libSource:find("if opts.Intro ~= false then", 1, true), "library does not start the intro from CreateWindow")
 check(libSource:find("ACCESS GRANTED", 1, true), "intro reveal missing from the library")
 check(hubSource:find("FustWeakSpotMark", 1, true), "real weakspot mark path missing")
+check(hubSource:find(":GetAttributes()", 1, true), "NPC attribute scanning missing")
+check(hubSource:find("function npcWeapon", 1, true), "NPC weapon resolver missing")
+check(not hubSource:find("Guard / Soldier", 1, true), "stale Guard/Soldier name filter comment still present")
 for _, removed in ipairs({ "FustArcticTerrain", "Decoration", "world_grass", "world_leaves",
     "world_fog", "world_brightness", "world_fog_end", "world_leaf_transparency",
     "applyGrass", "applyLeaves", "applyFog", "reapplyTerrain", "restoreWorldVisuals",
@@ -569,9 +578,40 @@ library.Flags.plr_master = true
 -- ─── NPC ESP ────────────────────────────────────────────────────
 local npcFolder = node("Folder", "Npcs", workspace)
 local guard = character("Guard", npcFolder)
+-- A differently-named NPC nested in a sub-folder must also be found.
+local squad = node("Folder", "Squad", npcFolder)
+local scientist = character("Scientist", squad)
 library.Flags.npc_enabled = true
-step()
+local function refresh() for _ = 1, 40 do step() end end
+refresh()
 check(labelVisible("Guard"), "NPC name label drawn")
+check(labelVisible("Scientist"), "nested NPC found with no name filter")
+
+-- Exact attribute name wins.
+guard:SetAttribute("Weapon", "AK-47")
+refresh()
+check(labelVisible("AK-47"), "NPC gun shown from a Weapon attribute")
+-- An unknown game-specific attribute name is found by the keyword scan.
+guard:SetAttribute("Weapon", nil)
+guard:SetAttribute("FustEquippedGun", "MP5")
+refresh()
+check(labelVisible("MP5"), "NPC gun shown from an unknown weapon attribute name")
+-- Skins / booleans are not guns; a nested Tool instance still works.
+guard:SetAttribute("FustEquippedGun", nil)
+guard:SetAttribute("WeaponSkin", "Rainbow")
+guard:SetAttribute("WeaponEnabled", true)
+local gear = node("Folder", "Gear", guard)
+local npcTool = node("Tool", "Shotgun", gear)
+refresh()
+check(labelVisible("Shotgun"), "nested Tool instance used when no attribute exists")
+check(not labelVisible("Rainbow"), "WeaponSkin attribute is not mistaken for the gun")
+-- A weapon-named value object also resolves.
+local weaponValue = node("StringValue", "HeldWeaponName", guard)
+weaponValue.Value = "Railgun"
+refresh()
+check(labelVisible("Railgun"), "weapon-named StringValue resolves the gun")
+check(type(library.buttons["Report NPC Attributes"]) == "function", "Report NPC Attributes button registered")
+library.buttons["Report NPC Attributes"]()
 library.Flags.npc_enabled = false
 
 -- ─── Ore ESP (3D icon + labeled fallback) ───────────────────────

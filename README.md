@@ -38,8 +38,16 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
     side table — never as fields on `Instance`s, which Roblox rejects.
   - **Player ESP** — adjustable update rate (30–240 Hz), max distance, box style, and per-element
     colors for box, name, health, distance, weapon, skeleton and chams.
-  - **NPC ESP** — models under `workspace.Npcs`, with the same box/name/distance/weapon/chams
-    controls.
+  - **NPC ESP** — every `Model` with a live `Humanoid` anywhere under `Workspace.Npcs`,
+    including NPCs nested in sub-folders. **There is no name filter**: Guard, Soldier,
+    Scientist, anything is scanned. Box/name/distance/chams controls plus a weapon label
+    that reads the NPC's gun from attributes first (exact names such as `Weapon` / `Gun`,
+    then a case-insensitive `GetAttributes()` scan so game-specific keys like
+    `FustEquippedGun` work), then weapon-named `StringValue` / `ObjectValue` children,
+    then a `Tool` instance anywhere under the model, and finally `Unarmed`. **Report NPC
+    Attributes** dumps every NPC's attributes and resolved gun to the console. The NPC
+    list and each weapon label are cached for 0.5 s so the ESP pass does not rescan them
+    every frame.
   - **Ore ESP** — 3D item icons in `ViewportFrame`s from the game's optional
     `ReplicatedStorage.Fust.ItemIcons` module, with an abbreviation fallback. Filters for
     Cactus, MetalNode, SulfurNode, Tree, Meteor and StoneNode, plus a distance toggle.
@@ -114,7 +122,9 @@ The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 - Ore icons, staff labels and the `FustMates`/`Fust` data the aimbot reads depend on
   game-specific replicated modules/attributes. Missing modules fall back to abbreviations
   and built-in role labels. Only client-replicated objects can be detected, so streaming
-  affects ESP. `workspace.Npcs` is used for optional NPC targets.
+  affects ESP. `Workspace.Npcs` is used for NPC ESP and optional NPC aimbot targets;
+  discovery is recursive and name-agnostic. The weapon label depends on the game's own
+  attribute keys — **Report NPC Attributes** prints them so the resolver can be tuned.
 - Looped Fullbright writes `Lighting` only. Games that continuously re-apply their own
   lighting may fight the per-frame loop. Originals are captured once at load, so
   re-executing the hub after another script changed lighting captures those changed values.

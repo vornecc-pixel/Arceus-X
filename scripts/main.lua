@@ -1017,6 +1017,142 @@ local function isNpc(model)
         and not players:GetPlayerFromCharacter(model)
 end
 
+-- ── NPC discovery (shared by ESP and aimbot) ─────────────────────
+-- There is NO name filter: Guard, Soldier, Scientist, anything with a
+-- Humanoid under Workspace.Npcs is an NPC. Descendants are scanned so NPCs
+-- nested in sub-folders are not missed; the list is cached briefly so the
+-- per-frame ESP pass does not rebuild it 60 times a second.
+local npcCache, nextNpcScan = {}, 0
+local NPC_SCAN_INTERVAL = 0.5
+local function getNpcModels()
+    local now = tick()
+    if now < nextNpcScan and #npcCache > 0 then return npcCache end
+    nextNpcScan = now + NPC_SCAN_INTERVAL
+    local found = {}
+    local folder = Workspace:FindFirstChild("Npcs")
+    if folder then
+        local ok, descendants = pcall(function() return folder:GetDescendants() end)
+        if ok and type(descendants) == "table" then
+            for _, obj in ipairs(descendants) do
+                local okModel, isModel = pcall(function() return obj:IsA("Model") end)
+                if okModel and isModel then
+                    local okPlayer, isPlayerChar = pcall(function()
+                        return Players:GetPlayerFromCharacter(obj) ~= nil
+                    end)
+                    if not (okPlayer and isPlayerChar) then
+                        local okHum, hum = pcall(function() return obj:FindFirstChildOfClass("Humanoid") end)
+                        if okHum and hum then found[#found + 1] = obj end
+                    end
+                end
+            end
+        end
+    end
+    npcCache = found
+    return npcCache
+end
+
+-- ── NPC weapon: attributes first, then a real Tool instance ───────
+-- Many games never parent a Tool to an NPC; they store the weapon in an
+-- attribute instead. Exact names win first, then GetAttributes() is scanned
+-- case-insensitively so unknown names like "FustEquippedGun" still work.
+local NPC_WEAPON_ATTRS = {
+    "Weapon", "WeaponName", "WeaponId", "EquippedWeapon", "CurrentWeapon", "HeldWeapon",
+    "ActiveWeapon", "PrimaryWeapon", "SecondaryWeapon", "Gun", "GunName", "GunId",
+    "Firearm", "Item", "ItemName", "ItemId", "HeldItem", "EquippedItem", "Tool",
+    "ToolName", "Equipped", "NPCWeapon", "NpcWeapon", "Loadout",
+}
+local NPC_WEAPON_HINTS = { "weapon", "gun", "firearm", "held", "equipp", "toolname", "itemname", "loadout" }
+local NPC_WEAPON_SKIP = { "skin", "color", "ammo", "reload", "state", "level", "tier",
+    "damage", "cooldown", "anim", "sound", "trail", "icon", "offset", "cframe",
+    "pos", "rot", "enabled", "count", "owner", "team", "role" }
+
+local function weaponAttrValue(value)
+    local t = type(value)
+    if t == "string" then
+        if value ~= "" and value ~= "nil" and value ~= "none" and string.lower(value) ~= "unarmed" then
+            return value
+        end
+    elseif t == "number" then
+        return tostring(value)
+    end
+    return nil
+end
+
+local function weaponAttrOn(inst)
+    if not isInstance(inst) then return nil end
+    for _, name in ipairs(NPC_WEAPON_ATTRS) do
+        local ok, value = readAttr(inst, name)
+        if ok then
+            local parsed = weaponAttrValue(value)
+            if parsed then return parsed end
+        end
+    end
+    local okAll, all = pcall(function() return inst:GetAttributes() end)
+    if okAll and type(all) == "table" then
+        for key, value in pairs(all) do
+            local lower = string.lower(tostring(key))
+            local skip = false
+            for _, bad in ipairs(NPC_WEAPON_SKIP) do
+                if lower:find(bad, 1, true) then skip = true; break end
+            end
+            if not skip then
+                for _, hint in ipairs(NPC_WEAPON_HINTS) do
+                    if lower:find(hint, 1, true) then
+                        local parsed = weaponAttrValue(value)
+                        if parsed then return parsed end
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function npcWeapon(model)
+    -- 1) Attributes on the model, its Humanoid and its root part.
+    local sources = { model }
+    local okH, hum = pcall(function() return model:FindFirstChildOfClass("Humanoid") end)
+    if okH and hum then sources[#sources + 1] = hum end
+    local okR, root = pcall(function() return model:FindFirstChild("HumanoidRootPart") end)
+    if okR and root then sources[#sources + 1] = root end
+    for _, inst in ipairs(sources) do
+        local value = weaponAttrOn(inst)
+        if value then return value end
+    end
+
+    -- 2) Weapon-named value objects (StringValue / ObjectValue / IntValue).
+    local okD, descendants = pcall(function() return model:GetDescendants() end)
+    if okD and type(descendants) == "table" then
+        for _, obj in ipairs(descendants) do
+            local okN, name = readProp(obj, "Name")
+            local lower = okN and string.lower(tostring(name)) or ""
+            if lower:find("weapon", 1, true) or lower:find("gun", 1, true) or lower:find("helditem", 1, true) then
+                local okV, value = readProp(obj, "Value")
+                if okV then
+                    local parsed
+                    if isInstance(value) then
+                        local okName, instName = readProp(value, "Name")
+                        if okName then parsed = weaponAttrValue(instName) end
+                    else
+                        parsed = weaponAttrValue(value)
+                    end
+                    if parsed then return parsed end
+                end
+            end
+        end
+    end
+
+    -- 3) A real Tool instance anywhere under the model (recursive now).
+    local okT, tool = pcall(function() return model:FindFirstChildWhichIsA("Tool", true) end)
+    if okT and tool then
+        local okName, name = readProp(tool, "Name")
+        if okName and name then return tostring(name) end
+    end
+    return "Unarmed"
+end
+
+
 -- ── Keybind: one bound input, pickable from a list ────────────────
 -- RMB / MMB are ordinary choices in the "Keybind List" dropdown (and can
 -- also be captured by clicking the keybind button). There is no separate
@@ -1145,13 +1281,10 @@ connect(RunService.RenderStepped, function()
             end
         end
 
-        -- NPC targeting (Guard / Soldier)
+        -- NPC targeting: every Humanoid model under Workspace.Npcs, no name filter.
         if aiming.targetNpcs then
-            local npcsFolder = ws:FindFirstChild("Npcs")
-            if npcsFolder then
-                for _, model in ipairs(npcsFolder:GetChildren()) do
-                    if isNpc(model) then choose(model, false) end
-                end
+            for _, model in ipairs(getNpcModels()) do
+                if isNpc(model) then choose(model, false) end
             end
         end
 
@@ -1354,8 +1487,8 @@ connect(RunService.RenderStepped, function(dt)
             local chamsOn = getFlag("npc_chams", true)
             local npcFolder = Workspace:FindFirstChild("Npcs")
             if npcFolder then
-                for _, model in ipairs(npcFolder:GetChildren()) do
-                    if model:IsA("Model") and not Players:GetPlayerFromCharacter(model) then
+                for _, model in ipairs(getNpcModels()) do
+                    if model.Parent then
                         local hum = model:FindFirstChildOfClass("Humanoid")
                         if hum and hum.Health > 0 then
                             local root = getRoot(model)
@@ -1392,8 +1525,11 @@ connect(RunService.RenderStepped, function(dt)
                                         local meters = math.floor(distStuds * STUD_TO_METER)
                                         esp.lastDist = meters
                                         setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.npc_dist, topX, botY + 16)
-                                        local tool = model:FindFirstChildWhichIsA("Tool")
-                                        setLabel(esp.weapon, wepOn, tool and tool.Name or "Unarmed", Colors.npc_wep, topX, botY + 32)
+                                        if now >= (esp.nextWeaponCheck or 0) then
+                                            esp.nextWeaponCheck = now + 0.5
+                                            esp.weaponText = npcWeapon(model)
+                                        end
+                                        setLabel(esp.weapon, wepOn, esp.weaponText or "Unarmed", Colors.npc_wep, topX, botY + 32)
                                     end
                                 end
                             end
@@ -1564,6 +1700,26 @@ NPCGroup:AddToggle({ Name = "Name", Flag = "npc_name", Default = true, Colors = 
 NPCGroup:AddToggle({ Name = "Distance", Flag = "npc_dist", Default = true, Colors = { Color3.new(1,1,1) }, ColorCallback = function(i, c) Colors.npc_dist = c end })
 NPCGroup:AddToggle({ Name = "Weapon", Flag = "npc_weapon", Default = true, Colors = { Color3.fromRGB(255, 180, 60) }, ColorCallback = function(i, c) Colors.npc_wep = c end })
 NPCGroup:AddToggle({ Name = "Chams", Flag = "npc_chams", Default = true, Colors = { Color3.fromRGB(60, 255, 120), Color3.fromRGB(255, 50, 80) }, ColorCallback = function(i, c) if i == 1 then Colors.npc_chams_vis = c else Colors.npc_chams_occ = c end end })
+NPCGroup:AddButton({
+    Name = "Report NPC Attributes",
+    Callback = function()
+        local models = getNpcModels()
+        for _, model in ipairs(models) do
+            local ok, attrs = pcall(function() return model:GetAttributes() end)
+            local parts = {}
+            if ok and type(attrs) == "table" then
+                for key, value in pairs(attrs) do
+                    parts[#parts + 1] = tostring(key) .. "=" .. tostring(value)
+                end
+                table.sort(parts)
+            end
+            print("[ARC3USX] NPC " .. tostring(getProp(model, "Name", "?")) ..
+                " | gun=" .. npcWeapon(model) ..
+                " | attributes: " .. (#parts > 0 and table.concat(parts, ", ") or "(none)"))
+        end
+        Library:Notify("[ARC3USX] Dumped attributes for " .. #models .. " NPCs — see console", 6)
+    end
+})
 
 -- ORE ESP (icon-based)
 local OreGroup = Visuals:AddGroup("Ore ESP (Icons)", "Left")
