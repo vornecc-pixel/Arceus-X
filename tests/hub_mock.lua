@@ -116,14 +116,40 @@ local function signal()
 end
 
 local nodes = {}
+-- Roblox throws when an unknown member is assigned to an Instance. Mirror that
+-- here: caching helpers must keep their scratch state off the Instance.
+local validProps = {
+    Parent=true, Name=true, ClassName=true, Visible=true, Position=true, Size=true,
+    Rotation=true, BackgroundColor3=true, BackgroundTransparency=true,
+    BorderColor3=true, BorderSizePixel=true, Text=true, TextColor3=true,
+    TextSize=true, Font=true, TextStrokeColor3=true, TextStrokeTransparency=true,
+    AnchorPoint=true, ZIndex=true, ResetOnSpawn=true, IgnoreGuiInset=true,
+    DisplayOrder=true, ZIndexBehavior=true, Adornee=true, FillColor=true,
+    FillTransparency=true, OutlineColor=true, OutlineTransparency=true,
+    DepthMode=true, Enabled=true, CurrentCamera=true, Ambient=true,
+    LightColor=true, LightDirection=true, FieldOfView=true, CFrame=true,
+    ViewportSize=true, AssemblyLinearVelocity=true, PrimaryPart=true,
+    Health=true, MaxHealth=true, Team=true, Character=true, UserId=true,
+    Destroyed=true, children=true, attributes=true, activations=true,
+    obstruction=true, DescendantAdded=true, DescendantRemoving=true,
+    connected=true,
+}
 local function node(class, name, parent)
     -- Roblox lets `model.Humanoid` resolve to a child; mirror that here.
     local n = setmetatable({
         ClassName = class, Name = name or class, Parent = parent, children = {},
         attributes = {}, Destroyed = false, Visible = false,
-    }, { __index = function(self, key)
-        return self:FindFirstChild(key)
-    end })
+    }, {
+        __index = function(self, key)
+            return self:FindFirstChild(key)
+        end,
+        __newindex = function(self, key, value)
+            if type(value) ~= "function" and not validProps[key] then
+                error(string.format("%s is not a valid member of %s", tostring(key), tostring(class)), 2)
+            end
+            rawset(self, key, value)
+        end,
+    })
     if parent then table.insert(parent.children, n) end
     table.insert(nodes, n)
     if class == "BasePart" then
@@ -227,6 +253,7 @@ local fust = node("Folder", "Fust", rep)
 local iconsScript = node("ModuleScript", "ItemIcons", fust)
 local staffState = node("ModuleScript", "StaffState", fust)
 local adminPerms = node("ModuleScript", "AdminPerms", fust)
+local itemsScript = node("ModuleScript", "Items", fust)
 local iconModel = node("Model", "OreIconModel")
 local modules = {}
 modules[iconsScript] = {
@@ -247,6 +274,18 @@ modules[staffState] = {
 modules[adminPerms] = {
     Label = { mod = "Moderator", admin = "Admin" },
     Rank = function(role) return role == "admin" and 4 or 2 end,
+}
+modules[itemsScript] = {
+    Get = function(itemId)
+        if itemId == "test_bow" then return { weapon = "bow" } end
+        return nil
+    end,
+    BowSpec = function(def)
+        if def and def.weapon == "bow" then
+            return { speedBase = 20, speedCharge = 0, gravity = 50 }
+        end
+        return nil
+    end,
 }
 require = function(mod) return modules[mod] end
 
@@ -376,12 +415,20 @@ assert(load(hubSource, "scripts/main.lua"))()
 for _, removed in ipairs({ "GunMods", "BowMods", "getgc", "gunmods_enabled", "bowmods_enabled",
     "universal_ammo", "ESP_URL", "ui_bootstrap", "ARC3USX_NH", "weakspotMarkers",
     "FustAimBow", "BowAutoLock", "solveBallistic", "ARC3USX_Aimbot", "Aimbot.Config",
-    "Cycle Target Part", "Toggle: Z" }) do
+    "Cycle Target Part", "Toggle: Z", "performInstaHit", "mouse1click",
+    "tool:Activate", "ARC3USX_InstaHit", "Insta-Hit", "HIT_COOLDOWN" }) do
     check(not hubSource:find(removed, 1, true), "legacy feature still present: " .. removed)
 end
 for _, flag in ipairs({ "gunmods_enabled", "bowmods_enabled", "universal_ammo", "universal_noair" }) do
     check(library.Flags[flag] == nil, "legacy flag still registered: " .. flag)
 end
+-- Roblox rejects arbitrary fields on Instances. Scratch state must live in the
+-- weak-keyed side table, never on a Frame/TextLabel (this broke every ESP except chams).
+for _, bad in ipairs({ ".lastX", ".lastY", ".lastW", ".lastH", ".lastLen", ".lastAngle" }) do
+    check(not hubSource:find(bad, 1, true), "ESP writes an invalid Instance property: " .. bad)
+end
+check(hubSource:find("okEsp, espErr = pcall", 1, true), "ESP pass is not isolated")
+check(hubSource:find("okAim, aimErr = pcall", 1, true), "aimbot step is not isolated")
 
 check(library.windowOpts.Intro == false and library.windowOpts.Theme == "Purple", "hub window options")
 check(library.windowOpts.Size.X == 800 and library.windowOpts.Size.Y == 620, "hub window size")
@@ -389,8 +436,8 @@ check(#library.tabs == 3 and library.settingsTab, "three tabs plus settings")
 check(library.tabs[1].name == "ESP / World" and library.tabs[2].name == "Combat" and library.tabs[3].name == "Misc", "tab names")
 local expectedGroups = {
     "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview",
-    "Aimbot", "Aimbot Options",
-    "Staff Detection", "Staff ESP", "Mining (Silent Insta-Hit)", "System",
+    "Aimbot", "Aimbot Options", "Weapon Tuning",
+    "Staff Detection", "Staff ESP", "Weakspot Aim (No Auto-Hit)", "System",
 }
 for _, name in ipairs(expectedGroups) do
     local found = false
@@ -401,11 +448,13 @@ for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "p
     "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
     "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_bone",
     "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
-    "aim_prediction", "aim_target_npcs", "aim_wall_check", "aim_team_check" }) do
+    "aim_prediction", "aim_target_npcs", "aim_wall_check", "aim_team_check",
+    "aim_arc", "aim_auto_tune", "aim_gravity", "aim_bow_charge", "aim_bow_base",
+    "aim_bow_charge_speed", "aim_fallback_speed", "aim_tune_interval" }) do
     check(library.Flags[flag] ~= nil, "missing flag: " .. flag)
 end
 check(#library.previews == 1 and library.previews[1].Elements.Box == "plr_box", "ESP preview wired to hub flags")
-check(type(renderSteps.ARC3USX_InstaHit) == "function", "insta-hit render step bound")
+check(renderSteps.ARC3USX_InstaHit == nil, "no automatic weakspot render step")
 check(renderSteps.ARC3USX_Aimbot == nil, "old bound aimbot render step removed")
 check(#drawings == 1, "a single aimbot FOV circle created")
 check(type(library.Options.aim_key.Key) == "table", "aimbot keybind registered with a default key")
@@ -514,7 +563,7 @@ check(labelVisible("2m"), "heli distance label drawn")
 library.Flags.heli_enabled = false
 workspace.DescendantRemoving:Fire(heli); heli.Parent = nil
 
--- ─── Silent insta-hit weakspot ──────────────────────────────────
+-- ─── Weakspot aim (no auto-hit, no auto-click) ──────────────────
 local localChar = character("LocalChar", workspace)
 players.LocalPlayer.Character = localChar
 local tool = node("Tool", "Stone Pickaxe", localChar)
@@ -525,11 +574,17 @@ tree.PrimaryPart = weakspot
 workspace.DescendantAdded:Fire(tree)
 local savedCFrame = camera.CFrame
 library.Flags.weakspot_enabled = true
-clock = clock + 1
-renderSteps.ARC3USX_InstaHit(1 / 60)
-check((tool.activations or 0) == 1, "insta-hit activates the mining tool")
-check(clicks == 1, "insta-hit also fires a synthetic click")
-check(camera.CFrame == savedCFrame, "insta-hit restores the camera without a visible lock")
+step()
+check((tool.activations or 0) == 0, "weakspot never activates the tool automatically")
+check(clicks == 0, "weakspot never fires a synthetic click")
+check(camera.CFrame == savedCFrame, "weakspot leaves the camera alone by itself")
+
+-- Only a real manual MouseButton1 press snaps it, for one frame.
+uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton1 }, false)
+check(camera.CFrame ~= savedCFrame, "manual click snaps the camera toward the weakspot")
+check((tool.activations or 0) == 0 and clicks == 0, "manual click never activates or clicks")
+step()
+check(camera.CFrame == savedCFrame, "camera restored on the next frame")
 library.Flags.weakspot_enabled = false
 
 -- ─── Aimbot (mouse-relative lock) ───────────────────────────────
@@ -622,6 +677,40 @@ library.controls.aim_enabled.Callback(true)
 library.Flags.Aim_FOV_Circle = false
 step()
 check(not drawings[1].Visible, "FOV circle hidden when its toggle is off")
+
+-- ─── Auto-tune + arc / gravity compensation ─────────────────────
+-- Equip a bow whose ItemId resolves to weapon == "bow" with a deliberately
+-- slow projectile, so the gravity lead is clearly measurable.
+tool.Parent = nil
+local bowTool = node("Tool", "Crossbow", localChar)
+bowTool:SetAttribute("ItemId", "test_bow")
+library.controls.aim_auto_tune.Callback(true)
+for _ = 1, 20 do step() end
+local tuneLabel = nil
+for _, label in ipairs(library.labels) do
+    if label.text and label.text:find("Weapon:", 1, true) then tuneLabel = label end
+end
+check(tuneLabel and tuneLabel.text:find("projectile", 1, true), "auto-tune detects the bow as a projectile")
+check(tuneLabel.text:find("speed 20", 1, true), "Items.BowSpec supplies the projectile speed")
+
+movesBefore = #mouseMoves
+step()
+check(#mouseMoves > movesBefore, "projectile aiming still moves the mouse")
+check(mouseMoves[#mouseMoves][2] < -10, "arc compensation adds an upward gravity lead")
+library.controls.aim_arc.Callback(false)
+step()
+check(mouseMoves[#mouseMoves][2] == -10, "disabling arc compensation removes the gravity lead")
+library.controls.aim_arc.Callback(true)
+
+-- Auto-tune can be frozen.
+bowTool.Parent = nil
+tool.Parent = localChar
+library.controls.aim_auto_tune.Callback(false)
+for _ = 1, 20 do step() end
+check(tuneLabel.text:find("projectile", 1, true), "auto-tune off freezes the resolved weapon")
+library.controls.aim_auto_tune.Callback(true)
+for _ = 1, 20 do step() end
+check(tuneLabel.text:find("hitscan", 1, true), "auto-tune re-detects the pickaxe as hitscan")
 
 -- ─── ESP ScreenGui rebuild + cleanup ─────────────────────────────
 espGui.Parent = nil

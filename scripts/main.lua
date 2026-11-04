@@ -121,27 +121,39 @@ for i = 1, 8 do boxCorners[i] = { 0, 0, 0, 0 } end
 -- disabled.
 local currentFrame = 0
 
+-- Roblox Instances reject arbitrary Lua fields ("lastX is not a valid member
+-- of Frame"). Keep write caches in a weak-keyed side table keyed by the
+-- Instance instead of assigning them onto the Instance itself.
+local propCache = setmetatable({}, { __mode = "k" })
+local function cached(inst)
+    local c = propCache[inst]
+    if not c then c = {}; propCache[inst] = c end
+    return c
+end
+
 local function setFrame(frame, x, y, w, h)
+    local c = cached(frame)
     local ox, oy, ow, oh = math.floor(x), math.floor(y), math.floor(w), math.floor(h)
-    if frame.lastX ~= ox or frame.lastY ~= oy then
+    if c.x ~= ox or c.y ~= oy then
         frame.Position = UDim2.fromOffset(ox, oy)
-        frame.lastX, frame.lastY = ox, oy
+        c.x, c.y = ox, oy
     end
-    if frame.lastW ~= ow or frame.lastH ~= oh then
+    if c.w ~= ow or c.h ~= oh then
         frame.Size = UDim2.fromOffset(ow, oh)
-        frame.lastW, frame.lastH = ow, oh
+        c.w, c.h = ow, oh
     end
 end
 
 local function setCentered(frame, x, y, size)
+    local c = cached(frame)
     local ox, oy, sz = math.floor(x), math.floor(y), math.floor(size)
-    if frame.lastX ~= ox or frame.lastY ~= oy then
+    if c.x ~= ox or c.y ~= oy then
         frame.Position = UDim2.fromOffset(ox, oy)
-        frame.lastX, frame.lastY = ox, oy
+        c.x, c.y = ox, oy
     end
-    if frame.lastW ~= sz then
+    if c.w ~= sz then
         frame.Size = UDim2.fromOffset(sz, sz)
-        frame.lastW = sz
+        c.w = sz
     end
     if not frame.Visible then frame.Visible = true end
 end
@@ -151,37 +163,39 @@ local function setLabel(lbl, visible, text, color, x, y)
         if lbl.Visible then lbl.Visible = false end
         return
     end
+    local c = cached(lbl)
     if lbl.Text ~= text then lbl.Text = text end
     if lbl.TextColor3 ~= color then lbl.TextColor3 = color end
     local ox, oy = math.floor(x), math.floor(y)
-    if lbl.lastX ~= ox or lbl.lastY ~= oy then
+    if c.x ~= ox or c.y ~= oy then
         lbl.Position = UDim2.fromOffset(ox, oy)
-        lbl.lastX, lbl.lastY = ox, oy
+        c.x, c.y = ox, oy
     end
     if not lbl.Visible then lbl.Visible = true end
 end
 
 local function drawLine(line, fromX, fromY, toX, toY, color)
     if not line then return end
+    local c = cached(line)
     local dx, dy = toX - fromX, toY - fromY
     local length = math.sqrt(dx * dx + dy * dy)
     if length < 0.5 then
         if line.Visible then line.Visible = false end
-        line.lastX, line.lastY = nil, nil
+        c.x, c.y = nil, nil
         return
     end
     local ox, oy = math.floor(fromX), math.floor(fromY)
     local len = math.floor(length)
-    local angle = math.deg(math.atan2(dy, dx))
-    if line.lastX ~= ox or line.lastY ~= oy then
+    local angle = math.deg(math.atan(dy, dx))
+    if c.x ~= ox or c.y ~= oy then
         line.Position = UDim2.fromOffset(ox, oy)
-        line.lastX, line.lastY = ox, oy
+        c.x, c.y = ox, oy
     end
-    if line.lastLen ~= len then
+    if c.len ~= len then
         line.Size = UDim2.fromOffset(len, 1)
-        line.lastLen = len
+        c.len = len
     end
-    if line.lastAngle ~= angle then line.Rotation = angle; line.lastAngle = angle end
+    if c.angle ~= angle then line.Rotation = angle; c.angle = angle end
     if line.BackgroundColor3 ~= color then line.BackgroundColor3 = color end
     if not line.Visible then line.Visible = true end
 end
@@ -443,13 +457,11 @@ connect(Players.PlayerRemoving, function(plr)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
---  SILENT INSTA-HIT WEAKSPOT (NO CAMERA LOCK)
+--  WEAKSPOT AIM (NO AUTO-HIT, NO AUTO-CLICK)
 -- ═══════════════════════════════════════════════════════════════
 local NodeNames = { ["Tree"] = true, ["MetalNode"] = true, ["SulfurNode"] = true, ["StoneNode"] = true, ["Cactus"] = true, ["Meteor"] = true }
 local WeakspotNames = { "Weakspot", "WeakSpot", "WeakPoint", "Weakpoint", "CriticalSpot", "CriticalPart", "Critical", "CritSpot", "Hitpoint", "HitPoint", "HitSpot", "Mark", "MarkSpot", "Bonus", "BonusSpot" }
 local cachedNodes = {}
-local lastHitTime = 0
-local HIT_COOLDOWN = 0.12
 
 task.spawn(function()
     for _, v in ipairs(Workspace:GetDescendants()) do
@@ -494,36 +506,33 @@ local function getNearestNodeInRange(maxRange)
     return closest
 end
 
-local function performInstaHit()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local tool = char:FindFirstChildOfClass("Tool")
-    if not tool then return end
-    local name = tool.Name:lower()
-    if not (name:find("pickaxe") or name:find("hatchet") or name:find("rock") or name:find("jackhammer") or name:find("chainsaw")) then return end
+-- No automatic activation and no synthetic click. The camera is nudged toward
+-- the nearest weakspot ONLY when the player presses MouseButton1, and is put
+-- back on the very next rendered frame. Nothing swinging/hitting happens here.
+local pendingSnap = nil
 
+local function queueWeakspotSnap()
+    if unloaded or not getFlag("weakspot_enabled", false) then return end
     local node = getNearestNodeInRange(50)
     if not node then return end
-
     local targetPos = getWeakspotPosition(node)
     local camPos = Camera.CFrame.Position
     if (targetPos - camPos).Magnitude < 0.5 then return end
-
-    -- Silent snap: aim → activate → restore in the same tick.
-    local savedCFrame = Camera.CFrame
+    pendingSnap = Camera.CFrame
     Camera.CFrame = CFrame.lookAt(camPos, targetPos)
-    pcall(function() tool:Activate() end)
-    if type(mouse1click) == "function" then pcall(mouse1click) end
-    Camera.CFrame = savedCFrame
 end
 
-RunService:BindToRenderStep("ARC3USX_InstaHit", Enum.RenderPriority.Camera.Value + 1, function(dt)
-    if unloaded or not getFlag("weakspot_enabled", false) then return end
-    local now = tick()
-    if now - lastHitTime < HIT_COOLDOWN then return end
-    lastHitTime = now
-    performInstaHit()
+connect(UserInputService.InputBegan, function(input, gp)
+    if gp or unloaded or Library._listening then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+    pcall(queueWeakspotSnap)
 end)
+
+local function restoreWeakspotSnap()
+    if not pendingSnap then return end
+    Camera.CFrame = pendingSnap
+    pendingSnap = nil
+end
 
 -- ═══════════════════════════════════════════════════════════════
 --  STORES & HELPERS
@@ -721,7 +730,23 @@ local aiming = {
     targetNpcs  = false,
     wallCheck   = false,
     teamCheck   = false,
+
+    -- Arc / gravity compensation (bows + crossbows)
+    arcCompensation = true,
+    gravity         = 50,
+    bowCharge       = 1.0,
+    bowBaseSpeed    = 95,
+    bowChargeSpeed  = 125,
+    currentKind     = "hitscan",
+
+    -- Auto-tune from the equipped tool
+    autoTune      = true,
+    fallbackSpeed = 900,
+    currentTool   = nil,
+    lastTune      = 0,
+    tuneInterval  = 0.25,
 }
+local weaponLabel = nil
 
 -- The UI library stores a keybind's flag as a key-name string, so the lock
 -- state (mode + active) lives in its own table, exactly as lockActive expects.
@@ -750,6 +775,17 @@ end
 aiming.fovCircle = drawing("Circle", {
     Thickness = 1, NumSides = 64, Filled = false, Visible = false,
 })
+
+-- Bow detection mirrors the game's own Vex.txt logic: ItemId -> Items.Get ->
+-- weapon == "bow". Missing module falls back to a name match.
+local Items = nil
+pcall(function()
+    local fust = ReplicatedStorage:FindFirstChild("Fust")
+    local items = fust and fust:FindFirstChild("Items")
+    if items and items:IsA("ModuleScript") then
+        Items = require(items)
+    end
+end)
 
 local aimRayParams = RaycastParams.new()
 aimRayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -803,20 +839,138 @@ local function getBonePart(model)
     return model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
 end
 
-local function predictPosition(model, basePos, cameraPos)
-    if not aiming.prediction or aiming.bulletSpeed <= 0 then
-        return basePos
+local function isBowTool(tool)
+    if not tool then return false end
+
+    if Items and type(Items.Get) == "function" then
+        local itemId = tool:GetAttribute("ItemId")
+        if type(itemId) == "string" then
+            local ok, def = pcall(Items.Get, itemId)
+            if ok and type(def) == "table" and def.weapon == "bow" then
+                return true
+            end
+        end
     end
 
-    local hrp = model:FindFirstChild("HumanoidRootPart")
-    local vel = hrp and hrp.AssemblyLinearVelocity
-    if not vel or vel.Magnitude <= 1 then
-        return basePos
+    return tool.Name:lower():find("bow", 1, true) ~= nil
+end
+
+local function resolveBowParams(tool)
+    local base, charge, grav = aiming.bowBaseSpeed, aiming.bowChargeSpeed, aiming.gravity
+
+    local aBase = tonumber(tool:GetAttribute("SpeedBase"))
+    local aCharge = tonumber(tool:GetAttribute("SpeedCharge"))
+    local aGrav = tonumber(tool:GetAttribute("Gravity"))
+    if aBase and aBase > 0 then base = aBase end
+    if aCharge and aCharge >= 0 then charge = aCharge end
+    if aGrav and aGrav > 0 then grav = aGrav end
+
+    if Items and type(Items.Get) == "function" and type(Items.BowSpec) == "function" then
+        local itemId = tool:GetAttribute("ItemId")
+        if type(itemId) == "string" then
+            local ok, def = pcall(Items.Get, itemId)
+            if ok and def then
+                local ok2, spec = pcall(Items.BowSpec, def)
+                if ok2 and type(spec) == "table" then
+                    if type(spec.speedBase) == "number" then base = spec.speedBase end
+                    if type(spec.speedCharge) == "number" then charge = spec.speedCharge end
+                    if type(spec.gravity) == "number" then grav = spec.gravity end
+                end
+            end
+        end
     end
 
-    local dist = (basePos - cameraPos).Magnitude
-    local travelTime = dist / aiming.bulletSpeed
-    return basePos + vel * travelTime
+    local chargeFrac = math.clamp(aiming.bowCharge, 0, 1)
+    local speed = chargeFrac * charge + base
+    aiming.gravity = grav
+    return speed
+end
+
+local function getEquippedTool()
+    local char = lp.Character
+    if not char then return nil end
+    return char:FindFirstChildOfClass("Tool")
+end
+
+local function resolveWeapon(tool)
+    if not tool then
+        return aiming.fallbackSpeed, "hitscan"
+    end
+
+    if isBowTool(tool) then
+        return resolveBowParams(tool), "projectile"
+    end
+
+    local speedAttrs = {
+        "ProjectileSpeed", "BulletSpeed", "MuzzleVelocity",
+        "Velocity", "Speed", "ProjectileVelocity",
+    }
+    for _, name in ipairs(speedAttrs) do
+        local v = tonumber(tool:GetAttribute(name))
+        if v and v > 0 then return v, "hitscan" end
+    end
+
+    local lower = tool.Name:lower()
+    if lower:find("sniper") then return 2500, "hitscan" end
+    if lower:find("rifle") then return 1200, "hitscan" end
+    if lower:find("smg") then return 1000, "hitscan" end
+    if lower:find("pistol") then return 900, "hitscan" end
+
+    return aiming.fallbackSpeed, "hitscan"
+end
+
+local function updateEquippedWeapon(now)
+    if not aiming.autoTune then return end
+    if now - aiming.lastTune < aiming.tuneInterval then return end
+    aiming.lastTune = now
+
+    local tool = getEquippedTool()
+    if tool == aiming.currentTool then return end
+
+    aiming.currentTool = tool
+    local speed, kind = resolveWeapon(tool)
+    aiming.bulletSpeed = speed
+    aiming.currentKind = kind
+    if weaponLabel then
+        pcall(function()
+            weaponLabel:SetText(string.format("Weapon: %s | speed %d | gravity %d | %s",
+                kind, math.floor(speed), math.floor(aiming.gravity), tool and tool.Name or "none"))
+        end)
+    end
+end
+
+local function predictPosition(model, basePos, cameraPos, speed, kind)
+    -- 1) Target velocity prediction (horizontal + vertical).
+    local predictedPos = basePos
+    if aiming.prediction and speed > 0 then
+        local hrp = model:FindFirstChild("HumanoidRootPart")
+        local vel = hrp and hrp.AssemblyLinearVelocity
+        if vel and vel.Magnitude > 1 then
+            local dist = (basePos - cameraPos).Magnitude
+            local travelTime = dist / speed
+            predictedPos = basePos + vel * travelTime
+        end
+    end
+
+    -- 2) Gravity lead for projectiles (bows / crossbows).
+    if kind == "projectile" and aiming.arcCompensation and aiming.gravity > 0 then
+        local aimPos = predictedPos
+        for _ = 1, 3 do
+            local dist = (aimPos - cameraPos).Magnitude
+            if dist <= 0 then break end
+            local travelTime = dist / speed
+            local drop = 0.5 * aiming.gravity * travelTime * travelTime
+            local newAim = predictedPos + Vector3.new(0, drop, 0)
+            if (newAim - aimPos).Magnitude < 0.01 then
+                aimPos = newAim
+                break
+            end
+            aimPos = newAim
+        end
+        predictedPos = aimPos
+    end
+
+    return predictedPos
 end
 
 local function screenDelta(camera, worldPos, mouseLocation)
@@ -850,7 +1004,7 @@ local function isNpc(model)
         and not players:GetPlayerFromCharacter(model)
 end
 
-local function considerTarget(model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta)
+local function considerTarget(model, camera, cameraPos, mouseLocation, maxDist, speed, kind, best, bestDelta)
     local humanoid = model:FindFirstChildOfClass("Humanoid")
     if not humanoid or humanoid.Health <= 0 then
         return best, bestDelta
@@ -865,7 +1019,7 @@ local function considerTarget(model, camera, cameraPos, mouseLocation, maxDist, 
         return best, bestDelta
     end
 
-    local aimPos = predictPosition(model, bone.Position, cameraPos)
+    local aimPos = predictPosition(model, bone.Position, cameraPos, speed, kind)
     if maxDist > 0 and (aimPos - cameraPos).Magnitude > maxDist then
         return best, bestDelta
     end
@@ -894,6 +1048,8 @@ local function aimStep()
     local camera = ws.CurrentCamera
     if not camera then return end
 
+    updateEquippedWeapon(tick())
+
     local circle = aiming.fovCircle
     local mouseLocation = nil
     if aiming.enabled and flags.Aim_FOV_Circle and aiming.fov > 0 then
@@ -913,6 +1069,8 @@ local function aimStep()
     mouseLocation = mouseLocation or uis:GetMouseLocation()
     local cameraPos = camera.CFrame.Position
     local maxDist = aiming.distance
+    local speed = aiming.bulletSpeed
+    local kind = aiming.currentKind
     local best, bestDelta = nil, math.huge
 
     for _, player in ipairs(players:GetPlayers()) do
@@ -920,7 +1078,7 @@ local function aimStep()
             local model = player.Character
             if model then
                 best, bestDelta = considerTarget(
-                    model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta
+                    model, camera, cameraPos, mouseLocation, maxDist, speed, kind, best, bestDelta
                 )
             end
         end
@@ -932,7 +1090,7 @@ local function aimStep()
             for _, model in ipairs(npcsFolder:GetChildren()) do
                 if isNpc(model) then
                     best, bestDelta = considerTarget(
-                        model, camera, cameraPos, mouseLocation, maxDist, best, bestDelta
+                        model, camera, cameraPos, mouseLocation, maxDist, speed, kind, best, bestDelta
                     )
                 end
             end
@@ -951,6 +1109,8 @@ end
 -- ═══════════════════════════════════════════════════════════════
 local lastEspTick = 0
 local nextPrune = 0
+local nextEspWarn = 0
+local nextAimWarn = 0
 
 -- If the ScreenGui is removed externally (respawn cleanup, another script),
 -- rebuild it and drop all stale overlays instead of drawing into a dead GUI.
@@ -973,12 +1133,21 @@ connect(RunService.RenderStepped, function(dt)
     Camera = Workspace.CurrentCamera
     if not Camera then return end
 
-    aimStep()
+    local now = tick()
+    -- An aimbot error must never abort the ESP pass below: both subsystems are
+    -- isolated so one bad target/tool cannot freeze every overlay on screen.
+    local okAim, aimErr = pcall(function()
+        restoreWeakspotSnap()
+        aimStep()
+    end)
+    if not okAim and now >= nextAimWarn then
+        nextAimWarn = now + 1
+        warn("[ARC3USX] Aimbot step error: " .. tostring(aimErr))
+    end
 
     -- One throttled pass drives every ESP category. Flags are read once per
     -- pass rather than once per target, line-of-sight raycasts are cached,
     -- and property writes are skipped when values have not changed.
-    local now = tick()
     local hz = getFlag("player_esp_hz", 60)
     if type(hz) ~= "number" or hz < 15 or hz > 240 then hz = 60 end
     if now - lastEspTick < (1 / hz) then return end
@@ -987,122 +1156,35 @@ connect(RunService.RenderStepped, function(dt)
     local frame = currentFrame
     if not espGui or not espGui.Parent then pcall(rebuildEspGui) end
 
-    local camPos = Camera.CFrame.Position
-    local plrOn  = getFlag("plr_master", true) and getFlag("plr_enabled", false)
-    local npcOn  = getFlag("npc_master", true) and getFlag("npc_enabled", false)
-    local oreOn  = getFlag("ore_master", true) and getFlag("ore_enabled", false)
-    local heliOn = getFlag("heli_master", true) and getFlag("heli_enabled", false)
+    local okEsp, espErr = pcall(function()
+        local camPos = Camera.CFrame.Position
+        local plrOn  = getFlag("plr_master", true) and getFlag("plr_enabled", false)
+        local npcOn  = getFlag("npc_master", true) and getFlag("npc_enabled", false)
+        local oreOn  = getFlag("ore_master", true) and getFlag("ore_enabled", false)
+        local heliOn = getFlag("heli_master", true) and getFlag("heli_enabled", false)
 
-    -- ─── Players ─────────────────────────────────────────────────
-    if plrOn then
-        local maxDistStuds = getFlag("plr_max_dist", 500) * METER_TO_STUD
-        local boxOn, boxStyle = getFlag("plr_box", true), getFlag("plr_style", "Corners")
-        local nameOn, distOn, wepOn = getFlag("plr_name", true), getFlag("plr_dist", true), getFlag("plr_weapon", true)
-        local hpOn, skelOn, chamsOn = getFlag("plr_health", true), getFlag("plr_skel", true), getFlag("plr_chams", true)
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer then
-                local char = plr.Character
-                local hum  = char and char:FindFirstChild("Humanoid")
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if char and char.Parent and hum and root and hum.Health > 0 then
-                    local distStuds = (root.Position - camPos).Magnitude
-                    if distStuds <= maxDistStuds then
-                        local rx, ry, rOn = getScreenPos(root.Position)
-                        if rOn and nearViewport(rx, ry) then
-                            local cf, size = char:GetBoundingBox()
-                            local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
-                            local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
-                            if topOn and botOn then
-                                local esp = plrStore[char]
-                                if not esp then esp = buildEsp(); plrStore[char] = esp end
-                                markEsp(esp)
-                                local h = math.max(botY - topY, 1); local w = math.max(h * 0.55, 1)
-                                local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
-
-                                if chamsOn then
-                                    if now >= (esp.nextVisCheck or 0) then
-                                        esp.nextVisCheck = now + 0.12
-                                        local vis = isVisible(char, root)
-                                        if esp.lastVisible ~= vis then
-                                            ensureHighlight(esp, char, vis and Colors.plr_chams_vis or Colors.plr_chams_occ)
-                                            esp.lastVisible = vis
-                                        end
-                                    end
-                                    if esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
-                                elseif esp.highlight and esp.highlight.Enabled then
-                                    esp.highlight.Enabled = false
-                                end
-
-                                if boxOn then drawBox(esp, bLeft, topY, bRight, botY, boxStyle, Colors.plr_box) else hideBox(esp) end
-                                setLabel(esp.name, nameOn, plr.Name, Colors.plr_name, topX, topY - 16)
-                                local meters = math.floor(distStuds * STUD_TO_METER)
-                                esp.lastDist = meters
-                                setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.plr_dist, topX, botY + 16)
-                                local tool = char:FindFirstChildWhichIsA("Tool")
-                                setLabel(esp.weapon, wepOn, tool and tool.Name or "Unarmed", Colors.plr_wep, topX, botY + 32)
-
-                                if hpOn then
-                                    local hpPerc = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-                                    setFrame(esp.healthBg, bLeft - 6, topY, 4, h)
-                                    setFrame(esp.healthFill, bLeft - 5, topY + h * (1 - hpPerc), 2, h * hpPerc)
-                                    local hpColor = Colors.plr_hp_low:Lerp(Colors.plr_hp_high, hpPerc)
-                                    if esp.healthFill.BackgroundColor3 ~= hpColor then esp.healthFill.BackgroundColor3 = hpColor end
-                                    if not esp.healthBg.Visible then esp.healthBg.Visible = true end
-                                    if not esp.healthFill.Visible then esp.healthFill.Visible = true end
-                                else
-                                    if esp.healthBg.Visible then esp.healthBg.Visible = false end
-                                    if esp.healthFill.Visible then esp.healthFill.Visible = false end
-                                end
-
-                                if skelOn then
-                                    local activeBones = char:FindFirstChild("UpperTorso") and bonesR15 or bonesR6
-                                    for i, bone in ipairs(activeBones) do
-                                        local p1, p2 = char:FindFirstChild(bone[1]), char:FindFirstChild(bone[2])
-                                        local line = esp.skeleton[i]
-                                        if p1 and p2 then
-                                            local x1, y1, on1 = getScreenPos(p1.Position)
-                                            local x2, y2, on2 = getScreenPos(p2.Position)
-                                            if on1 and on2 then drawLine(line, x1, y1, x2, y2, Colors.plr_skel)
-                                            elseif line.Visible then line.Visible = false end
-                                        elseif line.Visible then line.Visible = false end
-                                    end
-                                    for i = #activeBones + 1, #esp.skeleton do
-                                        if esp.skeleton[i].Visible then esp.skeleton[i].Visible = false end
-                                    end
-                                else
-                                    for _, l in ipairs(esp.skeleton) do if l.Visible then l.Visible = false end end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- ─── NPCs ────────────────────────────────────────────────────
-    if npcOn then
-        local maxDistStuds = getFlag("npc_max_dist", 500) * METER_TO_STUD
-        local boxOn, boxStyle = getFlag("npc_box", true), getFlag("npc_style", "Corners")
-        local nameOn, distOn, wepOn = getFlag("npc_name", true), getFlag("npc_dist", true), getFlag("npc_weapon", true)
-        local chamsOn = getFlag("npc_chams", true)
-        local npcFolder = Workspace:FindFirstChild("Npcs")
-        if npcFolder then
-            for _, model in ipairs(npcFolder:GetChildren()) do
-                if model:IsA("Model") and not Players:GetPlayerFromCharacter(model) then
-                    local hum = model:FindFirstChildOfClass("Humanoid")
-                    if hum and hum.Health > 0 then
-                        local root = getRoot(model)
-                        local distStuds = root and (root.Position - camPos).Magnitude or math.huge
-                        if root and distStuds <= maxDistStuds then
+        -- ─── Players ─────────────────────────────────────────────────
+        if plrOn then
+            local maxDistStuds = getFlag("plr_max_dist", 500) * METER_TO_STUD
+            local boxOn, boxStyle = getFlag("plr_box", true), getFlag("plr_style", "Corners")
+            local nameOn, distOn, wepOn = getFlag("plr_name", true), getFlag("plr_dist", true), getFlag("plr_weapon", true)
+            local hpOn, skelOn, chamsOn = getFlag("plr_health", true), getFlag("plr_skel", true), getFlag("plr_chams", true)
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then
+                    local char = plr.Character
+                    local hum  = char and char:FindFirstChild("Humanoid")
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if char and char.Parent and hum and root and hum.Health > 0 then
+                        local distStuds = (root.Position - camPos).Magnitude
+                        if distStuds <= maxDistStuds then
                             local rx, ry, rOn = getScreenPos(root.Position)
                             if rOn and nearViewport(rx, ry) then
-                                local cf, size = model:GetBoundingBox()
+                                local cf, size = char:GetBoundingBox()
                                 local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
                                 local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
                                 if topOn and botOn then
-                                    local esp = npcStore[model]
-                                    if not esp then esp = buildEsp(); npcStore[model] = esp end
+                                    local esp = plrStore[char]
+                                    if not esp then esp = buildEsp(); plrStore[char] = esp end
                                     markEsp(esp)
                                     local h = math.max(botY - topY, 1); local w = math.max(h * 0.55, 1)
                                     local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
@@ -1110,9 +1192,9 @@ connect(RunService.RenderStepped, function(dt)
                                     if chamsOn then
                                         if now >= (esp.nextVisCheck or 0) then
                                             esp.nextVisCheck = now + 0.12
-                                            local vis = isVisible(model, root)
+                                            local vis = isVisible(char, root)
                                             if esp.lastVisible ~= vis then
-                                                ensureHighlight(esp, model, vis and Colors.npc_chams_vis or Colors.npc_chams_occ)
+                                                ensureHighlight(esp, char, vis and Colors.plr_chams_vis or Colors.plr_chams_occ)
                                                 esp.lastVisible = vis
                                             end
                                         end
@@ -1121,13 +1203,45 @@ connect(RunService.RenderStepped, function(dt)
                                         esp.highlight.Enabled = false
                                     end
 
-                                    if boxOn then drawBox(esp, bLeft, topY, bRight, botY, boxStyle, Colors.npc_box) else hideBox(esp) end
-                                    setLabel(esp.name, nameOn, model.Name, Colors.npc_name, topX, topY - 16)
+                                    if boxOn then drawBox(esp, bLeft, topY, bRight, botY, boxStyle, Colors.plr_box) else hideBox(esp) end
+                                    setLabel(esp.name, nameOn, plr.Name, Colors.plr_name, topX, topY - 16)
                                     local meters = math.floor(distStuds * STUD_TO_METER)
                                     esp.lastDist = meters
-                                    setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.npc_dist, topX, botY + 16)
-                                    local tool = model:FindFirstChildWhichIsA("Tool")
-                                    setLabel(esp.weapon, wepOn, tool and tool.Name or "Unarmed", Colors.npc_wep, topX, botY + 32)
+                                    setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.plr_dist, topX, botY + 16)
+                                    local tool = char:FindFirstChildWhichIsA("Tool")
+                                    setLabel(esp.weapon, wepOn, tool and tool.Name or "Unarmed", Colors.plr_wep, topX, botY + 32)
+
+                                    if hpOn then
+                                        local hpPerc = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                                        setFrame(esp.healthBg, bLeft - 6, topY, 4, h)
+                                        setFrame(esp.healthFill, bLeft - 5, topY + h * (1 - hpPerc), 2, h * hpPerc)
+                                        local hpColor = Colors.plr_hp_low:Lerp(Colors.plr_hp_high, hpPerc)
+                                        if esp.healthFill.BackgroundColor3 ~= hpColor then esp.healthFill.BackgroundColor3 = hpColor end
+                                        if not esp.healthBg.Visible then esp.healthBg.Visible = true end
+                                        if not esp.healthFill.Visible then esp.healthFill.Visible = true end
+                                    else
+                                        if esp.healthBg.Visible then esp.healthBg.Visible = false end
+                                        if esp.healthFill.Visible then esp.healthFill.Visible = false end
+                                    end
+
+                                    if skelOn then
+                                        local activeBones = char:FindFirstChild("UpperTorso") and bonesR15 or bonesR6
+                                        for i, bone in ipairs(activeBones) do
+                                            local p1, p2 = char:FindFirstChild(bone[1]), char:FindFirstChild(bone[2])
+                                            local line = esp.skeleton[i]
+                                            if p1 and p2 then
+                                                local x1, y1, on1 = getScreenPos(p1.Position)
+                                                local x2, y2, on2 = getScreenPos(p2.Position)
+                                                if on1 and on2 then drawLine(line, x1, y1, x2, y2, Colors.plr_skel)
+                                                elseif line.Visible then line.Visible = false end
+                                            elseif line.Visible then line.Visible = false end
+                                        end
+                                        for i = #activeBones + 1, #esp.skeleton do
+                                            if esp.skeleton[i].Visible then esp.skeleton[i].Visible = false end
+                                        end
+                                    else
+                                        for _, l in ipairs(esp.skeleton) do if l.Visible then l.Visible = false end end
+                                    end
                                 end
                             end
                         end
@@ -1135,118 +1249,185 @@ connect(RunService.RenderStepped, function(dt)
                 end
             end
         end
-    end
 
-    -- ─── Ores (3D ViewportFrame icons) ───────────────────────────
-    -- Cap new icons per pass so a batch of nodes entering render distance
-    -- cannot spike the frame; the rest appear on the following pass.
-    if oreOn then
-        local maxDistStuds = getFlag("ore_max_dist", 300) * METER_TO_STUD
-        local distOn = getFlag("ore_dist", true)
-        local newIcons = 0
-        for desc in pairs(trackedOres) do
-            if desc.Parent and getFlag("ore_" .. desc.Name, true) then
-                local root = getRoot(desc)
-                if root then
-                    local distStuds = (root.Position - camPos).Magnitude
-                    if distStuds <= maxDistStuds then
-                        local px, py, onScreen = getScreenPos(root.Position)
-                        if onScreen and nearViewport(px, py) then
-                            local entry = oreIcons[desc]
-                            if not entry and newIcons < 2 then
-                                entry = createOreIcon(desc)
-                                oreIcons[desc] = entry
-                                newIcons = newIcons + 1
-                            end
-                            if entry and entry.view then
-                                markOre(entry)
-                                local size = math.clamp(3000 / math.max(distStuds, 1), 22, 64)
-                                setCentered(entry.view, px, py, size)
-                                local meters = math.floor(distStuds * STUD_TO_METER)
-                                setLabel(entry.distLabel, distOn, tostring(meters) .. "m", Colors.white, px, py + size * 0.5 + 8)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
+        -- ─── NPCs ────────────────────────────────────────────────────
+        if npcOn then
+            local maxDistStuds = getFlag("npc_max_dist", 500) * METER_TO_STUD
+            local boxOn, boxStyle = getFlag("npc_box", true), getFlag("npc_style", "Corners")
+            local nameOn, distOn, wepOn = getFlag("npc_name", true), getFlag("npc_dist", true), getFlag("npc_weapon", true)
+            local chamsOn = getFlag("npc_chams", true)
+            local npcFolder = Workspace:FindFirstChild("Npcs")
+            if npcFolder then
+                for _, model in ipairs(npcFolder:GetChildren()) do
+                    if model:IsA("Model") and not Players:GetPlayerFromCharacter(model) then
+                        local hum = model:FindFirstChildOfClass("Humanoid")
+                        if hum and hum.Health > 0 then
+                            local root = getRoot(model)
+                            local distStuds = root and (root.Position - camPos).Magnitude or math.huge
+                            if root and distStuds <= maxDistStuds then
+                                local rx, ry, rOn = getScreenPos(root.Position)
+                                if rOn and nearViewport(rx, ry) then
+                                    local cf, size = model:GetBoundingBox()
+                                    local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
+                                    local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
+                                    if topOn and botOn then
+                                        local esp = npcStore[model]
+                                        if not esp then esp = buildEsp(); npcStore[model] = esp end
+                                        markEsp(esp)
+                                        local h = math.max(botY - topY, 1); local w = math.max(h * 0.55, 1)
+                                        local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
 
-    -- ─── Helis ───────────────────────────────────────────────────
-    if heliOn then
-        local maxDistStuds = getFlag("heli_max_dist", 2000) * METER_TO_STUD
-        local distOn, chamsOn = getFlag("heli_dist", true), getFlag("heli_chams", true)
-        local style = getFlag("heli_style", "Full")
-        for desc in pairs(trackedHelis) do
-            if desc.Parent then
-                local root = getRoot(desc)
-                if root then
-                    local distStuds = (root.Position - camPos).Magnitude
-                    if distStuds <= maxDistStuds then
-                        local rx, ry, rOn = getScreenPos(root.Position)
-                        if rOn and nearViewport(rx, ry) then
-                            local cf, size = desc:GetBoundingBox()
-                            local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
-                            local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
-                            if topOn and botOn then
-                                local esp = heliStore[desc]
-                                if not esp then esp = buildEsp(); heliStore[desc] = esp end
-                                markEsp(esp)
-                                local h = math.max(botY - topY, 1); local w = math.max(h * 0.8, 1)
-                                local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
-                                if chamsOn then ensureHighlight(esp, desc, Colors.heli)
-                                elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
-                                drawBox(esp, bLeft, topY, bRight, botY, style, Colors.heli)
-                                local meters = math.floor(distStuds * STUD_TO_METER)
-                                esp.lastDist = meters
-                                setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.white, topX, botY + 16)
+                                        if chamsOn then
+                                            if now >= (esp.nextVisCheck or 0) then
+                                                esp.nextVisCheck = now + 0.12
+                                                local vis = isVisible(model, root)
+                                                if esp.lastVisible ~= vis then
+                                                    ensureHighlight(esp, model, vis and Colors.npc_chams_vis or Colors.npc_chams_occ)
+                                                    esp.lastVisible = vis
+                                                end
+                                            end
+                                            if esp.highlight and not esp.highlight.Enabled then esp.highlight.Enabled = true end
+                                        elseif esp.highlight and esp.highlight.Enabled then
+                                            esp.highlight.Enabled = false
+                                        end
+
+                                        if boxOn then drawBox(esp, bLeft, topY, bRight, botY, boxStyle, Colors.npc_box) else hideBox(esp) end
+                                        setLabel(esp.name, nameOn, model.Name, Colors.npc_name, topX, topY - 16)
+                                        local meters = math.floor(distStuds * STUD_TO_METER)
+                                        esp.lastDist = meters
+                                        setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.npc_dist, topX, botY + 16)
+                                        local tool = model:FindFirstChildWhichIsA("Tool")
+                                        setLabel(esp.weapon, wepOn, tool and tool.Name or "Unarmed", Colors.npc_wep, topX, botY + 32)
+                                    end
+                                end
                             end
                         end
                     end
                 end
             end
         end
-    end
 
-    -- ─── Reconciliation ──────────────────────────────────────────
-    -- Anything not drawn this frame (dead, gone, out of range, off screen,
-    -- toggled off) is hidden exactly once. Overlays for objects that left
-    -- the workspace are destroyed so memory does not grow over time.
-    for char, esp in pairs(plrStore) do
-        if esp.frameId ~= frame then hideEsp(esp) end
-        if not char.Parent then destroyEsp(esp); plrStore[char] = nil end
-    end
-    for model, esp in pairs(npcStore) do
-        if esp.frameId ~= frame then hideEsp(esp) end
-        if not model.Parent then destroyEsp(esp); npcStore[model] = nil end
-    end
-    for desc, esp in pairs(heliStore) do
-        if esp.frameId ~= frame then hideEsp(esp) end
-        if not desc.Parent then destroyEsp(esp); heliStore[desc] = nil end
-    end
-    for desc, entry in pairs(oreIcons) do
-        if entry.frameId ~= frame then hideOreIcon(entry) end
-        if not desc.Parent then destroyOreIcon(entry); oreIcons[desc] = nil end
-    end
-
-    if now >= nextPrune then
-        nextPrune = now + 0.5
-        for desc in pairs(trackedOres) do
-            if not desc.Parent then
-                trackedOres[desc] = nil
-                local e = oreIcons[desc]
-                if e then destroyOreIcon(e); oreIcons[desc] = nil end
+        -- ─── Ores (3D ViewportFrame icons) ───────────────────────────
+        -- Cap new icons per pass so a batch of nodes entering render distance
+        -- cannot spike the frame; the rest appear on the following pass.
+        if oreOn then
+            local maxDistStuds = getFlag("ore_max_dist", 300) * METER_TO_STUD
+            local distOn = getFlag("ore_dist", true)
+            local newIcons = 0
+            for desc in pairs(trackedOres) do
+                if desc.Parent and getFlag("ore_" .. desc.Name, true) then
+                    local root = getRoot(desc)
+                    if root then
+                        local distStuds = (root.Position - camPos).Magnitude
+                        if distStuds <= maxDistStuds then
+                            local px, py, onScreen = getScreenPos(root.Position)
+                            if onScreen and nearViewport(px, py) then
+                                local entry = oreIcons[desc]
+                                if not entry and newIcons < 2 then
+                                    entry = createOreIcon(desc)
+                                    oreIcons[desc] = entry
+                                    newIcons = newIcons + 1
+                                end
+                                if entry and entry.view then
+                                    markOre(entry)
+                                    local size = math.clamp(3000 / math.max(distStuds, 1), 22, 64)
+                                    setCentered(entry.view, px, py, size)
+                                    local meters = math.floor(distStuds * STUD_TO_METER)
+                                    setLabel(entry.distLabel, distOn, tostring(meters) .. "m", Colors.white, px, py + size * 0.5 + 8)
+                                end
+                            end
+                        end
+                    end
+                end
             end
         end
-        for desc in pairs(trackedHelis) do
-            if not desc.Parent then
-                trackedHelis[desc] = nil
-                local e = heliStore[desc]
-                if e then destroyEsp(e); heliStore[desc] = nil end
+
+        -- ─── Helis ───────────────────────────────────────────────────
+        if heliOn then
+            local maxDistStuds = getFlag("heli_max_dist", 2000) * METER_TO_STUD
+            local distOn, chamsOn = getFlag("heli_dist", true), getFlag("heli_chams", true)
+            local style = getFlag("heli_style", "Full")
+            for desc in pairs(trackedHelis) do
+                if desc.Parent then
+                    local root = getRoot(desc)
+                    if root then
+                        local distStuds = (root.Position - camPos).Magnitude
+                        if distStuds <= maxDistStuds then
+                            local rx, ry, rOn = getScreenPos(root.Position)
+                            if rOn and nearViewport(rx, ry) then
+                                local cf, size = desc:GetBoundingBox()
+                                local topX, topY, topOn = getScreenPos(cf.Position + Vector3.new(0, size.Y * 0.5, 0))
+                                local botX, botY, botOn = getScreenPos(cf.Position - Vector3.new(0, size.Y * 0.5, 0))
+                                if topOn and botOn then
+                                    local esp = heliStore[desc]
+                                    if not esp then esp = buildEsp(); heliStore[desc] = esp end
+                                    markEsp(esp)
+                                    local h = math.max(botY - topY, 1); local w = math.max(h * 0.8, 1)
+                                    local bLeft, bRight = topX - w * 0.5, topX + w * 0.5
+                                    if chamsOn then ensureHighlight(esp, desc, Colors.heli)
+                                    elseif esp.highlight and esp.highlight.Enabled then esp.highlight.Enabled = false end
+                                    drawBox(esp, bLeft, topY, bRight, botY, style, Colors.heli)
+                                    local meters = math.floor(distStuds * STUD_TO_METER)
+                                    esp.lastDist = meters
+                                    setLabel(esp.distance, distOn, tostring(meters) .. "m", Colors.white, topX, botY + 16)
+                                end
+                            end
+                        end
+                    end
+                end
             end
         end
-        for i = #cachedNodes, 1, -1 do
-            if not cachedNodes[i].Parent then table.remove(cachedNodes, i) end
+
+        -- ─── Reconciliation ──────────────────────────────────────────
+        -- Anything not drawn this frame (dead, gone, out of range, off screen,
+        -- toggled off) is hidden exactly once. Overlays for objects that left
+        -- the workspace are destroyed so memory does not grow over time.
+        for char, esp in pairs(plrStore) do
+            if esp.frameId ~= frame then hideEsp(esp) end
+            if not char.Parent then destroyEsp(esp); plrStore[char] = nil end
+        end
+        for model, esp in pairs(npcStore) do
+            if esp.frameId ~= frame then hideEsp(esp) end
+            if not model.Parent then destroyEsp(esp); npcStore[model] = nil end
+        end
+        for desc, esp in pairs(heliStore) do
+            if esp.frameId ~= frame then hideEsp(esp) end
+            if not desc.Parent then destroyEsp(esp); heliStore[desc] = nil end
+        end
+        for desc, entry in pairs(oreIcons) do
+            if entry.frameId ~= frame then hideOreIcon(entry) end
+            if not desc.Parent then destroyOreIcon(entry); oreIcons[desc] = nil end
+        end
+
+        if now >= nextPrune then
+            nextPrune = now + 0.5
+            for desc in pairs(trackedOres) do
+                if not desc.Parent then
+                    trackedOres[desc] = nil
+                    local e = oreIcons[desc]
+                    if e then destroyOreIcon(e); oreIcons[desc] = nil end
+                end
+            end
+            for desc in pairs(trackedHelis) do
+                if not desc.Parent then
+                    trackedHelis[desc] = nil
+                    local e = heliStore[desc]
+                    if e then destroyEsp(e); heliStore[desc] = nil end
+                end
+            end
+            for i = #cachedNodes, 1, -1 do
+                if not cachedNodes[i].Parent then table.remove(cachedNodes, i) end
+            end
+        end
+    end)
+    if not okEsp then
+        for _, e in pairs(plrStore) do hideEsp(e) end
+        for _, e in pairs(npcStore) do hideEsp(e) end
+        for _, e in pairs(heliStore) do hideEsp(e) end
+        for _, e in pairs(oreIcons) do hideOreIcon(e) end
+        if now >= nextEspWarn then
+            nextEspWarn = now + 1
+            warn("[ARC3USX] ESP pass error: " .. tostring(espErr))
         end
     end
 end)
@@ -1372,7 +1553,42 @@ AimOptionsGroup:AddToggle({
     Name = "Team Check", Flag = "aim_team_check", Default = false,
     Callback = function(v) aiming.teamCheck = v end
 })
-AimOptionsGroup:AddLabel("Always: the keybind toggles the aimbot. Hold: aim only while the key is held. FOV is a pixel radius; distance 0 = unlimited. Mouse-relative lock with bullet-travel prediction.")
+AimOptionsGroup:AddLabel("Always: the keybind toggles the aimbot. Hold: aim only while the key is held. FOV is a pixel radius; distance 0 = unlimited.")
+
+local WeaponGroup = CombatTab:AddGroup("Weapon Tuning", "Left")
+WeaponGroup:AddToggle({
+    Name = "Arc Compensation", Flag = "aim_arc", Default = true,
+    Callback = function(v) aiming.arcCompensation = v end
+})
+WeaponGroup:AddToggle({
+    Name = "Auto Tune Weapon", Flag = "aim_auto_tune", Default = true,
+    Callback = function(v) aiming.autoTune = v end
+})
+WeaponGroup:AddSlider({
+    Name = "Gravity", Flag = "aim_gravity", Min = 0, Max = 200, Default = 50,
+    Callback = function(v) aiming.gravity = v end
+})
+WeaponGroup:AddSlider({
+    Name = "Bow Charge", Flag = "aim_bow_charge", Min = 0.15, Max = 1, Default = 1, Rounding = 2,
+    Callback = function(v) aiming.bowCharge = v end
+})
+WeaponGroup:AddSlider({
+    Name = "Bow Base Speed", Flag = "aim_bow_base", Min = 20, Max = 300, Default = 95,
+    Callback = function(v) aiming.bowBaseSpeed = v end
+})
+WeaponGroup:AddSlider({
+    Name = "Bow Charge Speed", Flag = "aim_bow_charge_speed", Min = 0, Max = 300, Default = 125,
+    Callback = function(v) aiming.bowChargeSpeed = v end
+})
+WeaponGroup:AddSlider({
+    Name = "Fallback Speed", Flag = "aim_fallback_speed", Min = 50, Max = 4000, Default = 900,
+    Callback = function(v) aiming.fallbackSpeed = v end
+})
+WeaponGroup:AddSlider({
+    Name = "Tune Interval", Flag = "aim_tune_interval", Min = 0.05, Max = 1, Default = 0.25, Rounding = 2,
+    Callback = function(v) aiming.tuneInterval = v end
+})
+weaponLabel = WeaponGroup:AddLabel("Weapon: hitscan | speed 900 | gravity 50 | no tool")
 
 -- ═══════════════════════════════════════════════════════════════
 --  MISC TAB
@@ -1407,9 +1623,9 @@ local function attachStaffToUI()
 end
 attachStaffToUI()
 
-local WeakspotGroup = MiscTab:AddGroup("Mining (Silent Insta-Hit)", "Right")
-WeakspotGroup:AddToggle({ Name = "Enable Insta-Hit Weakspot", Flag = "weakspot_enabled", Default = false })
-WeakspotGroup:AddLabel("Silently snaps the camera at the nearest weakspot for one tick, activates the tool, then restores the camera. No visible lock. Radius: 50 studs.")
+local WeakspotGroup = MiscTab:AddGroup("Weakspot Aim (No Auto-Hit)", "Right")
+WeakspotGroup:AddToggle({ Name = "Weakspot Aim (No Auto-Hit)", Flag = "weakspot_enabled", Default = false })
+WeakspotGroup:AddLabel("On your own MouseButton1 press only, the camera is nudged toward the nearest weakspot and restored on the next frame. The tool is never activated and no synthetic click is fired. Radius: 50 studs.")
 
 local MiscGroup = MiscTab:AddGroup("System", "Left")
 MiscGroup:AddButton({
@@ -1418,9 +1634,9 @@ MiscGroup:AddButton({
         unloaded = true
         aiming.enabled = false
         aimLock.active = false
+        pendingSnap = nil
         for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
         table.clear(connections)
-        pcall(function() RunService:UnbindFromRenderStep("ARC3USX_InstaHit") end)
         if aiming.fovCircle and type(aiming.fovCircle.Remove) == "function" then
             pcall(function() aiming.fovCircle:Remove() end)
         end
