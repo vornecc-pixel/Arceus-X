@@ -255,37 +255,53 @@ end
 connect(RunService.Heartbeat, updateCombat)
 
 -- ═══════════════════════════════════════════════════════════════
--- AUTO WEAKSPOT (real aim + swing)
+-- AUTO WEAKSPOT
+-- Fust marks a resource node's live weakspot with a "WeakSpot" Vector3
+-- attribute (nodes are tagged "FustNode" / carry a NodeType attribute).
+-- Melee tools report hits through the "Swing" remote as { target, pos }.
+-- We redirect that pos to the node's current WeakSpot so every swing lands
+-- on the weakspot the instant it appears, and auto-swing a held mining tool.
 -- ═══════════════════════════════════════════════════════════════
+local okCS, CollectionService = pcall(function() return game:GetService("CollectionService") end)
+if not okCS then CollectionService = nil end
 local nodeNames = { Tree = true, MetalNode = true, SulfurNode = true, StoneNode = true, Cactus = true, Meteor = true }
 local cachedNodes = {}
-local weakspotMarkers = {}
-local WEAKSPOT_NAMES = {
-    "Weakspot", "WeakSpot", "WeakPoint", "Weakpoint",
-    "CriticalSpot", "CriticalPart", "Critical", "CritSpot",
-    "Hitpoint", "HitPoint", "HitSpot",
-    "Mark", "MarkSpot",
-    "Bonus", "BonusSpot",
-}
-local SWING_RANGE = 25
+local SWING_RANGE = 16          -- studs; roughly the game's melee reach
 local SWING_INTERVAL = 0.3
-local AIM_SPEED = 0.4
-local AIM_TOLERANCE = 0.97
-local MINING_KEYWORDS = { "pickaxe", "hatchet", "jackhammer", "chainsaw" }
+local AIM_SPEED = 0.5
+local AIM_TOLERANCE = 0.95
+local MINING_KEYWORDS = { "pickaxe", "hatchet", "jackhammer", "chainsaw", "rock", "axe", "pick" }
 
+local function isVector3(v)
+    if typeof and typeof(v) == "Vector3" then return true end
+    return type(v) == "table" and type(v.X) == "number" and type(v.Y) == "number" and type(v.Z) == "number"
+end
 local function isNode(object)
-    return nodeNames[object.Name] and (object:IsA("Model") or object:IsA("BasePart"))
+    if not (object:IsA("Model") or object:IsA("BasePart")) then return false end
+    if nodeNames[object.Name] then return true end
+    if object:GetAttribute("NodeType") ~= nil then return true end
+    if CollectionService and CollectionService:HasTag(object, "FustNode") then return true end
+    return false
+end
+local function weakspotOf(node)
+    local v = node:GetAttribute("WeakSpot")
+    if isVector3(v) then return v end
+    return nil
+end
+local function nodeAlive(node)
+    return node:IsDescendantOf(workspace) and node:GetAttribute("Depleted") ~= true
 end
 local function registerNode(object)
     if isNode(object) then cachedNodes[object] = true end
 end
 local function unregisterNode(object)
     cachedNodes[object] = nil
-    local marker = weakspotMarkers[object]
-    if marker then pcall(function() marker:Destroy() end); weakspotMarkers[object] = nil end
 end
 connect(workspace.DescendantAdded, registerNode)
 connect(workspace.DescendantRemoving, unregisterNode)
+if CollectionService and CollectionService.GetInstanceAddedSignal then
+    connect(CollectionService:GetInstanceAddedSignal("FustNode"), registerNode)
+end
 task.spawn(function()
     for i, object in ipairs(workspace:GetDescendants()) do
         if unloaded then return end
@@ -294,38 +310,6 @@ task.spawn(function()
     end
 end)
 
-local function findWeakspot(model)
-    for _, name in ipairs(WEAKSPOT_NAMES) do
-        local child = model:FindFirstChild(name, true)
-        if child and child:IsA("BasePart") then return child.Position end
-    end
-    for _, desc in ipairs(model:GetDescendants()) do
-        if desc:IsA("BasePart") then
-            local lower = desc.Name:lower()
-            if lower:find("weak") or lower:find("crit") or lower:find("hitpoint") or lower:find("markspot") or lower:find("bonus") then
-                return desc.Position
-            end
-        end
-    end
-    for _, name in ipairs({ "Weakspot", "CriticalSpot", "Hitpoint", "Mark", "WeakPoint" }) do
-        local att = model:FindFirstChild(name, true)
-        if att and att:IsA("Attachment") then return att.WorldPosition end
-    end
-    return nil
-end
-local function findNearestNode(rootPos)
-    local best, bestPos, bestDist = nil, nil, math.huge
-    for node in pairs(cachedNodes) do
-        if node:IsDescendantOf(workspace) then
-            local ok, pos = pcall(function() return node:GetPivot().Position end)
-            if ok and pos then
-                local d = (pos - rootPos).Magnitude
-                if d < bestDist then best, bestPos, bestDist = node, pos, d end
-            end
-        end
-    end
-    return best, bestPos, bestDist
-end
 local function isMiningTool(tool)
     if not tool then return false end
     local name = tool.Name:lower()
@@ -334,74 +318,185 @@ local function isMiningTool(tool)
     end
     return false
 end
-local function cleanupMarkers(keepNode)
-    for node, marker in pairs(weakspotMarkers) do
-        if node ~= keepNode then pcall(function() marker:Destroy() end); weakspotMarkers[node] = nil end
+local function nodeFromPart(part)
+    local cur = part
+    while cur and cur ~= workspace do
+        if isNode(cur) then return cur end
+        cur = cur.Parent
     end
+    return nil
 end
-local function updateMarker(node, pos)
-    local marker = weakspotMarkers[node]
-    if not marker then
-        marker = Instance.new("Part")
-        marker.Name = "ARC3USX_Weakspot"
-        marker.Size = Vector3.new(1, 1, 1)
-        marker.Transparency = 0.4
-        marker.Color = Color3.fromRGB(255, 80, 80)
-        marker.Material = Enum.Material.Neon
-        marker.CanCollide = false
-        marker.CanQuery = false
-        marker.CanTouch = false
-        marker.Anchored = true
-        marker.Parent = workspace.CurrentCamera
-        weakspotMarkers[node] = marker
+local function nodeHitPart(node)
+    if node:IsA("BasePart") then return node end
+    return node:FindFirstChild("Rock") or node:FindFirstChild("Trunk") or node.PrimaryPart or node:FindFirstChildWhichIsA("BasePart")
+end
+-- Nearest node that currently has a live weakspot (used to redirect swings).
+local function nearestWeakspotNode(rootPos)
+    local best, bestSpot, bestD = nil, nil, SWING_RANGE
+    for node in pairs(cachedNodes) do
+        if nodeAlive(node) then
+            local spot = weakspotOf(node)
+            if spot then
+                local d = (spot - rootPos).Magnitude
+                if d < bestD then best, bestSpot, bestD = node, spot, d end
+            end
+        end
     end
-    marker.CFrame = CFrame.new(pos)
+    return best, bestSpot
+end
+-- Nearest node to auto-swing at; aims at its weakspot if present, else its
+-- center (the first hits are what make the weakspot appear).
+local function findWeakspotTarget(rootPos)
+    local best, bestAim, bestSpot, bestD = nil, nil, nil, SWING_RANGE
+    for node in pairs(cachedNodes) do
+        if nodeAlive(node) then
+            local spot = weakspotOf(node)
+            local aim = spot
+            if not aim then
+                local ok, pivot = pcall(function() return node:GetPivot().Position end)
+                if ok then aim = pivot end
+            end
+            if aim then
+                local d = (aim - rootPos).Magnitude
+                if d < bestD then best, bestAim, bestSpot, bestD = node, aim, spot, d end
+            end
+        end
+    end
+    return best, bestAim, bestSpot
 end
 
-local weakspotElapsed = 0
-local lastSwing = 0
+-- Swing-remote redirect: rewrite the reported hit position to the live weakspot.
+local function rewriteSwing(self, ...)
+    if not self or self.Name ~= "Swing" then return nil end
+    local character = LocalPlayer.Character
+    local tool = character and character:FindFirstChildOfClass("Tool")
+    if not isMiningTool(tool) then return nil end
+    local args = { ... }
+    local payload = type(args[1]) == "table" and args[1] or nil
+    if not payload then return nil end
+    local node = payload.target and nodeFromPart(payload.target) or nil
+    local spot = node and nodeAlive(node) and weakspotOf(node) or nil
+    if not spot then
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if root then node, spot = nearestWeakspotNode(root.Position) end
+    end
+    if not (node and spot) then return nil end
+    payload.pos = spot
+    payload.target = payload.target or nodeHitPart(node)
+    return payload
+end
+local oldNamecall, weakspotWrapped
+local weakspotHookInstalled, weakspotHookVia = false, nil
+local function weakspotNamecall(self, ...)
+    if unloaded or not Library.Flags.weakspot_enabled then return oldNamecall(self, ...) end
+    local rawMethod = getnamecallmethod and getnamecallmethod() or ""
+    if rawMethod:lower() ~= "fireserver" then return oldNamecall(self, ...) end
+    local ok, payload = pcall(rewriteSwing, self, ...)
+    if ok and payload then
+        if setnamecallmethod and rawMethod ~= "" then pcall(setnamecallmethod, rawMethod) end
+        return oldNamecall(self, payload)
+    end
+    return oldNamecall(self, ...)
+end
+local function installWeakspotHook()
+    if weakspotHookInstalled then return true end
+    local newc = type(newcclosure) == "function" and newcclosure or function(f) return f end
+    weakspotWrapped = newc(weakspotNamecall)
+    if type(hookmetamethod) == "function" then
+        local ok, old = pcall(hookmetamethod, game, "__namecall", weakspotWrapped)
+        if ok and type(old) == "function" then
+            oldNamecall, weakspotHookInstalled, weakspotHookVia = old, true, "hookmetamethod"
+            return true
+        end
+    end
+    if type(getrawmetatable) == "function" and type(setreadonly) == "function" then
+        local ok, old = pcall(function()
+            local mt = getrawmetatable(game)
+            local prev = mt.__namecall
+            setreadonly(mt, false)
+            mt.__namecall = weakspotWrapped
+            setreadonly(mt, true)
+            return prev
+        end)
+        if ok and type(old) == "function" then
+            oldNamecall, weakspotHookInstalled, weakspotHookVia = old, true, "rawmetatable"
+            return true
+        end
+    end
+    return false
+end
+local function uninstallWeakspotHook()
+    if not weakspotHookInstalled then return end
+    -- Only restore the raw metatable if our wrapper is still on top; a
+    -- hookmetamethod hook is left in place but becomes inert via `unloaded`.
+    pcall(function()
+        if weakspotHookVia == "rawmetatable" and type(getrawmetatable) == "function" and type(setreadonly) == "function" then
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            if mt.__namecall == weakspotWrapped then mt.__namecall = oldNamecall end
+            setreadonly(mt, true)
+        end
+    end)
+    weakspotHookInstalled = false
+end
+
+-- Small green marker shown only while a weakspot is actually present.
+local weakspotMarker
+local function setWeakspotMarker(pos)
+    local cam = workspace.CurrentCamera
+    if not pos or not cam then
+        if weakspotMarker then weakspotMarker:Destroy(); weakspotMarker = nil end
+        return
+    end
+    if not weakspotMarker then
+        weakspotMarker = Instance.new("Part")
+        weakspotMarker.Name = "ARC3USX_Weakspot"
+        weakspotMarker.Size = Vector3.new(0.6, 0.6, 0.6)
+        weakspotMarker.Transparency = 0.3
+        weakspotMarker.Color = Color3.fromRGB(80, 255, 140)
+        weakspotMarker.Material = Enum.Material.Neon
+        weakspotMarker.CanCollide = false
+        weakspotMarker.CanQuery = false
+        weakspotMarker.CanTouch = false
+        weakspotMarker.Anchored = true
+    end
+    weakspotMarker.Parent = cam
+    weakspotMarker.CFrame = CFrame.new(pos)
+end
+
+local weakspotElapsed, lastSwing = 0, 0
 connect(RunService.Heartbeat, function(dt)
     if unloaded then return end
     weakspotElapsed = weakspotElapsed + dt
     if weakspotElapsed < 0.05 then return end
     weakspotElapsed = 0
 
-    local flags = Library.Flags
+    if not Library.Flags.weakspot_enabled then setWeakspotMarker(nil); return end
     local character = LocalPlayer.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
     local tool = character and character:FindFirstChildOfClass("Tool")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not (root and tool and humanoid and humanoid.Health > 0 and isMiningTool(tool))
+        or LocalPlayer:GetAttribute("Dead") == true then
+        setWeakspotMarker(nil); return
+    end
 
-    local shouldAct = flags.weakspot_enabled
-        and root and tool and humanoid and humanoid.Health > 0
-        and LocalPlayer:GetAttribute("Dead") ~= true
-        and isMiningTool(tool)
-
-    if not shouldAct then cleanupMarkers(nil); return end
-
-    local nearest, nearestPos, nearestDist = findNearestNode(root.Position)
-    if not nearest or nearestDist > SWING_RANGE then cleanupMarkers(nil); return end
-
-    local weakspotPos = findWeakspot(nearest) or nearestPos
-    cleanupMarkers(nearest)
-    updateMarker(nearest, weakspotPos)
+    local node, aim, spot = findWeakspotTarget(root.Position)
+    if not node then setWeakspotMarker(nil); return end
+    setWeakspotMarker(spot)
 
     local cam = workspace.CurrentCamera
     if not cam then return end
-
     local camPos = cam.CFrame.Position
-    local desired = (weakspotPos - camPos).Unit
-    local current = cam.CFrame.LookVector
-    local newLook = current:Lerp(desired, AIM_SPEED).Unit
+    local offset = aim - camPos
+    if offset.Magnitude < 0.1 then return end
+    local desired = offset.Unit
+    local newLook = cam.CFrame.LookVector:Lerp(desired, AIM_SPEED).Unit
     cam.CFrame = CFrame.lookAt(camPos, camPos + newLook)
 
     local now = os.clock()
     if now - lastSwing < SWING_INTERVAL then return end
-
-    local camLook = cam.CFrame.LookVector
-    local toTarget = (weakspotPos - camPos).Unit
-    if camLook:Dot(toTarget) < AIM_TOLERANCE then return end
-
+    if cam.CFrame.LookVector:Dot(desired) < AIM_TOLERANCE then return end
     lastSwing = now
     pcall(function() tool:Activate() end)
     if type(mouse1click) == "function" then pcall(mouse1click) end
@@ -453,8 +548,12 @@ local UG = Combat:AddGroup("Universal Bypass", "Right")
 toggle(UG, "Infinite Ammo (every weapon)", "universal_ammo", Universal, "InfiniteAmmo")
 toggle(UG, "No Air Block (fire while jumping)", "universal_noair", Universal, "NoAirBlock")
 local WG = Misc:AddGroup("Auto Weakspot", "Left")
-WG:AddToggle({ Name = "Enable Auto Weakspot", Flag = "weakspot_enabled", Default = false })
-WG:AddLabel("Aims and auto-swings at the nearest node weakspot.")
+WG:AddToggle({ Name = "Enable Auto Weakspot", Flag = "weakspot_enabled", Default = false, Callback = function(on)
+    if on and not installWeakspotHook() then
+        report("Auto Weakspot: no remote-hook API on this executor; using camera aim only.")
+    end
+end })
+WG:AddLabel("Auto-swings a held mining tool and lands every hit on the node's weakspot the moment it appears.")
 if Mix then pcall(function() Mix.AddTab(Library, Window) end) end
 pcall(function() Window:AddSettingsTab() end)
 local System = Misc:AddGroup("System", "Right")
@@ -463,8 +562,8 @@ local function unload()
     unloaded = true
     for _, connection in ipairs(connections) do connection:Disconnect() end
     if espUnload then pcall(espUnload) end
-    for _, marker in pairs(weakspotMarkers) do pcall(function() marker:Destroy() end) end
-    weakspotMarkers = {}
+    uninstallWeakspotHook()
+    setWeakspotMarker(nil)
     for tag in pairs(changes) do restore(tag) end
     pcall(function() if bowSpecTable and rawget(bowSpecTable, "BowSpec") == wrappedBowSpec then rawset(bowSpecTable, "BowSpec", originalBowSpec) end end)
     pcall(function() if u16Table and rawget(u16Table, "blocked") == wrappedBlocked then rawset(u16Table, "blocked", originalBlocked) end end)

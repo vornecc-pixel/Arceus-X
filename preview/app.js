@@ -38,7 +38,7 @@
       [group('Recoil & Bloom',[T('No Recoil','gunmods_norecoil'),slider('Visual Bloom','gunmods_bloom'),slider('Recoil Climb','gunmods_climb'),slider('Shake Max','gunmods_shakemax')]),group('Sway',[T('No Sway','gunmods_nosway'),slider('Sway','gunmods_sway'),slider('Sway Max','gunmods_swaymax'),slider('Bob Walk','gunmods_bobwalk'),slider('Bob Idle','gunmods_bobidle'),slider('Lean','gunmods_lean')]),group('Kick',[slider('Kick Pitch','gunmods_kickpitch'),slider('Kick Back','gunmods_kickback')]),group('Universal Bypass',[T('Infinite Ammo (every weapon)','universal_ammo'),T('No Air Block (fire while jumping)','universal_noair')])]
     ],
     'Misc': [
-      [group('Staff Detection',[T('Enable Staff Monitor','staff_monitor'),T('Highlight Staff','staff_esp'),L('Staff scan inactive.'),B('Scan Now','scan')]),group('Auto Weakspot',[T('Enable Auto Weakspot','weakspot_enabled'),R('Max Distance','weakspot_max_dist',5,100,30,'m'),L('Creates an invisible marker at the nearest node; it does not redirect hits.')])],
+      [group('Staff Detection',[T('Enable Staff Monitor','staff_monitor'),T('Highlight Staff','staff_esp'),L('Staff scan inactive.'),B('Scan Now','scan')]),group('Auto Weakspot',[T('Enable Auto Weakspot','weakspot_enabled'),L('Auto-swings a held mining tool and lands every hit on the node weakspot the moment it appears.')])],
       [group('System',[B('Unload Script & Clear Memory','unload')])]
     ],
     'Mixes': [

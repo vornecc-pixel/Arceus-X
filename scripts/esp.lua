@@ -323,7 +323,10 @@ local function draw(entry, key, class)
     -- Register before configuring so an error still gets cleaned up.
     table.insert(entry.drawings, object)
     object.Visible = false
-    object.Transparency = 0
+    -- Drawing.Transparency is OPACITY: 1 = fully visible, 0 = invisible.
+    -- Setting this to 0 hides every box/label/tracer/skeleton while Highlight
+    -- chams keep rendering, which looks like "only chams works".
+    pcall(function() object.Transparency = 1 end)
     if class == "Text" then
         object.Size = 14
         object.Center = true

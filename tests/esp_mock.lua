@@ -186,6 +186,13 @@ target.Character = model
 target.CharacterAdded:Fire(model)
 tick()
 assert(visible() > 0, "new player produces drawings")
+-- Regression: Drawing.Transparency is opacity (1=visible). A value of 0 hides
+-- every box/label/tracer/skeleton while Highlight chams keep rendering.
+for _, d in ipairs(drawings) do
+    if d.Visible and not d.removed then
+        assert(d.Transparency == 1, "rendered Drawing overlays must be opaque (Transparency=1)")
+    end
+end
 library.Flags.esp_master=false;tick();assert(visible()==0, "global toggle hides overlays")
 library.Flags.esp_master=true;tick();assert(visible()>0, "global toggle restores overlays")
 target.attributes={AdminRole="mod"};library.Flags.staff_esp=true
