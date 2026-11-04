@@ -257,12 +257,6 @@ players.LocalPlayer.Team = "blue"
 local playerGui = node("PlayerGui", "PlayerGui", players.LocalPlayer)
 
 local coreGui = node("CoreGui", "CoreGui")
-local lighting = node("Lighting", "Lighting")
-lighting.Brightness = 1
-lighting.Ambient = newColor(0.2, 0.2, 0.2)
-lighting.OutdoorAmbient = newColor(0.3, 0.3, 0.3)
-lighting.GlobalShadows = true
-lighting.ClockTime = 14
 local rep = node("ReplicatedStorage", "ReplicatedStorage")
 local fust = node("Folder", "Fust", rep)
 local iconsScript = node("ModuleScript", "ItemIcons", fust)
@@ -301,7 +295,6 @@ function uis:GetMouseLocation() return mouseLocation end
 local services = {
     Players = players, RunService = run, CoreGui = coreGui,
     ReplicatedStorage = rep, UserInputService = uis, Workspace = workspace,
-    Lighting = lighting,
     StarterGui = { SetCore = function() end },
 }
 local requestedLibraryUrl = nil
@@ -453,6 +446,11 @@ check(libSource:find("function Library:_RunIntro", 1, true), "loading screen mis
 check(libSource:find("if opts.Intro ~= false then", 1, true), "library does not start the intro from CreateWindow")
 check(libSource:find("ACCESS GRANTED", 1, true), "intro reveal missing from the library")
 check(hubSource:find("FustWeakSpotMark", 1, true), "real weakspot mark path missing")
+for _, removed in ipairs({ "world_fullbright", "Looped Fullbright", "applyFullbright",
+    "restoreFullbright", "restoreLighting", "origLighting", "FULLBRIGHT_AMBIENT",
+    "getProp", "writeProp", "writeAttr", 'GetService("Lighting")' }) do
+    check(not hubSource:find(removed, 1, true), "removed fullbright code still present: " .. removed)
+end
 for _, removed in ipairs({ "FustArcticTerrain", "Decoration", "world_grass", "world_leaves",
     "world_fog", "world_brightness", "world_fog_end", "world_leaf_transparency",
     "applyGrass", "applyLeaves", "applyFog", "reapplyTerrain", "restoreWorldVisuals",
@@ -479,7 +477,6 @@ for _, name in ipairs(expectedGroups) do
 end
 for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "player_esp_hz",
     "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
-    "world_fullbright",
     "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_key_list",
     "weakspot_auto_click", "weakspot_source", "weakspot_radius", "aim_bone",
     "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
@@ -487,16 +484,8 @@ for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "p
     check(library.Flags[flag] ~= nil, "missing flag: " .. flag)
 end
 check(#library.previews == 1 and library.previews[1].Elements.Box == "plr_box", "ESP preview wired to hub flags")
-local fullbrightGroup = nil
-for _, g in ipairs(library.groups) do
-    for _, c in ipairs(g.controls) do
-        if c.Flag == "world_fullbright" then fullbrightGroup = g end
-    end
-end
-check(fullbrightGroup ~= nil and fullbrightGroup.tab == "Misc" and fullbrightGroup.name == "System",
-    "Looped Fullbright is the only visual and lives in Misc / System")
 for _, f in ipairs({ "world_grass", "world_leaves", "world_fog", "world_brightness",
-    "world_fog_end", "world_leaf_transparency" }) do
+    "world_fog_end", "world_leaf_transparency", "world_fullbright" }) do
     check(library.Flags[f] == nil, "removed world visual flag still registered: " .. f)
 end
 check(type(renderSteps.ARC3USX_InstaHit) == "function", "insta-hit render step bound")
@@ -801,19 +790,6 @@ uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
 check(library.Flags.aim_enabled == false, "Q is the active keybind again")
 library.Options.aim_enabled:Set(false)
 
--- ─── Looped Fullbright (Misc / System) ───────────────────────────
-library.controls.world_fullbright.Callback(true)
-check(lighting.Brightness == 2 and lighting.GlobalShadows == false and lighting.ClockTime == 12,
-    "fullbright applies immediately with its built-in brightness")
--- The loop must re-apply each frame if the game resets Lighting.
-lighting.Brightness = 1
-lighting.GlobalShadows = true
-step()
-check(lighting.Brightness == 2 and lighting.GlobalShadows == false, "looped fullbright re-applies every frame")
-library.controls.world_fullbright.Callback(false)
-check(lighting.Brightness == 1 and lighting.GlobalShadows == true and lighting.ClockTime == 14,
-    "disabling fullbright restores lighting")
-
 -- ─── ESP ScreenGui rebuild + cleanup ─────────────────────────────
 espGui.Parent = nil
 step()
@@ -825,12 +801,8 @@ step()
 check(targetLabel.Destroyed, "overlays destroyed when their character leaves")
 
 -- ─── Unload ──────────────────────────────────────────────────────
--- Leave fullbright enabled so unload has to restore lighting.
-library.controls.world_fullbright.Callback(true)
 library.buttons["Unload Script & Clear Memory"]()
 check(library.unloaded, "unload closes the UI library")
-check(lighting.Brightness == 1 and lighting.GlobalShadows == true and lighting.ClockTime == 14,
-    "unload restores lighting")
 check(findNode(function(n) return n.Name == "ARC3USX_ESP_UI" and n.Parent == coreGui end) == nil,
     "unload destroys the ESP ScreenGui")
 check(renderSteps.ARC3USX_InstaHit == nil and renderSteps.ARC3USX_Aimbot == nil, "render steps unbound")

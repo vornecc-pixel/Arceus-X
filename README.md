@@ -79,11 +79,6 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
 - **Staff detection** — reads `AdminRole` attributes or the game's optional
   `Fust.StaffState` / `Fust.AdminPerms` modules; role labels, ranks, colors, a monitor with
   notifications, role-change hooks, and staff highlights.
-- **Looped Fullbright** — the only world visual, a single toggle in
-  **Misc → System**. Re-applies brightness (2), ambient / outdoor ambient, `GlobalShadows`
-  and `ClockTime = 12` every frame before the ESP throttle, so the game cannot reset them.
-  Originals are captured at load and restored when switched off or unloaded. All `Lighting`
-  access goes through the guarded `getProp` / `writeProp` helpers.
 - **System** — `Unload Script & Clear Memory` disconnects connections, unbinds render steps,
   removes drawings/overlays and unloads the UI.
 
@@ -102,7 +97,6 @@ insta-hit all start off. Aimbot defaults: FOV 220 px, bone `Head`, unlimited dis
 smoothing 2, prediction on, bullet speed 900, FOV circle off, NPC/wall/team checks off,
 keybind mode `Toggle` with `Q` selected in the Keybind List. Weakspot auto-click starts off,
 source `Auto` and radius 50.
-Looped Fullbright starts off (fixed brightness 2).
 The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 
 ### Requirements and caveats
@@ -115,11 +109,8 @@ The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
   game-specific replicated modules/attributes. Missing modules fall back to abbreviations
   and built-in role labels. Only client-replicated objects can be detected, so streaming
   affects ESP. `workspace.Npcs` is used for optional NPC targets.
-- Looped Fullbright writes `Lighting` only. Games that continuously re-apply their own
-  lighting may fight the per-frame loop. Originals are captured once at load, so
-  re-executing the hub after another script changed lighting captures those changed values.
-  `FustWeakSpotMark` is read fresh from `PlayerGui` on each check, so late-created GUIs are
-  picked up.
+- `FustWeakSpotMark` is read fresh from `PlayerGui` on each check, so late-created GUIs
+  are picked up.
 - The hub is client-side and is not verified against the live game or its anticheat. The
   decompiled game scripts in `ItemIcons.lua` and `Vex.txt` are reference material only.
 - `tests/hub_mock.lua` checks the feature set, ESP/insta-hit/aimbot/staff lifecycles and
@@ -135,7 +126,7 @@ The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 | File | What it is |
 | --- | --- |
 | `ARC3USX.lua` | The UI library, including the embedded loading screen / intro (loaded by the hub at runtime) |
-| `scripts/main.lua` | The hub: ESP, looped fullbright, auto weakspot, mouse-relative aimbot, staff detection and UI |
+| `scripts/main.lua` | The hub: ESP, auto weakspot, mouse-relative aimbot, staff detection and UI |
 | `tests/hub_mock.lua`, `tests/run_hub_mock.js` | Mocked lifecycle/feature test for the hub (Lua 5.3 or fengari) |
 | `ItemIcons.lua` | Decompiled reference copy of the game's `Fust.ItemIcons` module |
 | `Vex.txt` | Decompiled reference copy of game combat code |

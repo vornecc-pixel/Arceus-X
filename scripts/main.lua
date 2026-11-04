@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
 --  ARC3USX.EXE — ULTIMATE OPTIMIZED HUB
---  SMOOTH ESP + AUTO WEAKSPOT + AIMBOT + LOOPED FULLBRIGHT + LIBRARY LOADING SCREEN
+--  SMOOTH ESP + AUTO WEAKSPOT + AIMBOT + LIBRARY LOADING SCREEN
 --
 --  Entry point for the hub. The UI library lives in ARC3USX.lua at the
 --  repository root; everything below is the hub's feature set.
@@ -12,7 +12,6 @@ local CoreGui           = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService  = game:GetService("UserInputService")
 local Workspace         = game:GetService("Workspace")
-local Lighting          = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
@@ -43,29 +42,16 @@ end
 -- ═══════════════════════════════════════════════════════════════
 --  SAFE INSTANCE ACCESS
 --  Roblox throws when a member does not exist on an Instance; one bad read
---  used to abort the whole hub at load. Every game-object read/write below
---  goes through these helpers, so unsupported members are skipped instead.
+--  used to abort the whole hub at load. These guarded helpers let the
+--  weakspot resolver skip unsupported members instead of crashing.
 -- ═══════════════════════════════════════════════════════════════
 local function readProp(obj, prop)
     if not obj then return false, nil end
     return pcall(function() return obj[prop] end)
 end
-local function getProp(obj, prop, fallback)
-    local ok, value = readProp(obj, prop)
-    if ok then return value end
-    return fallback
-end
-local function writeProp(obj, prop, value)
-    if not obj or value == nil then return false end
-    return pcall(function() obj[prop] = value end)
-end
 local function readAttr(obj, name)
     if not obj then return false, nil end
     return pcall(function() return obj:GetAttribute(name) end)
-end
-local function writeAttr(obj, name, value)
-    if not obj then return false end
-    return pcall(function() obj:SetAttribute(name, value) end)
 end
 local function isVec3(v)
     if v == nil then return false end
@@ -1172,42 +1158,6 @@ connect(RunService.RenderStepped, function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════
---  LOOPED FULLBRIGHT — the only remaining world visual, on the Misc tab
---  Original lighting is captured at load and restored when the toggle is
---  switched off or the hub is unloaded. Every read/write is guarded.
--- ═══════════════════════════════════════════════════════════════
-local world = { fullbright = false, brightness = 2 }
-local origLighting = {
-    Brightness     = getProp(Lighting, "Brightness", 1),
-    Ambient        = getProp(Lighting, "Ambient", nil),
-    OutdoorAmbient = getProp(Lighting, "OutdoorAmbient", nil),
-    GlobalShadows  = getProp(Lighting, "GlobalShadows", true),
-    ClockTime      = getProp(Lighting, "ClockTime", 12),
-}
-local FULLBRIGHT_AMBIENT = Color3.fromRGB(200, 200, 200)
-
-local function restoreLighting()
-    writeProp(Lighting, "Brightness", origLighting.Brightness)
-    writeProp(Lighting, "Ambient", origLighting.Ambient)
-    writeProp(Lighting, "OutdoorAmbient", origLighting.OutdoorAmbient)
-    writeProp(Lighting, "GlobalShadows", origLighting.GlobalShadows)
-    writeProp(Lighting, "ClockTime", origLighting.ClockTime)
-end
-
-local function applyFullbright()
-    if getProp(Lighting, "Brightness", nil) ~= world.brightness then writeProp(Lighting, "Brightness", world.brightness) end
-    if getProp(Lighting, "Ambient", nil) ~= FULLBRIGHT_AMBIENT then writeProp(Lighting, "Ambient", FULLBRIGHT_AMBIENT) end
-    if getProp(Lighting, "OutdoorAmbient", nil) ~= FULLBRIGHT_AMBIENT then writeProp(Lighting, "OutdoorAmbient", FULLBRIGHT_AMBIENT) end
-    if getProp(Lighting, "GlobalShadows", nil) ~= false then writeProp(Lighting, "GlobalShadows", false) end
-    if getProp(Lighting, "ClockTime", nil) ~= 12 then writeProp(Lighting, "ClockTime", 12) end
-end
-
-local function restoreFullbright()
-    world.fullbright = false
-    restoreLighting()
-end
-
--- ═══════════════════════════════════════════════════════════════
 --  MAIN RENDER LOOP (throttled, reconciled ESP)
 -- ═══════════════════════════════════════════════════════════════
 local lastEspTick = 0
@@ -1236,10 +1186,6 @@ connect(RunService.RenderStepped, function(dt)
     if not Camera then return end
 
     local now = tick()
-
-    -- Looped fullbright runs every frame (before the ESP throttle) so the game
-    -- cannot reset Lighting behind our back.
-    if world.fullbright then applyFullbright() end
 
     -- One throttled pass drives every ESP category. Flags are read once per
     -- pass rather than once per target, line-of-sight raycasts are cached,
@@ -1719,18 +1665,10 @@ weakspotDiagLabel = WeakspotGroup:AddLabel("FustWeakSpotMark: scanning…")
 WeakspotGroup:AddLabel("Aims from LocalPlayer.PlayerGui.FustWeakSpotMark (attribute, Adornee, child part or screen point), then falls back to node weakspot names. Silently snaps the camera, activates the tool and restores it. No synthetic mouse click unless Auto Click is on, so equipping a tool near a node will not auto-click.")
 
 local MiscGroup = MiscTab:AddGroup("System", "Left")
-MiscGroup:AddToggle({
-    Name = "Looped Fullbright", Flag = "world_fullbright", Default = false,
-    Callback = function(v)
-        world.fullbright = v
-        if v then applyFullbright() else restoreLighting() end
-    end
-})
 MiscGroup:AddButton({
     Name = "Unload Script & Clear Memory",
     Callback = function()
         unloaded = true
-        restoreFullbright()
         aiming.enabled = false
         aimLock.active = false
         for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
