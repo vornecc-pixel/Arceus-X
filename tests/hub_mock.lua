@@ -35,6 +35,11 @@ function v3mt.__index(a, key)
         if m == 0 then return V3.new(0, 0, 0) end
         return V3.new(a.X / m, a.Y / m, a.Z / m)
     end
+    if key == "Lerp" then
+        return function(self, other, t)
+            return V3.new(self.X + (other.X - self.X) * t, self.Y + (other.Y - self.Y) * t, self.Z + (other.Z - self.Z) * t)
+        end
+    end
 end
 function V3.new(x, y, z) return setmetatable({ X = x or 0, Y = y or 0, Z = z or 0 }, v3mt) end
 V3.zero = V3.new(0, 0, 0)
@@ -72,15 +77,27 @@ function cfmt.__index(self, key)
             return CFrame.lookAt(a.Position, a.Position + b.LookVector * alpha + a.LookVector * (1 - alpha))
         end
     end
+    if key == "PointToObjectSpace" then
+        return function(a, point) return point - a.Position end
+    end
+end
+function cfmt.__mul(a, b)
+    if b.__cf then
+        return CFrame.new(V3.new(a.Position.X + b.Position.X, a.Position.Y + b.Position.Y, a.Position.Z + b.Position.Z))
+    end
+    return V3.new(a.Position.X + b.X, a.Position.Y + b.Y, a.Position.Z + b.Z)
 end
 CFrame = {
+    new = function(pos)
+        return setmetatable({ Position = pos or V3.zero, LookVector = V3.new(0, 0, -1), __cf = true }, cfmt)
+    end,
     lookAt = function(pos, target)
-        return setmetatable({ Position = pos, LookVector = (target - pos).Unit }, cfmt)
+        return setmetatable({ Position = pos, LookVector = (target - pos).Unit, __cf = true }, cfmt)
     end,
 }
 
 typeof = function(value)
-    if type(value) == "table" then return value.__typeof or "Instance" end
+    if type(value) == "table" then return value.__typeof or "table" end
     return type(value)
 end
 
@@ -120,14 +137,32 @@ local function node(class, name, parent)
     -- Roblox lets `model.Humanoid` resolve to a child; mirror that here.
     local n = setmetatable({
         ClassName = class, Name = name or class, Parent = parent, children = {},
-        attributes = {}, Destroyed = false, Visible = false,
-    }, { __index = function(self, key)
-        return self:FindFirstChild(key)
-    end })
+        attributes = {}, Destroyed = false, Visible = false, __typeof = "Instance",
+    }, {
+        __index = function(self, key)
+            return self:FindFirstChild(key)
+        end,
+        __newindex = function(self, key, value)
+            if key == "Parent" then
+                local previous = rawget(self, "Parent")
+                if previous and previous.children then
+                    for i, child in ipairs(previous.children) do
+                        if child == self then table.remove(previous.children, i) break end
+                    end
+                end
+                rawset(self, "Parent", value)
+                if value and value.children then table.insert(value.children, self) end
+            else
+                rawset(self, key, value)
+            end
+        end,
+    })
     if parent then table.insert(parent.children, n) end
     table.insert(nodes, n)
     if class == "BasePart" then
         n.Position = V3.new(0, 0, 0)
+        n.CFrame = CFrame.new(n.Position)
+        n.Size = V3.new(1, 1, 1)
         n.AssemblyLinearVelocity = V3.zero
     end
     function n:IsA(typeName)
@@ -175,7 +210,7 @@ local function node(class, name, parent)
     function n:GetAttribute(key) return self.attributes[key] end
     function n:SetAttribute(key, value) self.attributes[key] = value end
     function n:GetBoundingBox()
-        return { Position = V3.new(0, 0, 10) }, V3.new(4, 6, 2)
+        return CFrame.new(V3.new(0, 0, 10)), V3.new(4, 6, 2)
     end
     function n:GetPivot() return { Position = (self.PrimaryPart and self.PrimaryPart.Position) or V3.zero } end
     function n:Clone() return node(self.ClassName, self.Name .. "Clone") end
@@ -265,7 +300,8 @@ game = { GetService = function(_, name) return services[name] end, HttpGet = fun
 local clock = 0
 tick = function() clock = clock + 1 / 60; return clock end
 os.clock = function() return clock end
-warn = function(message) print("[warn] " .. tostring(message)) end
+local warnings = {}
+warn = function(message) warnings[#warnings + 1] = tostring(message) end
 local clicks = 0
 mouse1click = function() clicks = clicks + 1 end
 task = {
@@ -337,6 +373,28 @@ local function findNode(predicate)
     for _, n in ipairs(nodes) do if predicate(n) then return n end end
     return nil
 end
+local function labelNode(text)
+    return findNode(function(n)
+        return n.ClassName == "TextLabel" and n.Visible and not n.Destroyed and n.Text == text
+    end)
+end
+local function visibleBox()
+    return findNode(function(n) return n.Name == "ARC3USX_Box" and n.Visible and not n.Destroyed end)
+end
+local function visibleOutline()
+    return findNode(function(n) return n.Name == "ARC3USX_Outline" and n.Visible and not n.Destroyed end)
+end
+local function healthBackgrounds()
+    local out = {}
+    for _, n in ipairs(nodes) do
+        if n.ClassName == "Frame" and n.Visible and not n.Destroyed and n.BackgroundTransparency == 0
+            and n.BackgroundColor3 and n.BackgroundColor3.R == 0
+            and n.BackgroundColor3.G == 0 and n.BackgroundColor3.B == 0 then
+            out[#out + 1] = n
+        end
+    end
+    return out
+end
 local function step()
     clock = clock + 1 / 60
     run.RenderStepped:Fire(1 / 60)
@@ -351,6 +409,10 @@ local function character(name, parent)
     local head = node("BasePart", "Head", m); head.Position = V3.new(0, 2, 10)
     local torso = node("BasePart", "Torso", m); torso.Position = V3.new(0, 1, 10)
     local upper = node("BasePart", "UpperTorso", m); upper.Position = V3.new(0, 1, 10)
+    root.CFrame = CFrame.new(root.Position)
+    head.CFrame = CFrame.new(head.Position)
+    torso.CFrame = CFrame.new(torso.Position)
+    upper.CFrame = CFrame.new(upper.Position)
     return m, hum, root
 end
 
@@ -373,7 +435,7 @@ check(library.tabs[1].name == "ESP / World" and library.tabs[2].name == "Combat"
 local expectedGroups = {
     "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview",
     "Aimbot", "Aimbot Visuals", "Bow Assist", "Aimbot Keys",
-    "Staff Detection", "Staff ESP", "Mining (Silent Insta-Hit)", "System",
+    "Staff Detection", "Staff ESP", "Mining (Silent Insta-Hit)", "System", "ESP Engine",
 }
 for _, name in ipairs(expectedGroups) do
     local found = false
@@ -382,7 +444,11 @@ for _, name in ipairs(expectedGroups) do
 end
 for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "player_esp_hz",
     "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
-    "staff_monitor", "staff_esp" }) do
+    "staff_monitor", "staff_esp", "world_esp_hz", "esp_text_size", "esp_label_gap",
+    "esp_fill_transparency", "esp_distance_style", "esp_parts_bounds", "plr_box_fill", "plr_box_thickness",
+    "plr_box_outline", "plr_visible_only", "plr_hp_side", "npc_box_fill", "npc_box_thickness",
+    "npc_box_outline", "npc_visible_only", "npc_health", "npc_hp_side",
+    "heli_box_fill", "heli_box_thickness", "heli_box_outline" }) do
     check(library.Flags[flag] ~= nil, "missing flag: " .. flag)
 end
 check(#library.previews == 1 and library.previews[1].Elements.Box == "plr_box", "ESP preview wired to hub flags")
@@ -394,6 +460,7 @@ check(espGui and espGui.Parent == coreGui, "ESP ScreenGui parented to CoreGui")
 
 -- Color callbacks are wired without errors.
 library.controls.plr_box.ColorCallback(1, newColor(0.5, 0.5, 0.5))
+library.controls.plr_box.ColorCallback(2, newColor(0.1, 0.1, 0.1))
 library.controls.plr_chams.ColorCallback(2, newColor(1, 0, 0))
 library.controls.plr_health.ColorCallback(1, newColor(0, 1, 0))
 
@@ -436,13 +503,131 @@ step()
 check(labelVisible("Target"), "full box style still draws player ESP")
 library.Flags.plr_style = "Corners"
 
+-- ─── Ported ESP features ────────────────────────────────────────
+-- 3D corner projection: 4x6x2 box at z=10 projects to 40x60 at (380,270).
+library.Flags.plr_style = "Full"
+step()
+local box = visibleBox()
+check(box, "3D-projected box frame is drawn")
+check(box.Position.X.Offset == 380 and box.Position.Y.Offset == 270, "3D box position from projected corners")
+check(box.Size.X.Offset == 40 and box.Size.Y.Offset == 60, "3D box size from projected corners")
+local stroke = box:FindFirstChildOfClass("UIStroke")
+check(stroke and stroke.Thickness == 1, "box uses a UIStroke for thickness")
+
+-- Multi-part bounds mode (state.parts / boundsOfParts from the framework).
+library.Flags.esp_parts_bounds = true
+step()
+local partsBox = visibleBox()
+check(partsBox and partsBox.Position.X.Offset == 395 and partsBox.Position.Y.Offset == 275
+    and partsBox.Size.X.Offset == 10 and partsBox.Size.Y.Offset == 30,
+    "parts bounds derive a box from the rig's physical parts")
+library.Flags.esp_parts_bounds = false
+step()
+check(visibleBox().Size.X.Offset == 40, "bounding-box mode restored")
+
+-- Dynamic label stacking (above/below) with configurable gap.
+check(labelNode("Target").Position.Y.Offset == 255, "name reserves space above the box")
+check(labelNode("2m").Position.Y.Offset == 332, "distance reserves space below the box")
+check(labelNode("Unarmed").Position.Y.Offset == 347, "weapon stacks under distance")
+library.Flags.plr_dist = false
+step()
+check(labelNode("Unarmed").Position.Y.Offset == 332, "hidden label releases its slot")
+library.Flags.plr_dist = true
+library.Flags.esp_label_gap = 6
+step()
+check(labelNode("Unarmed").Position.Y.Offset == 351, "label gap is configurable")
+library.Flags.esp_label_gap = 2
+step()
+
+-- Box fill, thickness and outline color.
+library.Flags.plr_style = "Full"
+library.Flags.plr_box_fill = true
+library.Flags.plr_box_thickness = 3
+step()
+box = visibleBox()
+check(box and box.BackgroundTransparency ~= 1, "filled box tints its background")
+check(box:FindFirstChildOfClass("UIStroke").Thickness == 3, "box thickness is configurable")
+local outline = visibleOutline()
+check(outline, "box outline is drawn behind the box")
+check(outline:FindFirstChildOfClass("UIStroke").Thickness == 5, "outline is thicker than the box")
+library.Flags.plr_box_outline = false
+step()
+check(not visibleOutline(), "box outline can be disabled")
+library.Flags.plr_style = "Corners"
+library.Flags.plr_box_fill = false
+library.Flags.plr_box_thickness = 1
+library.Flags.plr_box_outline = true
+step()
+
+-- Health bar side.
+library.Flags.plr_hp_side = "Right"
+step()
+check(healthBackgrounds()[1].Position.X.Offset == 423, "health bar moves to the right side")
+library.Flags.plr_hp_side = "Left"
+step()
+check(healthBackgrounds()[1].Position.X.Offset == 374, "health bar returns to the left side")
+
+-- Visible-only filter.
+workspace.obstruction = { Instance = node("BasePart", "Wall", workspace) }
+library.Flags.plr_visible_only = true
+step()
+check(not labelVisible("Target"), "visible-only filter hides occluded targets")
+workspace.obstruction = nil
+library.Flags.plr_visible_only = false
+step()
+
+-- Distance styles.
+library.Flags.esp_distance_style = "Brackets"
+step()
+check(labelVisible("[2]") and not labelVisible("2m"), "bracketed distance style")
+library.Flags.esp_distance_style = "Studs"
+step()
+check(labelVisible("10s"), "studs distance style")
+library.Flags.esp_distance_style = "Metres"
+step()
+
+-- Per-target error isolation: one bad model must not kill the frame.
+local broken = newPlayer("Broken")
+broken.Team = "red"
+local brokenChar = character("BrokenChar", workspace)
+broken.Character = brokenChar
+function brokenChar:GetBoundingBox() error("bad bounds") end
+step()
+check(labelVisible("Target"), "a failing target does not break other ESP")
+check(not labelVisible("Broken"), "failing target is hidden")
+local sawWarning = false
+for _, message in ipairs(warnings) do
+    if message:find("player failed for Broken", 1, true) then sawWarning = true end
+end
+check(sawWarning, "failures are reported through the throttled error handler")
+for i, plr in ipairs(players.list) do
+    if plr == broken then table.remove(players.list, i) break end
+end
+brokenChar.Parent = nil
+
 -- ─── NPC ESP ────────────────────────────────────────────────────
 local npcFolder = node("Folder", "Npcs", workspace)
 local guard = character("Guard", npcFolder)
 library.Flags.npc_enabled = true
 step()
 check(labelVisible("Guard"), "NPC name label drawn")
+local healthBefore = #healthBackgrounds()
+check(healthBefore >= 2, "NPC health bar drawn alongside player health bars")
+library.Flags.npc_health = false
+step()
+check(#healthBackgrounds() == healthBefore - 1, "NPC health bar can be disabled")
+library.Flags.npc_health = true
 library.Flags.npc_enabled = false
+step()
+library.Flags.world_esp_hz = 5
+library.Flags.npc_enabled = true
+step()
+check(not labelVisible("Guard"), "world update rate throttles NPC resolution")
+for _ = 1, 8 do step() end
+check(labelVisible("Guard"), "NPC resolves once its interval elapses")
+library.Flags.world_esp_hz = 60
+library.Flags.npc_enabled = false
+step()
 
 -- ─── Ore ESP (3D icon + labeled fallback) ───────────────────────
 local ore = node("BasePart", "MetalNode", workspace)

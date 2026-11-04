@@ -30,6 +30,22 @@ The hub downloads the UI library from `refs/heads/main/ARC3USX.lua` at startup. 
     Cactus, MetalNode, SulfurNode, Tree, Meteor and StoneNode, plus a distance toggle.
   - **Heli ESP** — `PatrolHeli` models with box, chams and distance.
   - **ESP Preview** — a live preview widget wired to the player ESP toggles/colors.
+- **ESP Engine** — capabilities ported from the adapter-based ESP framework (kept on our
+  `ScreenGui` engine, no `Drawing` dependency added):
+  - **3D box projection** — eight corners + twelve edges with near-plane clipping, so rotated
+    models and partially on-screen targets get accurate boxes instead of a guessed width.
+    An optional **Parts Bounds** mode derives the box from the rig's physical parts
+    (`boundsOfParts`) instead of `GetBoundingBox()`.
+  - **Dynamic label layout** — enabled labels stack above/below the box with configurable text
+    size and gap; hiding one closes the gap.
+  - **Box styling** — filled boxes (with fill transparency), adjustable border/corner thickness,
+    and a separate outline color drawn behind the box.
+  - **Health bars** — left/right placement for players and NPCs (NPC health is new).
+  - **Filters & formats** — "Only Visible" occlusion filters, Metres / Brackets / Studs distance
+    styles, and function-valued colors/labels through a `read`-style helper.
+  - **Throttled world updates** — NPC/ore/heli resolve on their own adjustable interval, and
+    each target is updated inside an isolated, throttled error handler so one broken model
+    cannot break the frame.
 - **Silent Insta-Hit weakspot** — snaps the camera at the nearest resource weakspot for one
   tick, activates the equipped mining tool (and a synthetic click), then restores the camera.
   Radius: 50 studs; 0.12 s cooldown; no visible camera lock.
@@ -48,14 +64,15 @@ The hub downloads the UI library from `refs/heads/main/ARC3USX.lua` at startup. 
 
 | Tab | Groups |
 | --- | --- |
-| ESP / World | Player ESP, NPC ESP, Ore ESP (Icons), Heli ESP, ESP Preview |
+| ESP / World | ESP Engine, Player ESP, NPC ESP, Ore ESP (Icons), Heli ESP, ESP Preview |
 | Combat | Aimbot, Aimbot Visuals, Bow Assist, Aimbot Keys |
 | Misc | Staff Detection, Staff ESP, Mining (Silent Insta-Hit), System |
 | Settings | themes, config/auto-load, appearance (`Window:AddSettingsTab()`) |
 
 Master switches start **on**, but every category's ESP toggle starts **off** — enable the
 individual **ESP Toggle** and any elements you want. The aimbot, staff monitor, staff ESP and
-insta-hit all start off.
+insta-hit all start off. The **ESP Engine** group controls shared rendering (world update rate,
+text size, label gap, box fill transparency, distance style).
 
 ### Requirements and caveats
 
