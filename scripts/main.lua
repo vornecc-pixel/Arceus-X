@@ -1236,11 +1236,11 @@ AimbotGroup:AddSlider({
     Callback = function(v) Aimbot.Config.MaxDistance = v end
 })
 AimbotGroup:AddSlider({
-    Name = "Prediction", Min = 0, Max = 0.5, Default = 0.12,
+    Name = "Prediction", Min = 0, Max = 0.5, Default = 0.12, Rounding = 3,
     Callback = function(v) Aimbot.Config.Prediction = v end
 })
 AimbotGroup:AddSlider({
-    Name = "Smoothness", Min = 0, Max = 1, Default = 0.10,
+    Name = "Smoothness", Min = 0, Max = 1, Default = 0.10, Rounding = 2,
     Callback = function(v) Aimbot.Config.Smoothness = v end
 })
 
@@ -1257,8 +1257,8 @@ BowGroup:AddToggle({
 })
 BowGroup:AddSlider({ Name = "Bow FOV", Min = 10, Max = 360, Default = 180, Callback = function(v) Aimbot.Config.BowFOV = v end })
 BowGroup:AddSlider({ Name = "Bow Max Distance", Min = 50, Max = 1000, Default = 300, Callback = function(v) Aimbot.Config.BowMaxDistance = v end })
-BowGroup:AddSlider({ Name = "Bow Smoothness", Min = 0, Max = 0.5, Default = 0.05, Callback = function(v) Aimbot.Config.BowSmoothness = v end })
-BowGroup:AddSlider({ Name = "Draw Time", Min = 0.1, Max = 2, Default = 0.8, Callback = function(v) Aimbot.Config.BowDrawTime = v end })
+BowGroup:AddSlider({ Name = "Bow Smoothness", Min = 0, Max = 0.5, Default = 0.05, Rounding = 3, Callback = function(v) Aimbot.Config.BowSmoothness = v end })
+BowGroup:AddSlider({ Name = "Draw Time", Min = 0.1, Max = 2, Default = 0.8, Rounding = 2, Callback = function(v) Aimbot.Config.BowDrawTime = v end })
 BowGroup:AddSlider({ Name = "Speed Base", Min = 20, Max = 200, Default = 95, Callback = function(v) Aimbot.Config.BowSpeedBase = v end })
 BowGroup:AddSlider({ Name = "Speed Charge", Min = 0, Max = 200, Default = 125, Callback = function(v) Aimbot.Config.BowSpeedCharge = v end })
 BowGroup:AddSlider({ Name = "Gravity", Min = 0, Max = 200, Default = 50, Callback = function(v) Aimbot.Config.BowGravity = v end })
