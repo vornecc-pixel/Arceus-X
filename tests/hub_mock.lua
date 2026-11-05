@@ -132,12 +132,9 @@ local validProps = {
     LightColor=true, LightDirection=true, FieldOfView=true, CFrame=true,
     ViewportSize=true, AssemblyLinearVelocity=true, PrimaryPart=true,
     Health=true, MaxHealth=true, Team=true, Character=true, UserId=true,
-    Destroyed=true, children=true, attributes=true, activations=true,
+    Destroyed=true, children=true, attributes=true,
     obstruction=true, DescendantAdded=true, DescendantRemoving=true,
     connected=true,
-    -- world visuals
-    Brightness=true, OutdoorAmbient=true, GlobalShadows=true, ClockTime=true,
-    WorldPosition=true, AbsolutePosition=true, AbsoluteSize=true, PlayerGui=true,
 }
 local function node(class, name, parent)
     -- Roblox lets `model.Humanoid` resolve to a child; mirror that here.
@@ -208,23 +205,13 @@ local function node(class, name, parent)
     function n:GetBoundingBox()
         return { Position = V3.new(0, 0, 10) }, V3.new(4, 6, 2)
     end
-    function n:GetPivot() return { Position = (self.PrimaryPart and self.PrimaryPart.Position) or V3.zero } end
     function n:Clone() return node(self.ClassName, self.Name .. "Clone") end
     function n:Destroy() self.Destroyed = true; self.Parent = nil end
     function n:WaitForChild(childName) return self:FindFirstChild(childName) end
-    function n:Activate() self.activations = (self.activations or 0) + 1 end
     return n
 end
 Instance = { new = function(class) return node(class, class) end }
 RaycastParams = { new = function() return {} end }
-
-local drawings = {}
-Drawing = { new = function(class)
-    local d = { class = class, Visible = false, removed = false }
-    function d:Remove() self.removed = true; self.Visible = false end
-    drawings[#drawings + 1] = d
-    return d
-end }
 
 -- ─── Services ───────────────────────────────────────────────────
 local workspace = node("Workspace", "Workspace")
@@ -233,9 +220,6 @@ function workspace:Raycast() return self.obstruction end
 local camera = node("Camera", "Camera", workspace)
 camera.CFrame = CFrame.lookAt(V3.new(0, 0, 0), V3.new(0, 0, -10))
 camera.ViewportSize = V2.new(800, 600)
-function camera:ViewportPointToRay(x, y)
-    return { Origin = V3.new(0, 0, 0), Direction = V3.new((x - 400) / 800, (300 - y) / 600, -1) }
-end
 function camera:WorldToViewportPoint(p)
     return { X = 400 + p.X * 10, Y = 300 - p.Y * 10, Z = p.Z }, true
 end
@@ -254,14 +238,11 @@ local function newPlayer(name)
 end
 players.LocalPlayer = newPlayer("Local")
 players.LocalPlayer.Team = "blue"
-local playerGui = node("PlayerGui", "PlayerGui", players.LocalPlayer)
 
 local coreGui = node("CoreGui", "CoreGui")
 local rep = node("ReplicatedStorage", "ReplicatedStorage")
 local fust = node("Folder", "Fust", rep)
 local iconsScript = node("ModuleScript", "ItemIcons", fust)
-local staffState = node("ModuleScript", "StaffState", fust)
-local adminPerms = node("ModuleScript", "AdminPerms", fust)
 local iconModel = node("Model", "OreIconModel")
 local modules = {}
 modules[iconsScript] = {
@@ -275,26 +256,12 @@ modules[iconsScript] = {
     Abbr = function(item) return string.upper(string.sub(item, 1, 3)) end,
     Color = function() return newColor(1, 1, 1) end,
 }
-modules[staffState] = {
-    get = function(plr, key) return plr:GetAttribute(key) end,
-    changed = function() return signal() end,
-}
-modules[adminPerms] = {
-    Label = { mod = "Moderator", admin = "Admin" },
-    Rank = function(role) return role == "admin" and 4 or 2 end,
-}
 require = function(mod) return modules[mod] end
 
-local renderSteps = {}
 local run = { RenderStepped = signal() }
-function run:BindToRenderStep(name, _, fn) renderSteps[name] = fn end
-function run:UnbindFromRenderStep(name) renderSteps[name] = nil end
-local uis = { InputBegan = signal(), InputEnded = signal() }
-local mouseLocation = V2.new(400, 300)
-function uis:GetMouseLocation() return mouseLocation end
 local services = {
     Players = players, RunService = run, CoreGui = coreGui,
-    ReplicatedStorage = rep, UserInputService = uis, Workspace = workspace,
+    ReplicatedStorage = rep, Workspace = workspace,
     StarterGui = { SetCore = function() end },
 }
 local requestedLibraryUrl = nil
@@ -305,10 +272,6 @@ local clock = 0
 tick = function() clock = clock + 1 / 60; return clock end
 os.clock = function() return clock end
 warn = function(message) print("[warn] " .. tostring(message)) end
-local clicks = 0
-mouse1click = function() clicks = clicks + 1 end
-local mouseMoves = {}
-mousemoverel = function(x, y) mouseMoves[#mouseMoves + 1] = { x, y } end
 task = {
     spawn = function(fn, ...) pcall(fn, ...) end,
     wait = function() error("__mock_yield__") end,
@@ -432,11 +395,21 @@ for _, bad in ipairs({ ".lastX", ".lastY", ".lastW", ".lastH", ".lastLen", ".las
     check(not hubSource:find(bad, 1, true), "ESP writes an invalid Instance property: " .. bad)
 end
 check(hubSource:find("okEsp, espErr = pcall", 1, true), "ESP pass is not isolated")
-check(hubSource:find("Aimbot step error", 1, true), "aimbot step is not isolated")
-check(hubSource:find("MouseButton2", 1, true), "RMB keybind support missing")
-check(hubSource:find("Keybind List", 1, true), "keybind list control missing")
-check(not hubSource:find("aim_rmb", 1, true), "separate RMB toggle still present")
-check(library.Flags.aim_rmb == nil, "no separate RMB flag registered")
+-- Staff detection, weakspot and all aimbot code must be completely gone.
+for _, removed in ipairs({ "Aimbot", "aimbot", "aim_", "Aim_FOV_Circle", "weakspot", "Insta-Hit",
+    "FustWeakSpotMark", "StaffDetector", "staff_monitor", "staff_esp", "AdminRole",
+    "mousemoverel", "mouse1click", "Drawing", "BindToRenderStep", "UserInputService",
+    "cachedNodes", "FustMates", "readProp", "readAttr", "isVec3", "isInstance",
+    "Keybind List", "MouseButton2", "Fust.StaffState", "Scan Now" }) do
+    check(not hubSource:find(removed, 1, true), "removed feature still present: " .. removed)
+end
+for _, flag in ipairs({ "aim_enabled", "aim_key", "aim_key_list", "aim_lock_mode", "aim_bone",
+    "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
+    "aim_prediction", "aim_target_npcs", "aim_wall_check", "aim_team_check", "aim_rmb",
+    "weakspot_enabled", "weakspot_auto_click", "weakspot_source", "weakspot_radius",
+    "staff_monitor", "staff_esp" }) do
+    check(library.Flags[flag] == nil, "removed flag still registered: " .. flag)
+end
 -- The loading screen is embedded in the library the hub actually downloads.
 check(requestedLibraryUrl and requestedLibraryUrl:find("arena/6af703ac-arceus-x/ARC3USX.lua", 1, true),
     "hub does not load this branch's library")
@@ -445,7 +418,6 @@ check(hubSource:find("Intro = true", 1, true), "hub does not enable the intro")
 check(libSource:find("function Library:_RunIntro", 1, true), "loading screen missing from the library")
 check(libSource:find("if opts.Intro ~= false then", 1, true), "library does not start the intro from CreateWindow")
 check(libSource:find("ACCESS GRANTED", 1, true), "intro reveal missing from the library")
-check(hubSource:find("FustWeakSpotMark", 1, true), "real weakspot mark path missing")
 for _, removed in ipairs({ "world_fullbright", "Looped Fullbright", "applyFullbright",
     "restoreFullbright", "restoreLighting", "origLighting", "FULLBRIGHT_AMBIENT",
     "getProp", "writeProp", "writeAttr", 'GetService("Lighting")' }) do
@@ -460,12 +432,10 @@ end
 
 check(library.windowOpts.Intro == true and library.windowOpts.Theme == "Purple", "hub window options / intro enabled")
 check(library.windowOpts.Size.X == 800 and library.windowOpts.Size.Y == 620, "hub window size")
-check(#library.tabs == 3 and library.settingsTab, "three tabs plus settings")
-check(library.tabs[1].name == "ESP / World" and library.tabs[2].name == "Combat" and library.tabs[3].name == "Misc", "tab names")
+check(#library.tabs == 2 and library.settingsTab, "two tabs plus settings")
+check(library.tabs[1].name == "ESP / World" and library.tabs[2].name == "Misc", "tab names")
 local expectedGroups = {
-    "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview",
-    "Aimbot", "Aimbot Options",
-    "Staff Detection", "Staff ESP", "Mining (Silent Insta-Hit)", "System",
+    "Player ESP", "NPC ESP", "Ore ESP (Icons)", "Heli ESP", "ESP Preview", "System",
 }
 for _, g in ipairs(library.groups) do
     check(g.name ~= "World Visuals", "World Visuals group still registered")
@@ -476,11 +446,7 @@ for _, name in ipairs(expectedGroups) do
     check(found, "missing group: " .. name)
 end
 for _, flag in ipairs({ "plr_master", "plr_enabled", "plr_chams", "plr_skel", "player_esp_hz",
-    "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled", "weakspot_enabled",
-    "staff_monitor", "staff_esp", "aim_enabled", "aim_key", "aim_lock_mode", "aim_key_list",
-    "weakspot_auto_click", "weakspot_source", "weakspot_radius", "aim_bone",
-    "aim_fov", "aim_distance", "aim_smoothing", "aim_bullet_speed", "Aim_FOV_Circle",
-    "aim_prediction", "aim_target_npcs", "aim_wall_check", "aim_team_check" }) do
+    "npc_enabled", "ore_enabled", "ore_MetalNode", "heli_enabled" }) do
     check(library.Flags[flag] ~= nil, "missing flag: " .. flag)
 end
 check(#library.previews == 1 and library.previews[1].Elements.Box == "plr_box", "ESP preview wired to hub flags")
@@ -488,11 +454,6 @@ for _, f in ipairs({ "world_grass", "world_leaves", "world_fog", "world_brightne
     "world_fog_end", "world_leaf_transparency", "world_fullbright" }) do
     check(library.Flags[f] == nil, "removed world visual flag still registered: " .. f)
 end
-check(type(renderSteps.ARC3USX_InstaHit) == "function", "insta-hit render step bound")
-check(renderSteps.ARC3USX_Aimbot == nil, "old bound aimbot render step removed")
-check(#drawings == 1, "a single aimbot FOV circle created")
-check(type(library.Options.aim_key.Key) == "table", "aimbot keybind registered with a default key")
-check(type(library.Flags.aim_lock) == "table", "aim lock state table registered")
 local espGui = findNode(function(n) return n.Name == "ARC3USX_ESP_UI" end)
 check(espGui and espGui.Parent == coreGui, "ESP ScreenGui parented to CoreGui")
 
@@ -500,25 +461,6 @@ check(espGui and espGui.Parent == coreGui, "ESP ScreenGui parented to CoreGui")
 library.controls.plr_box.ColorCallback(1, newColor(0.5, 0.5, 0.5))
 library.controls.plr_chams.ColorCallback(2, newColor(1, 0, 0))
 library.controls.plr_health.ColorCallback(1, newColor(0, 1, 0))
-
--- ─── Staff detection ────────────────────────────────────────────
-local staff = newPlayer("ModeratorGuy")
-staff:SetAttribute("AdminRole", "mod")
-staff.Character = character("ModChar", workspace)
-library.buttons["Scan Now"]()
-local staffLabel = nil
-for _, label in ipairs(library.labels) do
-    if label.text and label.text:find("Moderator", 1, true) then staffLabel = label end
-end
-check(staffLabel ~= nil, "staff scan lists the moderator with its label")
-library.controls.staff_monitor.Callback(true)
-check(#library.Notifications > 0 and library.Notifications[1]:find("online", 1, true), "staff monitor notifies")
-library.controls.staff_esp.Callback(true)
-local staffHighlight = findNode(function(n) return n.Name == "FustStaffDetect_ModeratorGuy" and not n.Destroyed end)
-check(staffHighlight and staffHighlight.Adornee == staff.Character, "staff highlight created for staff character")
-library.buttons["Clear Highlights"]()
-check(staffHighlight.Destroyed, "clear highlights removes them")
-library.controls.staff_esp.Callback(false)
 
 -- ─── Player ESP ─────────────────────────────────────────────────
 local target = newPlayer("Target")
@@ -597,199 +539,6 @@ check(labelVisible("2m"), "heli distance label drawn")
 library.Flags.heli_enabled = false
 workspace.DescendantRemoving:Fire(heli); heli.Parent = nil
 
--- ─── Silent insta-hit weakspot ──────────────────────────────────
-local localChar = character("LocalChar", workspace)
-players.LocalPlayer.Character = localChar
-local tool = node("Tool", "Stone Pickaxe", localChar)
-local tree = node("Model", "Tree", workspace)
-local weakspot = node("BasePart", "Weakspot", tree)
-weakspot.Position = V3.new(0, 0, 5)
-tree.PrimaryPart = weakspot
-workspace.DescendantAdded:Fire(tree)
-local savedCFrame = camera.CFrame
-library.Flags.weakspot_enabled = true
-clock = clock + 1
-renderSteps.ARC3USX_InstaHit(1 / 60)
-check((tool.activations or 0) == 1, "insta-hit activates the mining tool")
-check(clicks == 0, "no synthetic auto click by default")
-check(camera.CFrame == savedCFrame, "insta-hit restores the camera without a visible lock")
--- Opting in past the 0.12s cooldown is the only way to get a synthetic click.
-library.Flags.weakspot_auto_click = true
-for _ = 1, 10 do step() end
-renderSteps.ARC3USX_InstaHit(1 / 60)
-check(clicks == 1, "auto click only when explicitly enabled")
-library.Flags.weakspot_auto_click = false
-library.Flags.weakspot_enabled = false
-
--- ─── FustWeakSpotMark: the real LocalPlayer.PlayerGui path ────────
-local markAnchor = node("BasePart", "MarkAnchor", workspace)
-markAnchor.Position = V3.new(3, 4, 5)
-local weakMark = node("BillboardGui", "FustWeakSpotMark", playerGui)
-weakMark.Visible = true
-weakMark.Adornee = markAnchor
-
-local function hitOnce()
-    clock = clock + 1
-    lookAtCalls = {}
-    local before = tool.activations or 0
-    renderSteps.ARC3USX_InstaHit(1 / 60)
-    return (tool.activations or 0) - before, lookAtCalls[#lookAtCalls]
-end
-
-library.Flags.weakspot_enabled = true
-local delta, aim = hitOnce()
-check(delta == 1, "insta-hit activates from the real FustWeakSpotMark")
-check(aim ~= nil and aim.target == markAnchor.Position, "aim comes from the mark Adornee, not the node")
-check(camera.CFrame == savedCFrame, "mark aim restores the camera")
-
--- "Node Parts" must ignore the marker and use the node's weakspot part.
-library.controls.weakspot_source.Callback("Node Parts")
-delta, aim = hitOnce()
-check(aim ~= nil and aim.target == weakspot.Position, "Node Parts source uses the node weakspot")
-
--- "Mark Only" must refuse to fire when the marker is hidden.
-library.controls.weakspot_source.Callback("Mark Only")
-weakMark.Visible = false
-delta = hitOnce()
-check(delta == 0, "hidden FustWeakSpotMark blocks Mark Only hits")
-weakMark.Visible = true
-
--- Screen-space marker: AbsolutePosition -> camera direction.
-weakMark.Adornee = nil
-weakMark.AbsolutePosition = V2.new(100, 100)
-weakMark.AbsoluteSize = V2.new(20, 20)
-delta, aim = hitOnce()
-check(delta == 1, "screen-space FustWeakSpotMark still fires")
-check(aim ~= nil and aim.target.Z ~= 0, "screen mark aims along a camera ray")
-library.controls.weakspot_source.Callback("Auto")
-library.controls.weakspot_radius.Callback(75)
-library.Flags.weakspot_auto_click = false
-library.Flags.weakspot_enabled = false
-
--- ─── Aimbot (mouse-relative lock) ───────────────────────────────
-library.controls.aim_enabled.Callback(true)
-library.Flags.Aim_FOV_Circle = true
-step()
-check(drawings[1].Visible and drawings[1].Radius == 220, "FOV circle shown with configured radius")
-check(#mouseMoves > 0 and mouseMoves[#mouseMoves][2] == -10, "aimbot nudges the mouse toward the head target")
-library.controls.aim_bone.Callback("Hrp")
-step()
-check(mouseMoves[#mouseMoves][2] == 0, "Hrp bone aims at the root instead of the head")
-library.controls.aim_bone.Callback("Head")
-
--- Isolate one target so bullet-travel prediction is measurable.
-staff.Character:FindFirstChild("Humanoid").Health = 0
-local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
-targetRoot.AssemblyLinearVelocity = V3.new(90, 0, 0)
-step()
-check(mouseMoves[#mouseMoves][1] == 5, "prediction leads the target using bullet travel time")
-library.controls.aim_prediction.Callback(false)
-step()
-check(mouseMoves[#mouseMoves][1] == 0, "prediction can be disabled")
-library.controls.aim_prediction.Callback(true)
-targetRoot.AssemblyLinearVelocity = V3.zero
-staff.Character:FindFirstChild("Humanoid").Health = 100
-
--- FOV and distance limits.
-library.controls.aim_fov.Callback(5)
-local movesBefore = #mouseMoves
-step()
-check(#mouseMoves == movesBefore, "targets outside the FOV are ignored")
-library.controls.aim_fov.Callback(220)
-library.controls.aim_distance.Callback(1)
-step()
-check(#mouseMoves == movesBefore, "targets beyond max distance are ignored")
-library.controls.aim_distance.Callback(0)
-
--- Team check via the FustMates attribute.
-library.controls.aim_team_check.Callback(true)
-players.LocalPlayer:SetAttribute("FustMates", " " .. tostring(target.UserId) .. ", 999 ")
-step()
-check(#mouseMoves == movesBefore, "team check skips listed teammates")
-library.controls.aim_team_check.Callback(false)
-players.LocalPlayer:SetAttribute("FustMates", nil)
-
--- Smoothing divides the mouse delta.
-library.controls.aim_smoothing.Callback(4)
-step()
-check(mouseMoves[#mouseMoves][2] == -5, "smoothing divides the mouse delta")
-library.controls.aim_smoothing.Callback(2)
-
--- Wall check rejects blocked targets.
-library.controls.aim_wall_check.Callback(true)
-workspace.obstruction = { Instance = node("Part", "Wall", workspace) }
-movesBefore = #mouseMoves
-step()
-check(#mouseMoves == movesBefore, "wall check rejects blocked targets")
-workspace.obstruction = nil
-library.controls.aim_wall_check.Callback(false)
-step()
-
--- NPC targets are opt-in.
-library.controls.aim_target_npcs.Callback(false)
-target.Character:FindFirstChild("Humanoid").Health = 0
-staff.Character:FindFirstChild("Humanoid").Health = 0
-movesBefore = #mouseMoves
-step()
-check(#mouseMoves == movesBefore, "NPCs are ignored when targetNpcs is off")
-library.controls.aim_target_npcs.Callback(true)
-step()
-check(#mouseMoves > movesBefore, "NPC targets can be included")
-library.controls.aim_target_npcs.Callback(false)
-target.Character:FindFirstChild("Humanoid").Health = 100
-staff.Character:FindFirstChild("Humanoid").Health = 100
-
--- Hold mode gates on the keybind; Always mode uses the keybind as a toggle.
-library.controls.aim_lock_mode.Callback("Hold")
-movesBefore = #mouseMoves
-step()
-check(#mouseMoves == movesBefore, "hold mode does not aim without the key")
-uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
-step()
-check(#mouseMoves > movesBefore, "hold mode aims while the key is held")
-uis.InputEnded:Fire({ KeyCode = Enum.KeyCode.Q })
-library.controls.aim_lock_mode.Callback("Toggle")
-library.controls.aim_enabled.Callback(true)
-uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
-check(library.Flags.aim_enabled == false, "keybind toggles the aimbot in toggle mode")
-library.controls.aim_enabled.Callback(true)
-library.Flags.Aim_FOV_Circle = false
-step()
-check(not drawings[1].Visible, "FOV circle hidden when its toggle is off")
-
--- RMB is a normal option in the Keybind List, not a separate toggle.
-library.controls.aim_key_list.Callback("RMB (Right Mouse)")
-library.Options.aim_enabled:Set(true)
-check(library.Flags.aim_enabled == true, "aimbot starts enabled before the RMB test")
-uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
-check(library.Flags.aim_enabled == false, "RMB from the keybind list toggles the aimbot off")
-uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
-check(library.Flags.aim_enabled == true, "RMB from the keybind list toggles it back on")
-
--- Hold mode must work even with Aimbot Enabled OFF (the reported bug).
-library.controls.aim_lock_mode.Callback("Hold")
-library.Options.aim_enabled:Set(false)
-movesBefore = #mouseMoves
-step()
-check(#mouseMoves == movesBefore, "hold mode does not aim without the key")
-uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
-step()
-check(#mouseMoves > movesBefore, "hold mode aims while held even with Aimbot Enabled off")
-movesBefore = #mouseMoves
-uis.InputEnded:Fire({ UserInputType = Enum.UserInputType.MouseButton2 })
-step()
-check(#mouseMoves == movesBefore, "hold mode stops aiming on release")
-library.controls.aim_lock_mode.Callback("Toggle")
-
--- Switching the list back to a keyboard key removes RMB as the aim key.
-library.controls.aim_key_list.Callback("Q")
-library.Options.aim_enabled:Set(true)
-uis.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton2 }, false)
-check(library.Flags.aim_enabled == true, "RMB no longer acts as the key after rebinding to Q")
-uis.InputBegan:Fire({ KeyCode = Enum.KeyCode.Q }, false)
-check(library.Flags.aim_enabled == false, "Q is the active keybind again")
-library.Options.aim_enabled:Set(false)
-
 -- ─── ESP ScreenGui rebuild + cleanup ─────────────────────────────
 espGui.Parent = nil
 step()
@@ -805,14 +554,8 @@ library.buttons["Unload Script & Clear Memory"]()
 check(library.unloaded, "unload closes the UI library")
 check(findNode(function(n) return n.Name == "ARC3USX_ESP_UI" and n.Parent == coreGui end) == nil,
     "unload destroys the ESP ScreenGui")
-check(renderSteps.ARC3USX_InstaHit == nil and renderSteps.ARC3USX_Aimbot == nil, "render steps unbound")
 check(run.RenderStepped:ActiveCount() == 0, "render connections disconnected")
-for _, d in ipairs(drawings) do check(d.removed, "aimbot drawing removed on unload") end
-check(not drawings[1].Visible, "FOV circle hidden on unload")
-movesBefore = #mouseMoves
 step()
-check(#mouseMoves == movesBefore, "no aimbot movement after unload")
 check(not labelVisible("Target"), "no ESP updates after unload")
-check(staffHighlight.Destroyed, "staff highlights cleaned on unload")
 
 print("Hub mock tests passed")

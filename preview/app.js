@@ -1,6 +1,6 @@
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
-  const tabs = ['ESP / World', 'Combat', 'Misc', 'Settings'];
+  const tabs = ['ESP / World', 'Misc', 'Settings'];
   const mixes = {
     'NH Classic': { accent:'#98bcff', bg:'#101114', panel:'#141519', item:'#1c1d23', line:'#24262d', border:'#343740', text:'#b4b4b4', mute:'#646464', font:"'Courier New',monospace", watermark:true, keys:true },
     'Arceus Purple': { accent:'#a43cff', bg:'#0d0d0f', panel:'#141416', item:'#1a1a1d', line:'#2b2b31', border:'#34343a', text:'#c9c9d0', mute:'#72727d', font:'Arial,sans-serif', watermark:true, keys:true },
@@ -18,7 +18,6 @@
   const S = (label, flag, options, value) => ({type:'select',label,flag,options,value});
   const R = (label, flag, min, max, value, suffix = '') => ({type:'range',label,flag,min,max,value,suffix});
   const B = (label, action) => ({type:'button',label,action});
-  const K = (label, flag, key) => ({type:'keybind',label,flag,key});
   const L = label => ({type:'label',label});
   const group = (title, rows) => ({title,rows});
   const human = prefix => {
@@ -38,12 +37,8 @@
       [group('Player ESP',human('plr')),group('Ore ESP (Icons)',[T('Master Enable (Ores)','ore_master',true),T('Ore ESP Toggle','ore_enabled'),R('Max Distance','ore_max_dist',10,2000,300,'m'),T('Show Distance','ore_dist',true),...['Cactus','MetalNode','SulfurNode','Tree','Meteor','StoneNode'].map(x=>T(x,'ore_'+x,true))])],
       [group('NPC ESP',human('npc')),group('Heli ESP',[T('Master Enable (Heli)','heli_master',true),T('Heli ESP Toggle','heli_enabled'),S('Box Style','heli_style',['Corners','Full'],'Full'),R('Max Distance','heli_max_dist',10,5000,2000,'m'),T('Chams','heli_chams',true),T('Show Distance','heli_dist',true)]),group('ESP Preview',[{type:'preview'}])]
     ],
-    'Combat': [
-      [group('Aimbot',[T('Aimbot Enabled','aim_enabled'),S('Keybind Mode','aim_lock_mode',['Toggle','Hold'],'Toggle'),K('Aimbot Keybind','aim_key','Q'),S('Keybind List','aim_key_list',['Q','E','F','C','X','Z','R','V','T','G','RMB (Right Mouse)','MMB (Middle Mouse)'],'Q'),S('Bone','aim_bone',['Head','Hrp'],'Head'),R('FOV','aim_fov',10,500,220,' px'),R('Max Distance','aim_distance',0,2000,0,' studs'),R('Smoothing','aim_smoothing',1,20,2),R('Bullet Speed','aim_bullet_speed',50,3000,900)]),group('Aimbot Options',[T('FOV Circle','Aim_FOV_Circle'),T('Prediction','aim_prediction',true),T('Target NPCs','aim_target_npcs'),T('Wall Check','aim_wall_check'),T('Team Check','aim_team_check'),L('Toggle: the keybind switches the aimbot on and off. Hold: aim only while the key is held, even with Aimbot Enabled off. Pick a key, RMB or MMB in Keybind List.')])]
-    ],
     'Misc': [
-      [group('Staff Detection',[T('Enable Staff Monitor','staff_monitor'),L('Not scanned yet.'),B('Scan Now','scan')]),group('System',[B('Unload Script & Clear Memory','unload')])],
-      [group('Staff ESP',[T('Highlight Staff','staff_esp'),B('Refresh Highlights','demo'),B('Clear Highlights','demo')]),group('Mining (Silent Insta-Hit)',[T('Enable Insta-Hit Weakspot','weakspot_enabled'),T('Auto Click (off by default)','weakspot_auto_click'),S('Weakspot Source','weakspot_source',['Auto','Mark Only','Node Parts'],'Auto'),R('Weakspot Radius','weakspot_radius',10,200,50,' studs'),L('FustWeakSpotMark: visible · source: Auto · last: mark Adornee'),L('Aims from LocalPlayer.PlayerGui.FustWeakSpotMark (attribute, Adornee, child part or screen point), then falls back to node weakspot names. No synthetic mouse click unless Auto Click is on.')])]
+      [group('System',[B('Unload Script & Clear Memory','unload')])]
     ],
     'Settings': [
       [group('Configs',[S('Select config','config',['None'],'None'),B('Save config','demo'),B('Load config','demo'),T('Auto Load Selected','__autoload')]),group('Appearance',[S('Theme','theme',Object.keys(mixes),'Arceus Purple'),S('Font','font',['Code','SourceSans','Gotham','RobotoMono'],'Code'),R('UI Scale','scale',.5,1.5,1),R('Window Opacity','opacity',0,1,1)])],
@@ -65,7 +60,6 @@
     if(r.type==='toggle') return `<div class="row"><button class="toggle ${state[r.flag]?'on':''}" data-toggle="${esc(r.flag)}" aria-pressed="${!!state[r.flag]}" aria-label="${esc(r.label)}"></button><span class="row-label" data-toggle="${esc(r.flag)}">${esc(r.label)}</span>${(colors[r.flag]||[]).map((c,i)=>`<label class="swatch" style="background:${esc(c)}" title="Change ${esc(r.label)} color"><input type="color" data-color="${esc(r.flag)}" data-index="${i}" value="${esc(c)}" aria-label="${esc(r.label)} color ${i+1}"></label>`).join('')}</div>`;
     if(r.type==='select') return `<div class="select-row"><div class="control-heading">${esc(r.label)}</div><select data-select="${esc(r.flag)}" aria-label="${esc(r.label)}">${r.options.map(o=>`<option ${o===state[r.flag]?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
     if(r.type==='range'){const pct=(state[r.flag]-r.min)/(r.max-r.min)*100;return `<div class="slider-row"><div class="control-heading"><span>${esc(r.label)}</span><span data-value="${esc(r.flag)}">${state[r.flag]}${esc(r.suffix||'')}</span></div><div class="slider-controls"><button class="slider-step" data-step="-1" aria-label="Decrease ${esc(r.label)}">−</button><input type="range" data-range="${esc(r.flag)}" data-suffix="${esc(r.suffix||'')}" min="${r.min}" max="${r.max}" step="${r.max<=1?'.001':'1'}" value="${state[r.flag]}" style="--pct:${pct}%" aria-label="${esc(r.label)}"><button class="slider-step" data-step="1" aria-label="Increase ${esc(r.label)}">+</button></div></div>`;}
-    if(r.type==='keybind') return `<div class="select-row"><div class="control-heading"><span>${esc(r.label)}</span></div><button class="ui-button" data-action="keybind" aria-label="${esc(r.label)}">[${esc(r.key)}]</button></div>`;
     if(r.type==='button') return `<button class="ui-button" data-action="${esc(r.action)}">${esc(r.label)}</button>`;
     if(r.type==='label') return `<p class="label-text">${esc(r.label)}</p>`;
     if(r.type==='preview') return `<div class="preview-stage"><div class="figure"><div class="part head"></div><div class="part torso"></div><div class="part arm1"></div><div class="part arm2"></div><div class="part leg1"></div><div class="part leg2"></div><svg class="skeleton" viewBox="0 0 60 130" fill="none" stroke="white" stroke-width="1.5"><path d="M30 10V68 M16 28H44 M16 28L9 64 M44 28L51 64 M30 68L22 98V124 M30 68L38 98V124"/></svg><div class="esp-frame"></div><div class="health"><i></i></div><div class="figure-label name">Target</div><div class="figure-label distance">42m</div><div class="figure-label weapon">Sword</div></div></div>`;
@@ -148,7 +142,7 @@
     const step=e.target.closest('[data-step]'); if(step){const input=step.parentElement.querySelector('input'); if(step.dataset.step==='1')input.stepUp();else input.stepDown();input.dispatchEvent(new Event('input',{bubbles:true}));return;}
     const action=e.target.closest('[data-action]')?.dataset.action;if(!action)return;
     if(action==='next-mix'){const keys=Object.keys(mixes);applyMix(keys[(keys.indexOf(currentMix)+1)%keys.length]);render();}
-    if(action==='intro')playIntro();if(action==='unload')showMenu(false);if(action==='scan'){e.target.textContent='No staff detected';setTimeout(()=>{if(e.target)e.target.textContent='Scan Now';},2000)}
+    if(action==='intro')playIntro();if(action==='unload')showMenu(false);
   });
   $('#menu-body').addEventListener('input',e=>{const el=e.target;if(el.dataset.range){state[el.dataset.range]=Number(el.value);const pct=(el.value-el.min)/(el.max-el.min)*100;el.style.setProperty('--pct',pct+'%');$(`[data-value="${el.dataset.range}"]`).textContent=el.value+(el.dataset.suffix||'');}if(el.dataset.color){colors[el.dataset.color][Number(el.dataset.index)]=el.value;el.parentElement.style.background=el.value;updateFigure();}});
   $('#menu-body').addEventListener('change',e=>{const key=e.target.dataset.select;if(!key)return;state[key]=e.target.value;if(key==='NH_Mix'||key==='theme'){applyMix(e.target.value);render();}else updateFigure();});

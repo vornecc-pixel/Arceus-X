@@ -6,7 +6,9 @@ The old modular runtime was removed: the previous combat/gun/bow/ammo mods, the 
 `scripts/esp.lua` overlay suite, the separate intro/mix/logo bootstrap files, and the mock
 tests for those features are gone. The loading screen now lives inside `ARC3USX.lua` itself.
 `scripts/main.lua` is the only feature script, containing the
-**Ultimate Optimized Hub** described below.
+**Ultimate Optimized Hub** described below. Staff detection, the mining weakspot
+automation and the aimbot (including all of its options and keybinds) have been removed;
+the hub is ESP-only.
 
 ## The hub — `scripts/main.lua`
 
@@ -28,9 +30,8 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
   - **No stuck overlays** — every frame reconciles what was actually drawn: anything that
     died, left, went off screen/out of range, or was toggled off is hidden exactly once,
     and overlays for removed objects are destroyed. The `ScreenGui` is rebuilt if it is
-    removed externally. Both the aimbot step and the ESP pass are `pcall`-isolated; on
-    error every overlay is hidden and a throttled warning is emitted instead of leaving
-    a frozen frame.
+    removed externally. The ESP pass is `pcall`-isolated; on error every overlay is hidden
+    and a throttled warning is emitted instead of leaving a frozen frame.
   - **No stutter** — one throttled `RenderStepped` pass drives all ESP categories, flags
     are read once per pass, line-of-sight raycasts are cached for 0.12 s, property writes
     are skipped when unchanged, box corners reuse scratch tables, and new ore
@@ -49,72 +50,30 @@ branch into `main`, point `LIBRARY_URL` at `refs/heads/main/ARC3USX.lua` as well
   animated intro: terminal boot log, real compatibility checks (device, layout, screen size,
   client, network ping, frame rate), a progress bar, then the logo / **ACCESS GRANTED**
   reveal. It runs on every hub startup; **Replay Intro** in Settings shows it again.
-- **Silent Insta-Hit weakspot** — aims from the game's real marker at
-  `Players.LocalPlayer.PlayerGui.FustWeakSpotMark`: it tries a world-position attribute,
-  the `Adornee`, a weakspot-named child part, any descendant with a world position, and
-  finally converts the marker's `AbsolutePosition` into a `Camera:ViewportPointToRay`
-  direction. If the marker is missing, hidden or unusable, it falls back to weakspot part
-  names on the nearest node. **Weakspot Source** selects `Auto`, `Mark Only` or
-  `Node Parts`; **Weakspot Radius** (default 50 studs) bounds the node fallback. A live
-  label reports whether the marker was found. The camera snaps for one tick, activates the
-  equipped mining tool, then is restored (0.12 s cooldown, no visible lock). **No synthetic
-  mouse click by default**, so equipping a tool near a node does not start auto-clicking;
-  the optional **Auto Click** toggle (`weakspot_auto_click`, off) restores `mouse1click()`
-  if a game needs it.
-- **Aimbot (mouse-relative lock)** — the standalone snippet's own `RenderStepped`
-  connection: picks the valid target closest to the mouse inside a pixel FOV, leads it with
-  `AssemblyLinearVelocity` / bullet travel time, then nudges the mouse toward it with
-  `mousemoverel`. Head or `HumanoidRootPart` bone, smoothing divisor, max distance, NPC
-  targets, `FustMates` team check, an optional line-of-sight wall check for players, and an
-  optional `Drawing` FOV circle that follows the mouse. The connection is `pcall`-isolated
-  from the ESP pass.
-  - **Keybind** — `Toggle` (default) makes the bound input switch the aimbot on and off;
-    `Hold` aims **only while the input is held, even when `Aimbot Enabled` is off** (it is
-    gated by the held state alone, not by the enabled toggle). There is exactly one bound
-    input. **Keybind List** is a dropdown that includes `Q`, `E`, `F`, `C`, `X`, `Z`, `R`,
-    `V`, `T`, `G`, **RMB (Right Mouse / `MouseButton2`)** and **MMB (Middle Mouse /
-    `MouseButton3`)** — pick one and it becomes the keybind. Clicking the `Aimbot Keybind`
-    button and pressing any key / RMB / MMB also binds it. RMB is not a separate toggle;
-    it only acts as the aim key when it is the selected binding.
-- **Staff detection** — reads `AdminRole` attributes or the game's optional
-  `Fust.StaffState` / `Fust.AdminPerms` modules; role labels, ranks, colors, a monitor with
-  notifications, role-change hooks, and staff highlights.
-- **System** — `Unload Script & Clear Memory` disconnects connections, unbinds render steps,
-  removes drawings/overlays and unloads the UI.
+- **System** — `Unload Script & Clear Memory` disconnects connections, removes overlays
+  and unloads the UI.
 
 ### Tabs and defaults
 
 | Tab | Groups |
 | --- | --- |
 | ESP / World | Player ESP, NPC ESP, Ore ESP (Icons), Heli ESP, ESP Preview |
-| Combat | Aimbot, Aimbot Options |
-| Misc | Staff Detection, Staff ESP, Mining (Silent Insta-Hit), System |
+| Misc | System |
 | Settings | themes, config/auto-load, appearance (`Window:AddSettingsTab()`) |
 
 Master switches start **on**, but every category's ESP toggle starts **off** — enable the
-individual **ESP Toggle** and any elements you want. The aimbot, staff monitor, staff ESP and
-insta-hit all start off. Aimbot defaults: FOV 220 px, bone `Head`, unlimited distance,
-smoothing 2, prediction on, bullet speed 900, FOV circle off, NPC/wall/team checks off,
-keybind mode `Toggle` with `Q` selected in the Keybind List. Weakspot auto-click starts off,
-source `Auto` and radius 50.
-The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
+individual **ESP Toggle** and any elements you want. The ESP pass runs at 60 Hz by default
+(`ESP Update Rate (Hz)`).
 
 ### Requirements and caveats
 
 - Needs an executor with `loadstring`, `HttpGet`, `CoreGui` parenting and `RenderStepped`.
-  The aimbot needs `mousemoverel` to move the mouse; its FOV circle uses the executor's
-  `Drawing` API, and both are optional — a no-op stand-in keeps the rest of the hub running
-  if they are unavailable.
-- Ore icons, staff labels and the `FustMates`/`Fust` data the aimbot reads depend on
-  game-specific replicated modules/attributes. Missing modules fall back to abbreviations
-  and built-in role labels. Only client-replicated objects can be detected, so streaming
-  affects ESP. `workspace.Npcs` is used for optional NPC targets.
-- `FustWeakSpotMark` is read fresh from `PlayerGui` on each check, so late-created GUIs
-  are picked up.
+- Ore icons depend on the game-specific `ReplicatedStorage.Fust.ItemIcons` module; missing
+  modules fall back to abbreviation labels. Only client-replicated objects can be detected,
+  so streaming affects ESP. `workspace.Npcs` is used for NPC ESP.
 - The hub is client-side and is not verified against the live game or its anticheat. The
   decompiled game scripts in `ItemIcons.lua` and `Vex.txt` are reference material only.
-- `tests/hub_mock.lua` checks the feature set, ESP/insta-hit/aimbot/staff lifecycles and
-  unload with mocks. Run it from the repository root with a Lua 5.3 interpreter
+- `tests/hub_mock.lua` checks the ESP feature set, overlay lifecycle and unload with mocks. Run it from the repository root with a Lua 5.3 interpreter
   (`lua tests/hub_mock.lua`), or without Lua via
   `npm install --no-save fengari && node tests/run_hub_mock.js`.
   The mock rejects writes to properties that are not valid on Roblox `Instance`s, so an
@@ -126,7 +85,7 @@ The ESP pass runs at 60 Hz by default (`ESP Update Rate (Hz)`).
 | File | What it is |
 | --- | --- |
 | `ARC3USX.lua` | The UI library, including the embedded loading screen / intro (loaded by the hub at runtime) |
-| `scripts/main.lua` | The hub: ESP, auto weakspot, mouse-relative aimbot, staff detection and UI |
+| `scripts/main.lua` | The hub: ESP overlays and UI |
 | `tests/hub_mock.lua`, `tests/run_hub_mock.js` | Mocked lifecycle/feature test for the hub (Lua 5.3 or fengari) |
 | `ItemIcons.lua` | Decompiled reference copy of the game's `Fust.ItemIcons` module |
 | `Vex.txt` | Decompiled reference copy of game combat code |
@@ -237,8 +196,7 @@ nothing in the game itself. The hub uses this in the **ESP Preview** group.
 
 - The library is client-side UI only; the hub wires up the game-specific callbacks.
 - Click a keybind's `[...]` button then press a key, **RMB** or **MMB** to rebind it;
-  `Escape` clears it. The hub uses that one bound input as a toggle (or hold); the
-  **Keybind List** dropdown is a quicker way to pick the same inputs.
+  `Escape` clears it.
 - Config files are only written when the environment provides file functions; otherwise
   configs stay in memory for the session. `Library:Serialize()` always works.
 - The hub enables the loading screen with `Intro = true`. Set `Intro = false` in
