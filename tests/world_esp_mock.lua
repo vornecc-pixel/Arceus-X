@@ -424,6 +424,34 @@ frame()
 check(enemyHighlight.FillTransparency == 0.3, "cham fill transparency is live")
 esp:Set("chamsFillTransparency", 0.6)
 
+-- the box itself turns green / occluded colour with line of sight
+local playerBoxColor = esp.Options.playerBoxColor
+local playerBoxOccluded = esp.Options.playerBoxOccludedColor
+local enemyBox = esp._records[enemyModel].box[1]
+check(enemyBox ~= nil, "enemy box exists")
+world.Raycast = function() return nil end
+enemyRecord.visibleAt = 0
+frame()
+check(enemyBox.Color == playerBoxColor, "visible boxes use the visible colour")
+world.Raycast = function() if blocked then return { Instance = world } end return nil end
+blocked = true
+enemyRecord.visibleAt = 0
+frame()
+check(enemyBox.Color == playerBoxOccluded, "occluded boxes use the occluded colour")
+blocked = false
+enemyRecord.visibleAt = 0
+frame()
+check(enemyBox.Color == playerBoxColor, "box returns to the visible colour")
+esp:Set("boxVisibleCheck", false)
+blocked = true
+enemyRecord.visibleAt = 0
+frame()
+check(enemyBox.Color == playerBoxColor, "disabling the box check keeps one colour")
+esp:Set("boxVisibleCheck", true)
+blocked = false
+world.Raycast = function() return nil end
+frame()
+
 -- occluded colour is customisable per category
 esp:Set("playerChamOccludedColor", Color3.fromRGB(1, 2, 3))
 check(esp:Get("playerChamOccludedColor").R == 1 / 255, "occluded colour is stored")
@@ -685,7 +713,9 @@ check(control("Toggle", "Chams (highlight)") ~= nil and control("Toggle", "Skele
 check(control("Dropdown", "Box Mode") ~= nil, "box mode dropdown exists")
 check(control("Slider", "Corner Size") ~= nil, "corner slider exists")
 check(control("Textbox", "NPC Names") ~= nil and control("Textbox", "Node Names") ~= nil, "whitelist textboxes exist")
-check(control("Color", "Box") ~= nil, "colour pickers exist")
+check(control("Color", "Box - Visible") ~= nil and control("Color", "Box - Occluded") ~= nil,
+    "box colour pickers exist")
+check(control("Toggle", "Box Visible Check") ~= nil, "box visible check toggle exists")
 check(control("Toggle", "Occluded Chams (visible check)") ~= nil, "occlusion toggle exists")
 check(control("Slider", "Fill Transparency") ~= nil and control("Slider", "Outline Transparency") ~= nil,
     "cham transparency sliders exist")
@@ -711,8 +741,14 @@ control("Slider", "Corner Size"):Fire(0.5)
 check(uiEsp:Get("cornerFraction") == 0.5, "corner slider drives the feature")
 control("Textbox", "NPC Names"):Fire("Guard, Raider")
 check(uiEsp:Get("npcWhitelist") == "Guard, Raider" and uiEsp:GetNpcWhitelist().Raider == true, "whitelist textbox drives the feature")
-control("Color", "Box"):Fire(Color3.fromRGB(1, 2, 3))
-check(uiEsp:Get("playerBoxColor").B == 3 / 255, "colour picker drives the feature")
+control("Color", "Box - Visible"):Fire(Color3.fromRGB(1, 2, 3))
+check(uiEsp:Get("playerBoxColor").B == 3 / 255, "box colour picker drives the feature")
+control("Color", "Box - Occluded"):Fire(Color3.fromRGB(9, 8, 7))
+check(uiEsp:Get("playerBoxOccludedColor").G == 8 / 255, "occluded box colour drives the feature")
+control("Color", "Box - Visible"):Fire(Color3.fromRGB(80, 220, 120))
+control("Toggle", "Box Visible Check"):Fire(false)
+check(uiEsp:Get("boxVisibleCheck") == false, "box visible check toggle drives the feature")
+control("Toggle", "Box Visible Check"):Fire(true)
 control("Toggle", "Occluded Chams (visible check)"):Fire(false)
 check(uiEsp:Get("chamsVisibleCheck") == false, "occlusion toggle drives the feature")
 control("Toggle", "Occluded Chams (visible check)"):Fire(true)

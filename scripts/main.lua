@@ -618,6 +618,7 @@ if worldEsp then
     weToggle(WEG, "Players", "we_players", "players", true)
     weToggle(WEG, "NPCs", "we_npcs", "npcs", true)
     weToggle(WEG, "Resource Nodes", "we_nodes", "nodes", true)
+    weToggle(WEG, "Box Visible Check", "we_box_visible", "boxVisibleCheck", true)
     weToggle(WEG, "Chams (highlight)", "we_chams", "chams", true)
     weToggle(WEG, "Occluded Chams (visible check)", "we_chams_visible", "chamsVisibleCheck", true)
     weSlider(WEG, "Cham Fill Transparency", "we_chams_fill", "chamsFillTransparency", 0, 1, 0.6, 2, "")
@@ -655,11 +656,13 @@ if worldEsp then
 
     local WEC = Chams:AddGroup("Chams Colors", "Left")
     local COLOR_ROWS = {
-        { "Player Box", "we_player_box", "playerBoxColor" },
+        { "Player Box (visible)", "we_player_box", "playerBoxColor" },
+        { "Player Box (occluded)", "we_player_box_occ", "playerBoxOccludedColor" },
         { "Player Chams (visible)", "we_player_cham", "playerChamColor" },
         { "Player Chams (occluded)", "we_player_cham_occ", "playerChamOccludedColor" },
         { "Player Name", "we_player_name", "playerNameColor" },
-        { "NPC Box", "we_npc_box", "npcBoxColor" },
+        { "NPC Box (visible)", "we_npc_box", "npcBoxColor" },
+        { "NPC Box (occluded)", "we_npc_box_occ", "npcBoxOccludedColor" },
         { "NPC Chams (visible)", "we_npc_cham", "npcChamColor" },
         { "NPC Chams (occluded)", "we_npc_cham_occ", "npcChamOccludedColor" },
         { "NPC Name", "we_npc_name", "npcNameColor" },

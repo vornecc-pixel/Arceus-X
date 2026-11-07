@@ -82,6 +82,7 @@ local DEFAULTS = {
 
     -- box
     boxMode = "corners",       -- "corners" | "full"
+    boxVisibleCheck = true,    -- green when visible, occluded colour when not
     cornerFraction = 0.25,
     boxThickness = 1,
     skelThickness = 1,
@@ -93,13 +94,15 @@ local DEFAULTS = {
     studsPerMeter = 3.571,
 
     -- colours
-    playerBoxColor = Color3.fromRGB(120, 200, 255),
+    playerBoxColor = Color3.fromRGB(80, 220, 120),
+    playerBoxOccludedColor = Color3.fromRGB(235, 70, 70),
     playerSkelColor = Color3.fromRGB(120, 200, 255),
     playerNameColor = Color3.fromRGB(255, 255, 255),
     playerChamColor = Color3.fromRGB(120, 200, 255),
     playerChamOccludedColor = Color3.fromRGB(60, 90, 160),
 
-    npcBoxColor = Color3.fromRGB(255, 80, 80),
+    npcBoxColor = Color3.fromRGB(80, 220, 120),
+    npcBoxOccludedColor = Color3.fromRGB(235, 70, 70),
     npcSkelColor = Color3.fromRGB(255, 80, 80),
     npcNameColor = Color3.fromRGB(255, 220, 220),
     npcChamColor = Color3.fromRGB(255, 80, 80),
@@ -131,9 +134,11 @@ local RANGES = {
 local CHOICES = { boxMode = { "corners", "full" } }
 
 local COLOR_KEYS = {
-    playerBoxColor = true, playerSkelColor = true, playerNameColor = true,
+    playerBoxColor = true, playerBoxOccludedColor = true,
+    playerSkelColor = true, playerNameColor = true,
     playerChamColor = true, playerChamOccludedColor = true,
-    npcBoxColor = true, npcSkelColor = true, npcNameColor = true,
+    npcBoxColor = true, npcBoxOccludedColor = true,
+    npcSkelColor = true, npcNameColor = true,
     npcChamColor = true, npcChamOccludedColor = true,
     nodeDotColor = true, nodeNameColor = true,
 }
@@ -297,7 +302,8 @@ function Object:Set(key, value)
         if value then self:Start() else self:Stop() end
     elseif key == "chams" then
         self:_syncAllChams()
-    elseif key == "chamsVisibleCheck" or key == "chamsFillTransparency" or key == "chamsOutlineTransparency" then
+    elseif key == "chamsVisibleCheck" or key == "chamsFillTransparency" or key == "chamsOutlineTransparency"
+        or key == "boxVisibleCheck" then
         self:_applyColorsAll()
     elseif key == "boxMode" or key == "cornerFraction" then
         -- geometry is rebuilt from the options every frame, nothing to cache here
@@ -372,11 +378,11 @@ end
 local function colorsFor(self, kind)
     local o = self.Options
     if kind == "player" then
-        return o.playerBoxColor, o.playerSkelColor, o.playerNameColor
+        return o.playerSkelColor, o.playerNameColor
     elseif kind == "npc" then
-        return o.npcBoxColor, o.npcSkelColor, o.npcNameColor
+        return o.npcSkelColor, o.npcNameColor
     end
-    return o.nodeDotColor, o.nodeDotColor, o.nodeNameColor
+    return o.nodeDotColor, o.nodeNameColor
 end
 
 function Object:_chamColor(kind, visible)
@@ -390,6 +396,20 @@ function Object:_chamColor(kind, visible)
         return o.nodeDotColor
     end
     if o.chamsVisibleCheck and not visible then return occluded or base end
+    return base
+end
+
+function Object:_boxColor(record)
+    local o = self.Options
+    local base, occluded
+    if record.kind == "player" then
+        base, occluded = o.playerBoxColor, o.playerBoxOccludedColor
+    elseif record.kind == "npc" then
+        base, occluded = o.npcBoxColor, o.npcBoxOccludedColor
+    else
+        return o.nodeDotColor
+    end
+    if o.boxVisibleCheck and record.visibleNow == false then return occluded or base end
     return base
 end
 
@@ -407,7 +427,8 @@ function Object:_applyChamsColor(record)
 end
 
 function Object:_applyColors(record)
-    local boxColor, skeletonColor, nameColor = colorsFor(self, record.kind)
+    local skeletonColor, nameColor = colorsFor(self, record.kind)
+    local boxColor = self:_boxColor(record)
     for _, line in ipairs(record.box) do
         if line then pcall(function() line.Color = boxColor end) end
     end
@@ -732,6 +753,7 @@ function Object:_drawBox(record, x, y, width, height)
         { x + width, y + height - cornerHeight }, { x + width, y + height },
     }
 
+    local color = self:_boxColor(record)
     for index = 1, BOX_LINES do
         local line = record.box[index]
         if line then
@@ -739,6 +761,7 @@ function Object:_drawBox(record, x, y, width, height)
             pcall(function()
                 line.From = Vector2.new(a[1], a[2])
                 line.To = Vector2.new(b[1], b[2])
+                line.Color = color
             end)
         end
     end
@@ -889,9 +912,9 @@ function Object:_drawCharacter(record, camera)
     local x = screen.X - width / 2
     local y = screen.Y - height / 2
 
-    if self.Options.chams and record.highlight then
+    if self.Options.boxVisibleCheck or (self.Options.chams and record.highlight) then
         self:_recordVisible(record, camera)
-        self:_applyChamsColor(record)
+        if self.Options.chams and record.highlight then self:_applyChamsColor(record) end
     end
 
     self:_setVisible(record, true)

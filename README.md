@@ -297,12 +297,14 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-
 Every control is wired:
 
 - **Targets**: master toggle with a keybind (B), players / NPCs / resource nodes, max distance, update rate (0 = every frame), and the NPC and node name lists (comma separated; models with the `Scavenger` attribute also count as NPCs)
-- **Visuals**: chams, skeleton, health bar, name, distance, weapon, box mode (corners or full), corner size, box and skeleton thickness, text size, studs per metre, node dot size, and the occluded-chams switch with cham fill/outline transparency
-- **Colors**: box, skeleton and name per category, a visible and an occluded cham colour for players and NPCs, plus the node dot and label colour - all live
+- **Visuals**: chams, skeleton, health bar, name, distance, weapon, box mode (corners or full), corner size, box and skeleton thickness, text size, studs per metre, node dot size, the box visible check, and the occluded-chams switch with cham fill/outline transparency
+- **Colors**: a visible and an occluded colour for the box and for the chams of players and NPCs, skeleton and name colours, plus the node dot and label colour - all live
 
 Resource nodes are deliberately minimal: a coloured **dot** at the node plus its **name** and **distance**, with no box and no `Highlight`. Players and NPCs keep box, skeleton, health, weapon and chams.
 
-Chams have an **occluded chams** mode on by default: every 150 ms the ESP raycasts from the camera to the target's head (ignoring the target and your own character) and swaps the cham to the occluded colour when something is in the way. Because the highlight uses `AlwaysOnTop`, you still see the target through the wall - just in the occluded colour. Turn it off and one colour is used everywhere.
+**Box colours follow line of sight.** With **Box Visible Check** on (the default), corners and full boxes are drawn green while the target is in the clear and switch to the occluded colour (red by default) the moment something blocks them. Both colours are per-category pickers for players and for NPCs, so you can use anything you like instead of green/red. Turn the check off and each category keeps its single visible colour.
+
+Chams have an **occluded chams** mode on by default: every 150 ms the ESP raycasts from the camera to the target's head (ignoring the target and your own character) and swaps the cham to the occluded colour when something is in the way. Because the highlight uses `AlwaysOnTop`, you still see the target through the wall - just in the occluded colour. Turn it off and one colour is used everywhere. The box and the cham share that one raycast, so enabling both does not double the cost, and the colours settle within 150 ms of a target moving in or out of cover.
 
 What changed from the pasted version, since it could not run as written:
 

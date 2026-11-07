@@ -268,6 +268,8 @@ addOn(chamsSection, nil, "Label", { Name = "Nodes are drawn as a dot, name and d
 
 local boxSection = visualsRight:Section({ Name = "Box" })
 dropdown(boxSection, "Box Mode", "boxMode", { "Corners", "Full" }, { "corners", "full" })
+toggle(boxSection, "Box Visible Check", "boxVisibleCheck",
+    { Title = "Visible Check", Text = "Green box when the target is visible, occluded colour when it is not.", Width = 240 })
 slider(boxSection, "Corner Size", "cornerFraction", 0.05, 1, 0.05, "x")
 slider(boxSection, "Box Thickness", "boxThickness", 1, 4, 1, "px")
 slider(boxSection, "Skeleton Thickness", "skelThickness", 1, 4, 1, "px")
@@ -284,14 +286,16 @@ local colorsLeft = colorsTab:Column({})
 local colorsRight = colorsTab:Column({})
 
 local playerColors = colorsLeft:Section({ Name = "Players" })
-colorpicker(playerColors, "Box", "playerBoxColor")
+colorpicker(playerColors, "Box - Visible", "playerBoxColor")
+colorpicker(playerColors, "Box - Occluded", "playerBoxOccludedColor")
 colorpicker(playerColors, "Skeleton", "playerSkelColor")
 colorpicker(playerColors, "Name", "playerNameColor")
 colorpicker(playerColors, "Chams - Visible", "playerChamColor")
 colorpicker(playerColors, "Chams - Occluded", "playerChamOccludedColor")
 
 local npcColors = colorsLeft:Section({ Name = "NPCs" })
-colorpicker(npcColors, "Box", "npcBoxColor")
+colorpicker(npcColors, "Box - Visible", "npcBoxColor")
+colorpicker(npcColors, "Box - Occluded", "npcBoxOccludedColor")
 colorpicker(npcColors, "Skeleton", "npcSkelColor")
 colorpicker(npcColors, "Name", "npcNameColor")
 colorpicker(npcColors, "Chams - Visible", "npcChamColor")
