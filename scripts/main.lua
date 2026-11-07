@@ -561,9 +561,10 @@ if silentAim then
     saToggle(SAG, "Prediction", "sa_prediction", "prediction", true)
     SAG:AddDropdown({
         Name = "Target Bone", Flag = "sa_bone",
-        Options = { "Head", "HumanoidRootPart" }, Default = "Head",
+        Options = { "Head", "HumanoidRootPart", "Random" }, Default = "Head",
         Callback = function(option) silentAim:Set("bone", option) end,
     })
+    saSlider(SAG, "Random Re-roll", "sa_random_part", "randomPartLifetime", 0.1, 5, 1.5, 1, "s")
     saSlider(SAG, "Hit Chance", "sa_hit_chance", "hitChance", 0, 100, 100, 0, "%")
     saSlider(SAG, "FOV Radius", "sa_fov", "fov", 0, 800, 220, 0, "px")
     saSlider(SAG, "Distance Limit", "sa_distance", "distance", 0, 1000, 0, 0)
@@ -579,6 +580,15 @@ if silentAim then
         Name = "FOV Color", Flag = "sa_fov_color", Default = Color3.fromRGB(255, 80, 80),
         Callback = function(color) silentAim:Set("fovColor", color) end,
     })
+    local SAS = Combat:AddGroup("Silent Aim Snapline", "Right")
+    saToggle(SAS, "Show Snapline", "sa_snapline", "showSnapline", true)
+    SAS:AddColor({
+        Name = "Snapline Color", Flag = "sa_snapline_color", Default = Color3.fromRGB(255, 255, 255),
+        Callback = function(color) silentAim:Set("snaplineColor", color) end,
+    })
+    saSlider(SAS, "Snapline Thickness", "sa_snapline_thickness", "snaplineThickness", 1, 5, 1, 0, "px")
+    saSlider(SAS, "Snapline Transparency", "sa_snapline_transparency", "snaplineTransparency", 0, 100, 0, 0, "%")
+    SAS:AddLabel("Line from the FOV centre to the target that will be hit.")
     SAF:AddLabel("Snaps the camera only for the shot frame; no game tool is hooked.")
 end
 
@@ -609,6 +619,9 @@ if worldEsp then
     weToggle(WEG, "NPCs", "we_npcs", "npcs", true)
     weToggle(WEG, "Resource Nodes", "we_nodes", "nodes", true)
     weToggle(WEG, "Chams (highlight)", "we_chams", "chams", true)
+    weToggle(WEG, "Occluded Chams (visible check)", "we_chams_visible", "chamsVisibleCheck", true)
+    weSlider(WEG, "Cham Fill Transparency", "we_chams_fill", "chamsFillTransparency", 0, 1, 0.6, 2, "")
+    weSlider(WEG, "Cham Outline Transparency", "we_chams_outline", "chamsOutlineTransparency", 0, 1, 0, 2, "")
     weToggle(WEG, "Skeleton", "we_skeleton", "skeleton", true)
     weToggle(WEG, "Health Bar", "we_health", "healthBar", true)
     weToggle(WEG, "Name", "we_name", "name", true)
@@ -624,6 +637,7 @@ if worldEsp then
     weSlider(WEB, "Box Thickness", "we_box_thickness", "boxThickness", 1, 4, 1, 0, "px")
     weSlider(WEB, "Skeleton Thickness", "we_skel_thickness", "skelThickness", 1, 4, 1, 0, "px")
     weSlider(WEB, "Text Size", "we_text_size", "textSize", 8, 24, 14, 0, "px")
+    weSlider(WEB, "Node Dot Size", "we_node_dot_size", "nodeDotSize", 1, 16, 5, 0, "px")
 
     local WEF = Chams:AddGroup("Chams Filters", "Right")
     weSlider(WEF, "Max Distance", "we_max_distance", "maxDistance", 0, 2000, 0, 0, " (0 = off)")
@@ -642,14 +656,15 @@ if worldEsp then
     local WEC = Chams:AddGroup("Chams Colors", "Left")
     local COLOR_ROWS = {
         { "Player Box", "we_player_box", "playerBoxColor" },
-        { "Player Chams", "we_player_cham", "playerChamColor" },
+        { "Player Chams (visible)", "we_player_cham", "playerChamColor" },
+        { "Player Chams (occluded)", "we_player_cham_occ", "playerChamOccludedColor" },
         { "Player Name", "we_player_name", "playerNameColor" },
         { "NPC Box", "we_npc_box", "npcBoxColor" },
-        { "NPC Chams", "we_npc_cham", "npcChamColor" },
+        { "NPC Chams (visible)", "we_npc_cham", "npcChamColor" },
+        { "NPC Chams (occluded)", "we_npc_cham_occ", "npcChamOccludedColor" },
         { "NPC Name", "we_npc_name", "npcNameColor" },
-        { "Node Box", "we_node_box", "nodeBoxColor" },
-        { "Node Chams", "we_node_cham", "nodeChamColor" },
-        { "Node Name", "we_node_name", "nodeNameColor" },
+        { "Node Dot", "we_node_dot", "nodeDotColor" },
+        { "Node Name / Distance", "we_node_name", "nodeNameColor" },
     }
     for _, row in ipairs(COLOR_ROWS) do
         local key = row[3]
@@ -658,7 +673,7 @@ if worldEsp then
             Callback = function(color) worldEsp:Set(key, color) end,
         })
     end
-    WEC:AddLabel("Colors update live; chams follow their category colour.")
+    WEC:AddLabel("Colors update live. Nodes are a dot, name and distance only.")
 end
 
 -- Gun mods controls: the same feature module that scripts/gun_mods_ui.lua drives.

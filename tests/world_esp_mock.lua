@@ -77,9 +77,11 @@ local function udim2(xs, xo, ys, yo)
 end
 UDim2 = { new = udim2, fromOffset = function(x, y) return udim2(0, x, 0, y) end }
 UDim = { new = function(...) return { ... } end }
+RaycastParams = { new = function() return {} end }
 
 Enum = {
     HighlightDepthMode = { AlwaysOnTop = "AlwaysOnTop" },
+    RaycastFilterType = { Exclude = "Exclude" },
     KeyCode = setmetatable({}, { __index = function(t, key) local v = { Name = key }; rawset(t, key, v); return v end }),
     RenderPriority = { Camera = { Value = 200 } },
     UserInputType = { MouseButton1 = "MouseButton1", MouseButton2 = "MouseButton2" },
@@ -338,6 +340,22 @@ for _, text in ipairs(texts()) do
 end
 check(distanceShown, "distance labels are drawn")
 check(textVisible("Unarmed"), "weapon label is drawn")
+
+-- resource nodes: dot + name + distance only
+local metalRecord = esp._records[metalNode]
+check(metalRecord ~= nil and metalRecord.dot ~= nil, "resource nodes own a dot drawing")
+check(metalRecord.dot.Visible == true, "resource node dot is drawn")
+check(#metalRecord.box == 0, "resource nodes draw no box")
+check(metalRecord.highlight == nil, "resource nodes have no highlight")
+check(metalRecord.distance ~= nil and metalRecord.distance.Visible == true
+    and type(metalRecord.distance.Text) == "string" and metalRecord.distance.Text:find("m$"),
+    "resource node distance is drawn")
+check(metalRecord.dot.Size.X == 5 and metalRecord.dot.Size.Y == 5, "node dot uses the default size")
+esp:Set("nodeDotSize", 9)
+frame()
+check(metalRecord.dot.Size.X == 9, "node dot size is live")
+esp:Set("nodeDotSize", 5)
+frame()
 check(#visibleDrawings("Square") >= 2, "health bars are drawn")
 
 -- box geometry: corners vs full
@@ -367,12 +385,49 @@ local function highlights()
     return list
 end
 
-check(#highlights() >= 4, "highlights are created per tracked instance")
+check(#highlights() == 2, "highlights cover players and NPCs only")
 esp:Set("chams", false)
 check(#highlights() == 0, "turning chams off removes highlights")
 esp:Set("chams", true)
 frame()
-check(#highlights() >= 4, "turning chams back on recreates highlights")
+check(#highlights() == 2, "turning chams back on recreates highlights")
+
+-- occluded chams: the colour follows line of sight
+local enemyRecord = esp._records[enemyModel]
+local enemyHighlight = enemyRecord and enemyRecord.highlight
+check(enemyHighlight ~= nil, "player highlight exists")
+check(enemyHighlight.FillColor == esp.Options.playerChamColor, "visible chams use the visible colour")
+local blocked = true
+world.Raycast = function() if blocked then return { Instance = world } end return nil end
+for _ = 1, 20 do
+    enemyRecord.visibleAt = 0
+    frame()
+end
+check(enemyHighlight.FillColor == esp.Options.playerChamOccludedColor, "occluded chams use the occluded colour")
+blocked = false
+for _ = 1, 20 do
+    enemyRecord.visibleAt = 0
+    frame()
+end
+check(enemyHighlight.FillColor == esp.Options.playerChamColor, "chams return to the visible colour")
+esp:Set("chamsVisibleCheck", false)
+blocked = true
+for _ = 1, 20 do
+    enemyRecord.visibleAt = 0
+    frame()
+end
+check(enemyHighlight.FillColor == esp.Options.playerChamColor, "disabling the visible check keeps one colour")
+world.Raycast = function() return nil end
+esp:Set("chamsVisibleCheck", true)
+esp:Set("chamsFillTransparency", 0.3)
+frame()
+check(enemyHighlight.FillTransparency == 0.3, "cham fill transparency is live")
+esp:Set("chamsFillTransparency", 0.6)
+
+-- occluded colour is customisable per category
+esp:Set("playerChamOccludedColor", Color3.fromRGB(1, 2, 3))
+check(esp:Get("playerChamOccludedColor").R == 1 / 255, "occluded colour is stored")
+esp:Set("playerChamOccludedColor", Color3.fromRGB(60, 90, 160))
 
 -- element toggles
 esp:Set("name", false)
@@ -631,6 +686,16 @@ check(control("Dropdown", "Box Mode") ~= nil, "box mode dropdown exists")
 check(control("Slider", "Corner Size") ~= nil, "corner slider exists")
 check(control("Textbox", "NPC Names") ~= nil and control("Textbox", "Node Names") ~= nil, "whitelist textboxes exist")
 check(control("Color", "Box") ~= nil, "colour pickers exist")
+check(control("Toggle", "Occluded Chams (visible check)") ~= nil, "occlusion toggle exists")
+check(control("Slider", "Fill Transparency") ~= nil and control("Slider", "Outline Transparency") ~= nil,
+    "cham transparency sliders exist")
+check(control("Slider", "Node Dot Size") ~= nil, "node dot size slider exists")
+check(control("Color", "Chams - Visible") ~= nil and control("Color", "Chams - Occluded") ~= nil,
+    "visible and occluded cham colours exist")
+check(control("Color", "Dot") ~= nil and control("Color", "Name / Distance") ~= nil,
+    "node dot and label colours exist")
+check(control("Color", "Chams") == nil and control("Color", "Node Box") == nil,
+    "node box and node cham colour pickers are gone")
 check(control("Label", "Idle") ~= nil, "status label exists")
 
 local uiEsp = handle.Esp
@@ -648,6 +713,17 @@ control("Textbox", "NPC Names"):Fire("Guard, Raider")
 check(uiEsp:Get("npcWhitelist") == "Guard, Raider" and uiEsp:GetNpcWhitelist().Raider == true, "whitelist textbox drives the feature")
 control("Color", "Box"):Fire(Color3.fromRGB(1, 2, 3))
 check(uiEsp:Get("playerBoxColor").B == 3 / 255, "colour picker drives the feature")
+control("Toggle", "Occluded Chams (visible check)"):Fire(false)
+check(uiEsp:Get("chamsVisibleCheck") == false, "occlusion toggle drives the feature")
+control("Toggle", "Occluded Chams (visible check)"):Fire(true)
+control("Color", "Chams - Occluded"):Fire(Color3.fromRGB(9, 8, 7))
+check(uiEsp:Get("playerChamOccludedColor").R == 9 / 255, "occluded colour picker drives the feature")
+control("Slider", "Fill Transparency"):Fire(0.4)
+check(uiEsp:Get("chamsFillTransparency") == 0.4, "cham transparency slider drives the feature")
+control("Slider", "Node Dot Size"):Fire(11)
+check(uiEsp:Get("nodeDotSize") == 11, "node dot size slider drives the feature")
+control("Color", "Dot"):Fire(Color3.fromRGB(4, 5, 6))
+check(uiEsp:Get("nodeDotColor").G == 5 / 255, "node dot colour drives the feature")
 
 local keybind = control("Keybind", "Toggle Key")
 keybind.Config.Callback(true)

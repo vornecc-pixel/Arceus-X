@@ -120,7 +120,11 @@ end
 Instance = {
     new = function(class)
         local object = { ClassName = class, Name = class, children = {}, attributes = {} }
-        function object:IsA(name) return self.ClassName == name end
+        function object:IsA(name)
+            if self.ClassName == name then return true end
+            -- Parts are BaseParts in Roblox; the rig lookups rely on it.
+            return name == "BasePart" and self.ClassName == "Part"
+        end
         function object:GetChildren()
             local result = {}
             for _, child in ipairs(self.children) do
@@ -256,7 +260,7 @@ getgenv = function() return environment end
 local SilentAim = assert(loadfile("scripts/silent_aim.lua"))()
 
 check(type(SilentAim.new) == "function", "features expose new()")
-check(#SilentAim.ActivationModes == 3 and #SilentAim.Bones == 2, "features expose their option lists")
+check(#SilentAim.ActivationModes == 3 and #SilentAim.Bones == 3, "features expose their option lists")
 
 local aim = SilentAim.new()
 check(aim.Options.fov == 220 and aim.Options.hitChance == 100 and aim.Options.bone == "Head", "defaults load")
@@ -283,6 +287,8 @@ local enemy = Instance.new("Player")
 enemy.Name = "Enemy"
 enemy.UserId = 99
 local enemyModel, enemyHead, enemyRoot, enemyHumanoid = character("EnemyCharacter", Vector3.new(0, 0, 50))
+local enemyTorso = part("UpperTorso", Vector3.new(0, 0, 50), enemyModel)
+local enemyHand = part("LeftHand", Vector3.new(0, 0, 50), enemyModel)
 enemy.Character = enemyModel
 table.insert(localPlayers, enemy)
 
@@ -381,6 +387,25 @@ runRenderSteps()
 check(snapped() and lastSnap.LookAt.Z > 0, "root bone is used when selected")
 aim:Set("bone", "Head")
 
+-- random hit part
+aim:Set("bone", "Random")
+local picked = {}
+for _ = 1, 40 do
+    clock = clock + 1
+    runRenderSteps()
+    local target = aim:GetTarget()
+    if target and target.bone and target.bone.Name then picked[target.bone.Name] = true end
+end
+local pickedNames = {}
+for name in pairs(picked) do table.insert(pickedNames, name) end
+check(#pickedNames > 0, "random bone picks a part")
+check(#pickedNames > 1, "random bone varies between acquisitions")
+for _, name in ipairs(pickedNames) do
+    check(name == "Head" or name == "HumanoidRootPart" or name == "UpperTorso" or name == "LeftHand",
+        "random parts come from the rig")
+end
+aim:Set("bone", "Head")
+
 -- prediction: move the target and compare the aim point
 aim:Set("prediction", false)
 clock = clock + 2
@@ -473,6 +498,31 @@ aim:Set("showFov", false)
 runRenderSteps()
 check(circle.Visible == false, "FOV circle hides")
 
+-- snapline to the chosen target
+aim:Set("bone", "Head")
+aim:Set("showSnapline", true)
+clock = clock + 1
+runRenderSteps()
+local snapline = aim:GetSnapline()
+check(snapline ~= nil and snapline.Visible == true, "snapline is drawn while a target exists")
+check(snapline.From and snapline.From.X == 400 and snapline.From.Y == 300, "snapline starts at the FOV centre")
+local snappedTarget = aim:GetTarget()
+check(snappedTarget and snappedTarget.screen and snapline.To
+    and snapline.To.X == snappedTarget.screen.X and snapline.To.Y == snappedTarget.screen.Y,
+    "snapline ends on the chosen target")
+aim:Set("snaplineColor", Color3.fromRGB(0, 255, 0))
+aim:Set("snaplineThickness", 3)
+aim:Set("snaplineTransparency", 100)
+clock = clock + 1
+runRenderSteps()
+check(snapline.Color.G == 1 and snapline.Thickness == 3 and snapline.Transparency == 1, "snapline style is applied")
+aim:Set("snaplineTransparency", 0)
+aim:Set("showSnapline", false)
+clock = clock + 1
+runRenderSteps()
+check(snapline.Visible == false, "snapline hides when disabled")
+aim:Set("showSnapline", true)
+
 -- stop / restart
 aim:Set("enabled", false)
 check(not aim.Running, "disabling stops the render steps")
@@ -493,7 +543,7 @@ check(SilentAim.GetInstance() == nil, "singleton destroy clears the global")
 
 aim:Set("enabled", true)
 aim:Unload()
-check(not aim.Running and aim:GetFOVCircle() == nil, "unload stops everything")
+check(not aim.Running and aim:GetFOVCircle() == nil and aim:GetSnapline() == nil, "unload stops everything")
 aim:Unload()
 check(true, "unload is idempotent")
 
@@ -611,6 +661,11 @@ check(control("Dropdown", "Activation") ~= nil, "activation dropdown exists")
 check(control("Slider", "FOV Radius") ~= nil, "FOV slider exists")
 check(control("Color", "Visualize FOV") ~= nil, "FOV colour picker exists")
 check(control("Label", "Idle") ~= nil, "status label exists")
+check(control("Toggle", "Show Snapline") ~= nil, "snapline toggle exists")
+check(control("Color", "Show Snapline") ~= nil, "snapline colour picker exists")
+check(control("Slider", "Snapline Thickness") ~= nil and control("Slider", "Snapline Transparency") ~= nil,
+    "snapline style sliders exist")
+check(control("Slider", "Random Re-roll") ~= nil, "random re-roll slider exists")
 
 local uiAim = handle.Aim
 uiAim:Set("enabled", false)
@@ -631,6 +686,19 @@ control("Dropdown", "Activation"):Fire("Toggle (Key)")
 check(uiAim:Get("activation") == "Toggle", "toggle activation maps too")
 control("Dropdown", "Target Bone"):Fire("HumanoidRootPart")
 check(uiAim:Get("bone") == "HumanoidRootPart", "bone dropdown drives the feature")
+control("Dropdown", "Target Bone"):Fire("Random")
+check(uiAim:Get("bone") == "Random", "random bone is offered by the dropdown")
+control("Slider", "Random Re-roll"):Fire(0.5)
+check(uiAim:Get("randomPartLifetime") == 0.5, "random re-roll slider drives the feature")
+control("Toggle", "Show Snapline"):Fire(false)
+check(uiAim:Get("showSnapline") == false, "snapline toggle drives the feature")
+control("Toggle", "Show Snapline"):Fire(true)
+control("Color", "Show Snapline"):Fire(Color3.fromRGB(1, 2, 3))
+check(uiAim:Get("snaplineColor").B == 3 / 255, "snapline colour picker drives the feature")
+control("Slider", "Snapline Thickness"):Fire(4)
+check(uiAim:Get("snaplineThickness") == 4, "snapline thickness drives the feature")
+control("Slider", "Snapline Transparency"):Fire(60)
+check(uiAim:Get("snaplineTransparency") == 60, "snapline transparency drives the feature")
 
 control("Color", "Visualize FOV"):Fire(Color3.fromRGB(0, 0, 255))
 check(uiAim:Get("fovColor").B == 1, "colour picker drives the feature")

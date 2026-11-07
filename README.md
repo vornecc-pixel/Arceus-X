@@ -252,12 +252,14 @@ The loader pulls `scripts/silent_aim.lua` and the Octohook library from their ow
 Controls (all wired; nothing here is a placeholder):
 
 - **Enabled** with a toggle keybind (V), **Activation**: Always / Hold (RMB) / Toggle (Key), **Only While Firing (LMB)**
-- **Targeting**: hit chance, FOV radius, distance limit (0 = off), target bone (Head / HumanoidRootPart)
+- **Targeting**: hit chance, FOV radius, distance limit (0 = off), target bone (Head / HumanoidRootPart / Random) with a re-roll interval for the random part
 - **Filters**: wall check, team check (uses the `FustMates` attribute and `Team`), target NPCs (`workspace.Npcs`, `Guard`/`Soldier`/`Scavenger`)
 - **Gun**: bullet-speed override (0 = per-gun table), snap cooldown per gun
-- **Visuals**: FOV circle on/off, colour, fill, thickness, transparency
+- **Visuals**: FOV circle on/off, colour, fill, thickness, transparency, plus a snapline from the FOV centre to the target that will actually be hit (own colour, thickness and transparency)
 
 How it fires: the camera is aimed at the target at `RenderPriority.Camera + 2` and put back at `Camera + 4`, so the vanilla camera never shows the snap. No game tool or `Namecall`/`Index` hook is installed. Hit chance is rolled once per acquired target (locked for 0.25 s) instead of every frame, so a 60% setting behaves like 60% rather than a flicker.
+
+The **Random** bone picks a real part from the rig (head, torso, arms, hands, legs, feet - falling back to any `BasePart`), re-rolls it for every new target, and keeps it while the target is locked, so the aim does not jitter between parts. The snapline is drawn from the FOV centre to the screen position of the part the shot will be sent to; it is hidden whenever no target is locked, so whatever the line points at is what fires.
 
 Both the standalone menu and `main.lua` clean up after themselves: render steps unbind, input connections disconnect, the FOV circle is removed, and re-executing the script destroys the previous menu first (the Octohook library does not unload itself). An injected library is left alone — the caller unloads it.
 
@@ -295,8 +297,12 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-
 Every control is wired:
 
 - **Targets**: master toggle with a keybind (B), players / NPCs / resource nodes, max distance, update rate (0 = every frame), and the NPC and node name lists (comma separated; models with the `Scavenger` attribute also count as NPCs)
-- **Visuals**: chams, skeleton, health bar, name, distance, weapon, box mode (corners or full), corner size, box and skeleton thickness, text size, studs per metre
-- **Colors**: box, skeleton, name and cham colour per category, live
+- **Visuals**: chams, skeleton, health bar, name, distance, weapon, box mode (corners or full), corner size, box and skeleton thickness, text size, studs per metre, node dot size, and the occluded-chams switch with cham fill/outline transparency
+- **Colors**: box, skeleton and name per category, a visible and an occluded cham colour for players and NPCs, plus the node dot and label colour - all live
+
+Resource nodes are deliberately minimal: a coloured **dot** at the node plus its **name** and **distance**, with no box and no `Highlight`. Players and NPCs keep box, skeleton, health, weapon and chams.
+
+Chams have an **occluded chams** mode on by default: every 150 ms the ESP raycasts from the camera to the target's head (ignoring the target and your own character) and swaps the cham to the occluded colour when something is in the way. Because the highlight uses `AlwaysOnTop`, you still see the target through the wall - just in the occluded colour. Turn it off and one colour is used everywhere.
 
 What changed from the pasted version, since it could not run as written:
 

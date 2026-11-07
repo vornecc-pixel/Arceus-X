@@ -226,7 +226,9 @@ local targetSection = left:Section({ Name = "Targeting" })
 slider(targetSection, "Hit Chance", "hitChance", 0, 100, 1, "%")
 slider(targetSection, "FOV Radius", "fov", 0, 800, 1, "px")
 slider(targetSection, "Distance Limit", "distance", 0, 1000, 1, " (0 = off)")
-dropdown(targetSection, "Target Bone", "bone", { "Head", "HumanoidRootPart" }, { "Head", "HumanoidRootPart" })
+dropdown(targetSection, "Target Bone", "bone",
+    { "Head", "HumanoidRootPart", "Random" }, { "Head", "HumanoidRootPart", "Random" })
+slider(targetSection, "Random Re-roll", "randomPartLifetime", 0.1, 5, 0.1, "s")
 
 local filterSection = right:Section({ Name = "Filters" })
 local wallToggle = toggle(filterSection, "Wall Check", "wallCheck")
@@ -258,6 +260,20 @@ addOn(showFovToggle, fovSection, "Colorpicker", {
 toggle(fovSection, "Filled Circle", "fovFilled")
 slider(fovSection, "Thickness", "fovThickness", 1, 5, 1, "px")
 slider(fovSection, "Transparency", "fovTransparency", 0, 100, 1, "%")
+
+local snaplineSection = visualsLeft:Section({ Name = "Target Snapline" })
+local showSnaplineToggle = toggle(snaplineSection, "Show Snapline", "showSnapline")
+addOn(showSnaplineToggle, snaplineSection, "Colorpicker", {
+    Color = aim:Get("snaplineColor"),
+    Alpha = 1,
+    Callback = function(first, second)
+        local color = isColor(first) and first or (isColor(second) and second or nil)
+        if color then aim:Set("snaplineColor", color) end
+    end,
+})
+slider(snaplineSection, "Snapline Thickness", "snaplineThickness", 1, 5, 1, "px")
+slider(snaplineSection, "Snapline Transparency", "snaplineTransparency", 0, 100, 1, "%")
+addOn(snaplineSection, nil, "Label", { Name = "Line from the FOV centre to the target that will be hit." })
 
 local infoSection = visualsTab:Column({}):Section({ Name = "Status" })
 local statusLabel = addOn(infoSection, nil, "Label", { Name = "Idle" })

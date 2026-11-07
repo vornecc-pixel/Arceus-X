@@ -58,9 +58,8 @@ for _, pair in ipairs(R6_PAIRS) do table.insert(BONE_PAIRS, pair) end
 
 local BOX_LINES = 8
 local CHARACTER_HEIGHT = 2000
-local NODE_HEIGHT = 1200
 local MAX_BOX_HEIGHT = 800
-local MAX_NODE_HEIGHT = 600
+local VISIBILITY_INTERVAL = 0.15
 
 local DEFAULTS = {
     enabled = false,
@@ -72,6 +71,9 @@ local DEFAULTS = {
 
     -- elements
     chams = true,
+    chamsVisibleCheck = true,  -- chams show a different colour when the target is occluded
+    chamsFillTransparency = 0.6,
+    chamsOutlineTransparency = 0,
     skeleton = true,
     healthBar = true,
     name = true,
@@ -95,15 +97,18 @@ local DEFAULTS = {
     playerSkelColor = Color3.fromRGB(120, 200, 255),
     playerNameColor = Color3.fromRGB(255, 255, 255),
     playerChamColor = Color3.fromRGB(120, 200, 255),
+    playerChamOccludedColor = Color3.fromRGB(60, 90, 160),
 
     npcBoxColor = Color3.fromRGB(255, 80, 80),
     npcSkelColor = Color3.fromRGB(255, 80, 80),
     npcNameColor = Color3.fromRGB(255, 220, 220),
     npcChamColor = Color3.fromRGB(255, 80, 80),
+    npcChamOccludedColor = Color3.fromRGB(150, 45, 45),
 
-    nodeBoxColor = Color3.fromRGB(80, 220, 140),
+    -- nodes are dot + name + distance only
+    nodeDotColor = Color3.fromRGB(80, 220, 140),
     nodeNameColor = Color3.fromRGB(180, 255, 200),
-    nodeChamColor = Color3.fromRGB(80, 220, 140),
+    nodeDotSize = 5,
 
     -- lists (comma separated names)
     npcWhitelist = "Guard, Scavenger, Soldier",
@@ -115,6 +120,9 @@ local RANGES = {
     boxThickness = { 1, 4 },
     skelThickness = { 1, 4 },
     textSize = { 8, 24 },
+    nodeDotSize = { 1, 16 },
+    chamsFillTransparency = { 0, 1 },
+    chamsOutlineTransparency = { 0, 1 },
     maxDistance = { 0, 2000 },
     updateRate = { 0, 60 },
     studsPerMeter = { 0.5, 20 },
@@ -123,9 +131,11 @@ local RANGES = {
 local CHOICES = { boxMode = { "corners", "full" } }
 
 local COLOR_KEYS = {
-    playerBoxColor = true, playerSkelColor = true, playerNameColor = true, playerChamColor = true,
-    npcBoxColor = true, npcSkelColor = true, npcNameColor = true, npcChamColor = true,
-    nodeBoxColor = true, nodeNameColor = true, nodeChamColor = true,
+    playerBoxColor = true, playerSkelColor = true, playerNameColor = true,
+    playerChamColor = true, playerChamOccludedColor = true,
+    npcBoxColor = true, npcSkelColor = true, npcNameColor = true,
+    npcChamColor = true, npcChamOccludedColor = true,
+    nodeDotColor = true, nodeNameColor = true,
 }
 
 local WorldESP = {}
@@ -287,6 +297,8 @@ function Object:Set(key, value)
         if value then self:Start() else self:Stop() end
     elseif key == "chams" then
         self:_syncAllChams()
+    elseif key == "chamsVisibleCheck" or key == "chamsFillTransparency" or key == "chamsOutlineTransparency" then
+        self:_applyColorsAll()
     elseif key == "boxMode" or key == "cornerFraction" then
         -- geometry is rebuilt from the options every frame, nothing to cache here
         self:_applyColorsAll()
@@ -360,11 +372,38 @@ end
 local function colorsFor(self, kind)
     local o = self.Options
     if kind == "player" then
-        return o.playerBoxColor, o.playerSkelColor, o.playerNameColor, o.playerChamColor
+        return o.playerBoxColor, o.playerSkelColor, o.playerNameColor
     elseif kind == "npc" then
-        return o.npcBoxColor, o.npcSkelColor, o.npcNameColor, o.npcChamColor
+        return o.npcBoxColor, o.npcSkelColor, o.npcNameColor
     end
-    return o.nodeBoxColor, o.nodeBoxColor, o.nodeNameColor, o.nodeChamColor
+    return o.nodeDotColor, o.nodeDotColor, o.nodeNameColor
+end
+
+function Object:_chamColor(kind, visible)
+    local o = self.Options
+    local base, occluded
+    if kind == "player" then
+        base, occluded = o.playerChamColor, o.playerChamOccludedColor
+    elseif kind == "npc" then
+        base, occluded = o.npcChamColor, o.npcChamOccludedColor
+    else
+        return o.nodeDotColor
+    end
+    if o.chamsVisibleCheck and not visible then return occluded or base end
+    return base
+end
+
+function Object:_applyChamsColor(record)
+    if not record.highlight or record.kind == "node" then return end
+    local color = self:_chamColor(record.kind, record.visibleNow ~= false)
+    local fill = self.Options.chamsFillTransparency
+    local outline = self.Options.chamsOutlineTransparency
+    pcall(function()
+        record.highlight.FillColor = color
+        record.highlight.OutlineColor = color
+        record.highlight.FillTransparency = fill
+        record.highlight.OutlineTransparency = outline
+    end)
 end
 
 function Object:_applyColors(record)
@@ -375,14 +414,12 @@ function Object:_applyColors(record)
     for _, line in ipairs(record.skeleton) do
         if line then pcall(function() line.Color = skeletonColor end) end
     end
+    if record.dot then pcall(function() record.dot.Color = self.Options.nodeDotColor end) end
     if record.name then pcall(function() record.name.Color = nameColor end) end
-    if record.highlight then
-        local _, _, _, chamColor = colorsFor(self, record.kind)
-        pcall(function()
-            record.highlight.FillColor = chamColor
-            record.highlight.OutlineColor = chamColor
-        end)
+    if record.distance and record.kind == "node" then
+        pcall(function() record.distance.Color = nameColor end)
     end
+    self:_applyChamsColor(record)
 end
 
 function Object:_applyColorsAll()
@@ -397,7 +434,14 @@ function Object:_applyThickness()
         for _, line in ipairs(record.skeleton) do
             if line then pcall(function() line.Thickness = self.Options.skelThickness end) end
         end
-        if record.name then pcall(function() record.name.Size = self.Options.textSize end) end
+        if record.dot then
+            local size = self.Options.nodeDotSize
+            pcall(function() record.dot.Size = Vector2.new(size, size) end)
+        end
+        if record.name then
+            local size = record.kind == "node" and math.max(8, self.Options.textSize - 2) or self.Options.textSize
+            pcall(function() record.name.Size = size end)
+        end
         if record.distance then pcall(function() record.distance.Size = math.max(8, self.Options.textSize - 2) end) end
         if record.weapon then pcall(function() record.weapon.Size = math.max(8, self.Options.textSize - 2) end) end
     end
@@ -409,7 +453,8 @@ end
 
 function Object:_syncChams(record)
     local options = self.Options
-    local wanted = options.enabled and options.chams and self:IsKindEnabled(record.kind)
+    -- Resource nodes are dot + name + distance only: no boxes, no highlight.
+    local wanted = record.kind ~= "node" and options.enabled and options.chams and self:IsKindEnabled(record.kind)
 
     if not wanted then
         if record.highlight then
@@ -423,25 +468,18 @@ function Object:_syncChams(record)
     end
 
     if record.highlight then
-        local _, _, _, chamColor = colorsFor(self, record.kind)
-        pcall(function()
-            record.highlight.FillColor = chamColor
-            record.highlight.OutlineColor = chamColor
-            record.highlight.Enabled = true
-        end)
+        pcall(function() record.highlight.Enabled = true end)
+        self:_applyChamsColor(record)
         return
     end
 
     local ok, highlight = pcall(function() return Instance.new("Highlight") end)
     if not ok or not highlight then return end
 
-    local _, _, _, chamColor = colorsFor(self, record.kind)
     pcall(function()
         highlight.Name = "ARC3USX_Chams"
-        highlight.FillColor = chamColor
-        highlight.FillTransparency = 0.6
-        highlight.OutlineColor = chamColor
-        highlight.OutlineTransparency = 0
+        highlight.FillTransparency = self.Options.chamsFillTransparency
+        highlight.OutlineTransparency = self.Options.chamsOutlineTransparency
         if Enum.HighlightDepthMode and Enum.HighlightDepthMode.AlwaysOnTop then
             highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         end
@@ -452,6 +490,7 @@ function Object:_syncChams(record)
         end
     end)
     record.highlight = highlight
+    self:_applyChamsColor(record)
 end
 
 function Object:_syncAllChams()
@@ -487,14 +526,11 @@ end
 function Object:_createRecord(instance, kind)
     local record = { kind = kind, instance = instance, box = {}, skeleton = {}, lastWeapon = nil }
 
-    for index = 1, BOX_LINES do
-        record.box[index] = self:_newDrawing("Line")
-        if record.box[index] then
-            pcall(function() record.box[index].Thickness = self.Options.boxThickness end)
-        end
-    end
-
     if kind == "node" then
+        -- Resource nodes are a dot plus name and distance; no box, no highlight.
+        record.dot = self:_newDrawing("Square")
+        if record.dot then pcall(function() record.dot.Filled = true end) end
+
         record.name = self:_newDrawing("Text")
         if record.name then
             pcall(function()
@@ -503,7 +539,23 @@ function Object:_createRecord(instance, kind)
                 record.name.Outline = true
             end)
         end
+
+        record.distance = self:_newDrawing("Text")
+        if record.distance then
+            pcall(function()
+                record.distance.Size = math.max(8, self.Options.textSize - 2)
+                record.distance.Center = true
+                record.distance.Outline = true
+            end)
+        end
     else
+        for index = 1, BOX_LINES do
+            record.box[index] = self:_newDrawing("Line")
+            if record.box[index] then
+                pcall(function() record.box[index].Thickness = self.Options.boxThickness end)
+            end
+        end
+
         for index = 1, #BONE_PAIRS do
             record.skeleton[index] = self:_newDrawing("Line")
             if record.skeleton[index] then
@@ -552,6 +604,7 @@ end
 
 function Object:_destroyRecord(record)
     for _, line in ipairs(record.box) do self:_drop(line) end
+    self:_drop(record.dot)
     for _, line in ipairs(record.skeleton) do self:_drop(line) end
     self:_drop(record.healthBar)
     self:_drop(record.name)
@@ -646,6 +699,7 @@ end
 ------------------------------------------------------------------------
 
 function Object:_setVisible(record, visible)
+    if record.dot then pcall(function() record.dot.Visible = visible end) end
     for _, line in ipairs(record.box) do
         if line then pcall(function() line.Visible = visible end) end
     end
@@ -755,6 +809,52 @@ function Object:_equippedWeapon(model)
     return "Unarmed"
 end
 
+function Object:_recordVisible(record, camera)
+    local now = os.clock()
+    if record.visibleAt and now < record.visibleAt then return record.visibleNow ~= false end
+    record.visibleAt = now + VISIBILITY_INTERVAL
+
+    local model = record.instance
+    local target
+    pcall(function()
+        target = model:FindFirstChild("Head")
+            or model:FindFirstChild("HumanoidRootPart")
+            or model.PrimaryPart
+    end)
+
+    local origin = camera and camera.CFrame and camera.CFrame.Position
+    if not (target and target.Position and origin) then
+        record.visibleNow = true
+        return true
+    end
+
+    if not self._rayParams and type(RaycastParams) == "table" and type(RaycastParams.new) == "function" then
+        local ok, params = pcall(RaycastParams.new)
+        if ok and params then
+            pcall(function()
+                params.FilterType = Enum.RaycastFilterType.Exclude
+                params.IgnoreWater = true
+            end)
+            self._rayParams = params
+        end
+    end
+
+    if not self._rayParams or type(workspace.Raycast) ~= "function" then
+        record.visibleNow = true
+        return true
+    end
+
+    local visible
+    local ok = pcall(function()
+        local filter = { model }
+        if LocalPlayer and LocalPlayer.Character then table.insert(filter, LocalPlayer.Character) end
+        self._rayParams.FilterDescendantsInstances = filter
+        visible = workspace:Raycast(origin, target.Position - origin, self._rayParams) == nil
+    end)
+    record.visibleNow = (ok and visible) ~= false
+    return record.visibleNow
+end
+
 function Object:_drawCharacter(record, camera)
     local model = record.instance
     local okHum, humanoid = pcall(function() return model:FindFirstChildOfClass("Humanoid") end)
@@ -788,6 +888,11 @@ function Object:_drawCharacter(record, camera)
     local width = height * 0.5
     local x = screen.X - width / 2
     local y = screen.Y - height / 2
+
+    if self.Options.chams and record.highlight then
+        self:_recordVisible(record, camera)
+        self:_applyChamsColor(record)
+    end
 
     self:_setVisible(record, true)
     self:_drawBox(record, x, y, width, height)
@@ -860,18 +965,31 @@ function Object:_drawNode(record, camera)
         return
     end
 
-    local height = math.min(NODE_HEIGHT / depth, MAX_NODE_HEIGHT)
-    local width = height
-    local x = screen.X - width / 2
-    local y = screen.Y - height / 2
+    local size = self.Options.nodeDotSize
+    local half = size / 2
 
     self:_setVisible(record, true)
-    self:_drawBox(record, x, y, width, height)
+
+    if record.dot then
+        pcall(function()
+            record.dot.Position = Vector2.new(screen.X - half, screen.Y - half)
+            record.dot.Size = Vector2.new(size, size)
+            record.dot.Color = self.Options.nodeDotColor
+        end)
+    end
 
     if self.Options.name and record.name then
         pcall(function()
             record.name.Text = instance.Name
-            record.name.Position = Vector2.new(screen.X, y - 16)
+            record.name.Position = Vector2.new(screen.X, screen.Y - half - 14)
+        end)
+    end
+
+    if self.Options.distance and record.distance then
+        local meters = depth / math.max(self.Options.studsPerMeter, 0.5)
+        pcall(function()
+            record.distance.Text = string.format("%.0fm", meters)
+            record.distance.Position = Vector2.new(screen.X, screen.Y + half + 2)
         end)
     end
 end

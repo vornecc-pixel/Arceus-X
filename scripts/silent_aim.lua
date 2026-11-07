@@ -44,7 +44,8 @@ local DEFAULTS = {
     hitChance = 100,              -- 0..100, rolled once per acquired target
     fov = 220,                    -- pixels from the crosshair, 0 = ignore the circle
     distance = 0,                 -- studs, 0 = no limit
-    bone = "Head",                -- "Head" | "HumanoidRootPart"
+    bone = "Head",                -- "Head" | "HumanoidRootPart" | "Random"
+    randomPartLifetime = 1.5,     -- seconds a randomly chosen hit part is kept
     prediction = true,
     wallCheck = false,
     teamCheck = true,
@@ -62,6 +63,12 @@ local DEFAULTS = {
     fovThickness = 1,
     fovTransparency = 50,         -- 0 = solid, 100 = invisible
 
+    -- snapline from the FOV centre to the target that will be hit
+    showSnapline = true,
+    snaplineColor = Color3.fromRGB(255, 255, 255),
+    snaplineThickness = 1,
+    snaplineTransparency = 0,     -- 0 = solid, 100 = invisible
+
     -- misc
     verbose = false,
 }
@@ -74,11 +81,14 @@ local RANGES = {
     cooldown = { 0, 1 },
     fovThickness = { 1, 5 },
     fovTransparency = { 0, 100 },
+    randomPartLifetime = { 0.1, 5 },
+    snaplineThickness = { 1, 5 },
+    snaplineTransparency = { 0, 100 },
 }
 
 local CHOICES = {
     activation = { "Always", "Hold", "Toggle" },
-    bone = { "Head", "HumanoidRootPart" },
+    bone = { "Head", "HumanoidRootPart", "Random" },
 }
 
 local cameraPriority = 200
@@ -142,12 +152,14 @@ function SilentAim.new(config)
     self._listeners = {}
     self._connections = {}
     self._velocity = {}
+    self._randomParts = {}
     self._last = {}
     self._snapped = false
     self._realCFrame = nil
     self._lock = nil
     self._target = nil
     self._circle = nil
+    self._snapline = nil
     self._loop = nil
     self._firing = false
     self._holdingRMB = false
@@ -210,6 +222,9 @@ function Instance:_changed(key, value)
         or key == "fovThickness" or key == "fovTransparency" then
         self:_refreshCircle()
     end
+    if key == "snaplineColor" or key == "snaplineThickness" or key == "snaplineTransparency" then
+        self:_refreshSnapline()
+    end
 end
 
 function Instance:Set(key, value)
@@ -223,8 +238,8 @@ function Instance:Set(key, value)
         if value == nil then return false, tostring(key) .. " must be a number" end
         local range = RANGES[key]
         if range then value = math.clamp(value, range[1], range[2]) end
-    elseif key == "fovColor" then
-        if not isColor(value) then return false, "fovColor must be a Color3" end
+    elseif key == "fovColor" or key == "snaplineColor" then
+        if not isColor(value) then return false, tostring(key) .. " must be a Color3" end
     elseif type(default) == "string" then
         value = tostring(value)
         local choices = CHOICES[key]
@@ -330,8 +345,51 @@ function Instance:_isNpc(model)
     return ok and scavenger == true
 end
 
-function Instance:_bone(model)
+local RANDOM_BONE_NAMES = {
+    "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "Torso",
+    "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm",
+    "LeftHand", "RightHand", "LeftUpperLeg", "RightUpperLeg",
+    "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot",
+}
+
+function Instance:_randomBone(model, refresh)
+    local now = os.clock()
+    local cache = self._randomParts[model]
+    if not refresh and cache and cache.part and cache.part.Parent == model
+        and (now - cache.at) < self.Options.randomPartLifetime then
+        return cache.part
+    end
+
+    local candidates = {}
+    for _, name in ipairs(RANDOM_BONE_NAMES) do
+        local ok, part = pcall(function() return model:FindFirstChild(name) end)
+        if ok and part then
+            local okPart, isPart = pcall(function() return part:IsA("BasePart") end)
+            if okPart and isPart and part.Position then table.insert(candidates, part) end
+        end
+    end
+    if #candidates == 0 then
+        local okChildren, children = pcall(function() return model:GetChildren() end)
+        if okChildren and children then
+            for _, child in ipairs(children) do
+                local okPart, isPart = pcall(function() return child:IsA("BasePart") end)
+                if okPart and isPart and child.Position then table.insert(candidates, child) end
+            end
+        end
+    end
+
+    if #candidates == 0 then
+        return model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
+    end
+
+    local part = candidates[math.random(1, #candidates)]
+    self._randomParts[model] = { part = part, at = now }
+    return part
+end
+
+function Instance:_bone(model, refresh)
     local name = self.Options.bone
+    if name == "Random" then return self:_randomBone(model, refresh) end
     if name == "HumanoidRootPart" then
         return model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head")
     end
@@ -383,6 +441,12 @@ function Instance:_pruneVelocity()
     for model, entry in pairs(self._velocity) do
         if now - entry.t > VELOCITY_CACHE_LIFETIME then self._velocity[model] = nil end
     end
+    local limit = math.max(self.Options.randomPartLifetime, 1) * 3
+    for model, entry in pairs(self._randomParts) do
+        if not entry.part or entry.part.Parent ~= model or (now - entry.at) > limit then
+            self._randomParts[model] = nil
+        end
+    end
 end
 
 ------------------------------------------------------------------------
@@ -413,7 +477,7 @@ function Instance:_pickTarget(camera, aimPoint, origin)
         if fov > 0 and delta > fov * fov then return end
         if delta < bestDelta then
             bestDelta = delta
-            best = { bone = bone, model = model, position = position }
+            best = { bone = bone, model = model, position = position, screen = { X = screen.X, Y = screen.Y } }
         end
     end
 
@@ -452,7 +516,10 @@ function Instance:_lockedTarget(camera, aimPoint, origin)
             local inside = onScreen and (fov <= 0 or (dx * dx + dy * dy) <= fov * fov)
                 and (limit <= 0 or (position - origin).Magnitude <= limit)
             if inside and self:_alive(lock.model) then
-                return { bone = lock.bone, model = lock.model, position = position, hit = lock.hit }
+                return {
+                    bone = lock.bone, model = lock.model, position = position, hit = lock.hit,
+                    screen = onScreen and screen and { X = screen.X, Y = screen.Y } or nil,
+                }
             end
         end
     end
@@ -513,6 +580,44 @@ function Instance:GetFOVCircle()
     return self._circle
 end
 
+function Instance:_refreshSnapline()
+    if self._destroyed then return end
+    local options = self.Options
+    local target = self._target
+    local visible = options.showSnapline == true and self.Running and not self._destroyed
+        and target ~= nil and target.screen ~= nil
+
+    if not visible then
+        if self._snapline then pcall(function() self._snapline.Visible = false end) end
+        return
+    end
+
+    if not self._snapline then
+        local drawing = Drawing or environment.Drawing
+        if not drawing or type(drawing.new) ~= "function" then return end
+        local ok, line = pcall(drawing.new, "Line")
+        if not ok or not line then return end
+        self._snapline = line
+    end
+
+    local aim = self:GetAimPoint()
+    if not aim then return end
+
+    local line = self._snapline
+    pcall(function()
+        line.From = Vector2.new(aim.X, aim.Y)
+        line.To = Vector2.new(target.screen.X, target.screen.Y)
+        line.Color = options.snaplineColor
+        line.Thickness = options.snaplineThickness
+        line.Transparency = math.clamp(options.snaplineTransparency / 100, 0, 1)
+        line.Visible = true
+    end)
+end
+
+function Instance:GetSnapline()
+    return self._snapline
+end
+
 ------------------------------------------------------------------------
 -- render steps
 ------------------------------------------------------------------------
@@ -548,6 +653,18 @@ function Instance:_snap()
     if not best then
         best = self:_pickTarget(camera, aimPoint, origin)
         if best then
+            if self.Options.bone == "Random" then
+                local part = self:_bone(best.model, true)
+                if part and part.Position then
+                    best.bone, best.position = part, part.Position
+                    local okScreen, screen, onScreen = pcall(function()
+                        return camera:WorldToViewportPoint(part.Position)
+                    end)
+                    if okScreen and onScreen and screen then
+                        best.screen = { X = screen.X, Y = screen.Y }
+                    end
+                end
+            end
             best.hit = self:_rollHitChance()
             self._lock = {
                 bone = best.bone,
@@ -598,6 +715,7 @@ function Instance:_restore()
     end
     self._snapped, self._realCFrame = false, nil
     self:_refreshCircle()
+    self:_refreshSnapline()
 end
 
 ------------------------------------------------------------------------
@@ -679,6 +797,16 @@ function Instance:Stop()
         end)
         self._circle = nil
     end
+
+    if self._snapline then
+        pcall(function()
+            self._snapline.Visible = false
+            self._snapline:Remove()
+        end)
+        self._snapline = nil
+    end
+
+    self._randomParts = {}
 end
 
 function Instance:_syncRunning()
@@ -723,6 +851,7 @@ function Instance:Unload()
     self._destroyed = true
     self._listeners = {}
     self._velocity = {}
+    self._randomParts = {}
     self._target = nil
     self._lock = nil
     self._gunCooldownAt = {}

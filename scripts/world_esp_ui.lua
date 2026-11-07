@@ -253,11 +253,18 @@ local visualsRight = visualsTab:Column({})
 
 local elementSection = visualsLeft:Section({ Name = "Elements" })
 toggle(elementSection, "Chams (highlight)", "chams")
+toggle(elementSection, "Occluded Chams (visible check)", "chamsVisibleCheck",
+    { Title = "Visible Check", Text = "Targets behind walls use the occluded cham colour.", Width = 220 })
 toggle(elementSection, "Skeleton", "skeleton")
 toggle(elementSection, "Health Bar", "healthBar")
 toggle(elementSection, "Name", "name")
 toggle(elementSection, "Distance", "distance")
 toggle(elementSection, "Weapon", "weapon")
+
+local chamsSection = visualsRight:Section({ Name = "Chams" })
+slider(chamsSection, "Fill Transparency", "chamsFillTransparency", 0, 1, 0.05, "")
+slider(chamsSection, "Outline Transparency", "chamsOutlineTransparency", 0, 1, 0.05, "")
+addOn(chamsSection, nil, "Label", { Name = "Nodes are drawn as a dot, name and distance only." })
 
 local boxSection = visualsRight:Section({ Name = "Box" })
 dropdown(boxSection, "Box Mode", "boxMode", { "Corners", "Full" }, { "corners", "full" })
@@ -266,6 +273,7 @@ slider(boxSection, "Box Thickness", "boxThickness", 1, 4, 1, "px")
 slider(boxSection, "Skeleton Thickness", "skelThickness", 1, 4, 1, "px")
 slider(boxSection, "Text Size", "textSize", 8, 24, 1, "px")
 slider(boxSection, "Studs Per Meter", "studsPerMeter", 0.5, 20, 0.001, "")
+slider(boxSection, "Node Dot Size", "nodeDotSize", 1, 16, 1, "px")
 
 ------------------------------------------------------------------------
 -- Colors tab
@@ -279,18 +287,20 @@ local playerColors = colorsLeft:Section({ Name = "Players" })
 colorpicker(playerColors, "Box", "playerBoxColor")
 colorpicker(playerColors, "Skeleton", "playerSkelColor")
 colorpicker(playerColors, "Name", "playerNameColor")
-colorpicker(playerColors, "Chams", "playerChamColor")
+colorpicker(playerColors, "Chams - Visible", "playerChamColor")
+colorpicker(playerColors, "Chams - Occluded", "playerChamOccludedColor")
 
 local npcColors = colorsLeft:Section({ Name = "NPCs" })
 colorpicker(npcColors, "Box", "npcBoxColor")
 colorpicker(npcColors, "Skeleton", "npcSkelColor")
 colorpicker(npcColors, "Name", "npcNameColor")
-colorpicker(npcColors, "Chams", "npcChamColor")
+colorpicker(npcColors, "Chams - Visible", "npcChamColor")
+colorpicker(npcColors, "Chams - Occluded", "npcChamOccludedColor")
 
 local nodeColors = colorsRight:Section({ Name = "Resource Nodes" })
-colorpicker(nodeColors, "Box", "nodeBoxColor")
-colorpicker(nodeColors, "Name", "nodeNameColor")
-colorpicker(nodeColors, "Chams", "nodeChamColor")
+colorpicker(nodeColors, "Dot", "nodeDotColor")
+colorpicker(nodeColors, "Name / Distance", "nodeNameColor")
+addOn(nodeColors, nil, "Label", { Name = "Nodes use a dot plus name and distance; no box or highlight." })
 
 ------------------------------------------------------------------------
 -- Settings tab
