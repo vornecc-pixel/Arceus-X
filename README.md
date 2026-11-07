@@ -30,6 +30,8 @@ A dark, purple-accent Roblox UI library with an animated intro.
 | `scripts/esp.lua` | Player, NPC, resource, loot, deployable, helicopter, and staff ESP; usable standalone or in the main script |
 | `scripts/silent_aim.lua` | Silent aim features only; no UI, driven by either menu below |
 | `scripts/silent_aim_ui.lua` | Standalone Octohook menu for the silent aim features (UI only) |
+| `scripts/bow_silent_aim.lua` | Bow silent aim, bow patches, ammo and fake hits; no UI (separate from the gun silent aim) |
+| `scripts/bow_silent_aim_ui.lua` | Standalone Octohook menu for the bow silent aim (UI only) |
 | `scripts/world_esp.lua` | Chams ESP features only (players, NPCs, nodes, skeleton, boxes); no UI |
 | `scripts/world_esp_ui.lua` | Standalone Octohook menu for the chams ESP (UI only) |
 | `scripts/gun_mods.lua` | Gun mods features only (no recoil, no bloom, spread payload hook); no UI |
@@ -277,6 +279,54 @@ aim:Unload()
 
 Every option clamps or validates on the way in (`aim:Set` returns `false, reason` for bad input), so a broken config cannot put the feature in an invalid state.
 
+## Bow silent aim: features and UI are separate files
+
+The bow/projectile silent aim is its own module, not a mode of the gun silent aim: the gun one moves the camera for the shot frame, the bow one rewrites the payload that goes to `ReplicatedStorage.Fust.Remotes.Shoot`.
+
+| File | Contains | Contains nothing else |
+| --- | --- | --- |
+| `scripts/bow_silent_aim.lua` | targeting, payload rewriting, the bow table patches, ammo and fake hits | no window, no buttons, no library |
+| `scripts/bow_silent_aim_ui.lua` | Octohook window with Aim / Exploits / Visuals / Settings tabs | no targeting, payload or table code |
+
+`scripts/main.lua` adds the same feature module as its own **Bow Aim** tab, next to (not inside) the gun silent aim controls.
+
+Standalone Octohook menu:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/d7cd4b6e-arceus-x/scripts/bow_silent_aim_ui.lua"))()
+```
+
+Every control is wired:
+
+- **Bow Silent Aim**: master toggle with a keybind (J), a manual shot keybind (E, sends a shot through the module even if the bow is not drawn), **Aim Payload** on/off
+- **Targeting**: FOV radius (0-800 px), distance limit, target part (Head / Torso / HumanoidRootPart / **Random**), random re-roll interval
+- **Filters**: wall check, team check, target NPCs
+- **Payload**: charge override toggle + 0-1 slider, wallbang origin, rapid fire (1-5 shots per click), shot-id reuse probe, force `Fust.Mode` to `World` probe
+- **Bow patches**: instant charge, no client fire rate, crossbow always loaded, airborne bypass, infinite arrows + arrow count
+- **Fake hits**: toggle, damage slider, hit region, request kill
+- **Bow FOV**: circle on/off, colour, fill, thickness, transparency
+
+What it actually does:
+
+- reads the target list off the camera, picks the closest valid part inside the FOV, and rewrites `dir` (and `origin` with wallbang) on the payload in a `__namecall` hook on the `Shoot` remote
+- clears `lastShot` / `pendingSpent` / `fireQueuedAt` and forces the crossbow loaded before every send, so clicks chain instead of waiting for the client's own rate limit
+- finds the bow's own tables with a `getgc(true)` scan (same shapes the pasted script looked for), patches `drawTime`, `xbow`, `loaded`, `blocked` and `gc.Airborne`, and **reverts every patch on stop or unload** instead of leaving them for the session
+- hooks `InventorySync` while infinite arrows is on, topping up the local arrow counts and clearing `pendingSpent`
+- fake hits send an `ArrowHit` and a `CombatFX` payload for the chosen damage/region
+
+Honest limits: the table heuristics are guesses at the game's internals, so the patch toggles simply do nothing when the scan finds nothing (the status label says so); the payload field names come from the pasted script and are unverified; infinite arrows only changes the local view, real ammo is server-side; fake hits only matter if the server trusts client hit registration; and a `__namecall` hook on a combat remote is exactly the sort of thing anticheats look for. The FOV numbers are screen pixels from the centre, so they scale with resolution.
+
+Without a UI:
+
+```lua
+local Bow = assert(loadstring(game:HttpGet(ROOT .. "scripts/bow_silent_aim.lua")))()
+local aim = Bow.newSingleton({ enabled = true, fov = 300, targetPart = "Random" })
+aim:Set("rapidFire", 2)
+aim:ManualShoot()
+print(aim:GetStatus().hookInstalled, aim:GetStatus().tableError)
+aim:Unload()
+```
+
 ## Chams ESP: features and UI are separate files
 
 The chams/skeleton/box ESP from the second supplied script uses the same split as the silent aim:
@@ -385,4 +435,4 @@ mods:Unload()
 
 `Set` returns `false, reason` for unknown keys or non-numeric values, and clamps every numeric option to its range. Re-executing either half destroys the previous instance first.
 
-Mocked tests are in `tests/esp_mock.lua`, `tests/ui_mock.lua`, `tests/silent_aim_mock.lua`, `tests/world_esp_mock.lua` and `tests/gun_mods_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). `silent_aim_mock.lua` covers the option table, every targeting rule, the camera sandwich, cleanup, the Octohook control wiring and the real `main.lua` integration; `world_esp_mock.lua` does the same for the chams ESP (tracking, boxes, skeletons for both rigs, chams, filters, teardown); `gun_mods_mock.lua` covers recoil cancellation and its grace/tolerance behaviour, tick hiding with visibility restore, the namecall wrapper and its removal, the missing-executor path, teardown, and the Mods tab in both menus. None of this replaces testing in Roblox with the target game's hierarchy, payloads and executor.
+Mocked tests are in `tests/esp_mock.lua`, `tests/ui_mock.lua`, `tests/silent_aim_mock.lua`, `tests/world_esp_mock.lua`, `tests/gun_mods_mock.lua` and `tests/bow_silent_aim_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). `silent_aim_mock.lua` covers the option table, every targeting rule, the camera sandwich, cleanup, the Octohook control wiring and the real `main.lua` integration; `world_esp_mock.lua` does the same for the chams ESP (tracking, boxes, skeletons for both rigs, chams, filters, teardown); `gun_mods_mock.lua` covers recoil cancellation and its grace/tolerance behaviour, tick hiding with visibility restore, the namecall wrapper and its removal, the missing-executor path, teardown, and the Mods tab in both menus; `bow_silent_aim_mock.lua` covers the table scan and patch/revert cycle, payload rewriting, wallbang, every filter, the random part, rapid fire, fake hits, ammo top-up, shot ids, teardown and the Bow Aim controls in both menus. None of this replaces testing in Roblox with the target game's hierarchy, payloads and executor.

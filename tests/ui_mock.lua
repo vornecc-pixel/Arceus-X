@@ -299,6 +299,48 @@ local function hasLabel(parent, text)
     return false
 end
 assert(hasLabel(modsTab.Left, "Gun Mods") and hasLabel(modsTab.Left, "No Recoil"), "mods groups are built")
+local bowTab
+for _, tab in ipairs(loadedLibrary._windows[1].Tabs) do
+    if tab.Name == "Bow Aim" then bowTab = tab end
+end
+assert(bowTab ~= nil and #bowTab.Left:GetChildren() >= 3 and #bowTab.Right:GetChildren() >= 3,
+    "the Bow Aim tab exists with both columns populated")
+local mainBow = environment.ARC3USX_MAIN_BOW_AIM
+assert(type(mainBow) == "table" and not mainBow.Running, "bow silent aim starts disabled")
+assert(loadedLibrary.Options.ba_enabled and loadedLibrary.Options.ba_target_part
+    and loadedLibrary.Options.ba_fake_region and loadedLibrary.Options.ba_manual_shot,
+    "bow aim controls exist")
+loadedLibrary.Options.ba_enabled:Set(true)
+step(0.1)
+assert(mainBow.Running and mainBow:Get("enabled"), "bow aim toggle starts the feature")
+loadedLibrary.Options.ba_target_part:Set("Random")
+step(0.1)
+assert(mainBow:Get("targetPart") == "Random", "bow target part dropdown reaches the feature")
+loadedLibrary.Options.ba_fov:Set(333)
+loadedLibrary.Options.ba_distance:Set(120)
+step(0.1)
+assert(mainBow:Get("fov") == 333 and mainBow:Get("distance") == 120, "bow sliders reach the feature")
+loadedLibrary.Options.ba_charge:Set(0.5)
+step(0.1)
+assert(mainBow:Get("chargeOverride") == 0.5, "bow charge slider reaches the feature")
+loadedLibrary.Options.ba_rapid_fire:Set(3)
+step(0.1)
+assert(mainBow:Get("rapidFire") == 3, "bow rapid fire reaches the feature")
+loadedLibrary.Options.ba_wallbang:Set(true)
+loadedLibrary.Options.ba_team_check:Set(false)
+step(0.1)
+assert(mainBow:Get("wallbang") == true and mainBow:Get("teamCheck") == false, "bow toggles reach the feature")
+loadedLibrary.Options.ba_fake_region:Set("limb")
+loadedLibrary.Options.ba_fake_damage:Set(500)
+step(0.1)
+assert(mainBow:Get("fakeRegion") == "limb" and mainBow:Get("fakeDamage") == 500, "fake hit controls reach the feature")
+loadedLibrary.Options.ba_fov_color:Set(Color3.fromRGB(9, 8, 7))
+step(0.1)
+assert(mainBow:Get("fovColor").G == 8 / 255, "bow FOV colour reaches the feature")
+assert(mainBow:ManualShoot() == false, "manual shot without a Shoot remote fails cleanly")
+loadedLibrary.Options.ba_enabled:Set(false)
+step(0.1)
+assert(mainBow.Running == false, "bow aim toggle stops the feature")
 assert(hasLabel(modsTab.Right, "Crosshair") and hasLabel(modsTab.Right, "Spread Payload"), "mods right column is built")
 assert(loadedLibrary.Options.gm_enabled and loadedLibrary.Options.gm_no_recoil
     and loadedLibrary.Options.gm_no_bloom and loadedLibrary.Options.gm_zero_spread, "gun mods controls exist")
@@ -334,6 +376,7 @@ step(1)
 assert(environment.ARC3USX_MAIN_SILENT_AIM == nil and not mainAim.Running, "main unload stops silent aim")
 assert(environment.ARC3USX_MAIN_WORLD_ESP == nil and not mainWorld.Running, "main unload stops chams esp")
 assert(environment.ARC3USX_MAIN_GUN_MODS == nil and not mainMods.Running, "main unload stops gun mods")
+assert(environment.ARC3USX_MAIN_BOW_AIM == nil and not mainBow.Running, "main unload stops bow silent aim")
 assert(#failures==0, table.concat(failures,"; "))
 
 -- Reinjection while the first intro is still running must cancel the first startup.

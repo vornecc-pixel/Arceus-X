@@ -10,6 +10,7 @@ local UI_URL = ROOT .. "scripts/ui_bootstrap.lua"
 local SILENT_AIM_URL = ROOT .. "scripts/silent_aim.lua"
 local WORLD_ESP_URL = ROOT .. "scripts/world_esp.lua"
 local GUN_MODS_URL = ROOT .. "scripts/gun_mods.lua"
+local BOW_AIM_URL = ROOT .. "scripts/bow_silent_aim.lua"
 
 local function report(message)
     warn("[ARC3USX] " .. tostring(message))
@@ -42,6 +43,7 @@ local Library, Window, Mix = ui.Library, ui.Window, ui.Mix
 local Visuals = Window:AddTab("ESP / World")
 local Chams = Window:AddTab("Chams ESP")
 local ModsTab = Window:AddTab("Mods")
+local BowAimTab = Window:AddTab("Bow Aim")
 local Combat = Window:AddTab("Combat")
 local Misc = Window:AddTab("Misc")
 local unloaded = false
@@ -136,6 +138,30 @@ if gunModsLoaded and type(gunModsModule) == "table" and type(gunModsModule.new) 
     end
 else
     report("Gun mods module unavailable: " .. tostring(gunModsModule))
+end
+
+-- Bow silent aim features (scripts/bow_silent_aim.lua) are separate from the gun
+-- silent aim: they rewrite the Shoot payload instead of the camera. The controls
+-- live in the "Bow Aim" tab, the standalone menu is scripts/bow_silent_aim_ui.lua.
+local bowAim
+local bowAimLoaded, bowAimModule = pcall(function()
+    local source = game:HttpGet(BOW_AIM_URL)
+    if cancelled then return nil end
+    return assert(loadstring(source))()
+end)
+if cancelled then
+    return
+end
+if bowAimLoaded and type(bowAimModule) == "table" and type(bowAimModule.new) == "function" then
+    local created, instance = pcall(bowAimModule.new, { enabled = false })
+    if created and instance then
+        bowAim = instance
+        environment.ARC3USX_MAIN_BOW_AIM = bowAim
+    else
+        report("Bow silent aim failed to start: " .. tostring(instance))
+    end
+else
+    report("Bow silent aim module unavailable: " .. tostring(bowAimModule))
 end
 
 local GunMods = {
@@ -679,6 +705,88 @@ if worldEsp then
     WEC:AddLabel("Colors update live. Nodes are a dot, name and distance only.")
 end
 
+-- Bow silent aim controls: the same feature module that scripts/bow_silent_aim_ui.lua drives.
+if bowAim then
+    local function baToggle(group, name, flag, key, default, tooltip)
+        group:AddToggle({
+            Name = name, Flag = flag, Default = default or false,
+            Callback = function(on) bowAim:Set(key, on) end,
+        })
+    end
+    local function baSlider(group, name, flag, key, min, max, default, rounding, suffix)
+        group:AddSlider({
+            Name = name, Flag = flag, Min = min, Max = max, Default = default,
+            Rounding = rounding or 0, Suffix = suffix,
+            Callback = function(value) bowAim:Set(key, value) end,
+        })
+    end
+
+    local BAA = BowAimTab:AddGroup("Bow Silent Aim", "Left")
+    BAA:AddToggle({
+        Name = "Enable Bow Silent Aim", Flag = "ba_enabled", Default = false,
+        Bind = true, BindDefault = Enum.KeyCode.J,
+        Tooltip = { Title = "Bow Silent Aim", Text = "Rewrites the arrow payload direction instead of the camera.", Width = 260 },
+        Callback = function(on) bowAim:Set("enabled", on) end,
+    })
+    BAA:AddKeybind({
+        Name = "Manual Shot", Flag = "ba_manual_shot", Default = Enum.KeyCode.E,
+        Callback = function() pcall(function() bowAim:ManualShoot() end) end,
+    })
+    baToggle(BAA, "Aim Payload", "ba_aim_payload", "aimPayload", true)
+
+    local BAT = BowAimTab:AddGroup("Bow Targeting", "Left")
+    baSlider(BAT, "FOV Radius", "ba_fov", "fov", 0, 800, 250, 0, "px")
+    baSlider(BAT, "Distance Limit", "ba_distance", "distance", 0, 1000, 0, 0, " (0 = off)")
+    BAT:AddDropdown({
+        Name = "Target Part", Flag = "ba_target_part",
+        Options = { "Head", "Torso", "HumanoidRootPart", "Random" }, Default = "Head",
+        Callback = function(option) bowAim:Set("targetPart", option) end,
+    })
+    baSlider(BAT, "Random Re-roll", "ba_random_reroll", "randomPartLifetime", 0.1, 5, 1.5, 1, "s")
+
+    local BAF = BowAimTab:AddGroup("Bow Filters", "Right")
+    baToggle(BAF, "Wall Check", "ba_wall_check", "wallCheck", false)
+    baToggle(BAF, "Team Check", "ba_team_check", "teamCheck", true)
+    baToggle(BAF, "Target NPCs", "ba_target_npcs", "targetNpcs", false)
+
+    local BAP = BowAimTab:AddGroup("Bow Payload", "Right")
+    baToggle(BAP, "Override Charge", "ba_override_charge", "overrideCharge", true)
+    baSlider(BAP, "Charge", "ba_charge", "chargeOverride", 0, 1, 1, 2, "")
+    baToggle(BAP, "Wallbang Origin", "ba_wallbang", "wallbang", false)
+    baSlider(BAP, "Rapid Fire", "ba_rapid_fire", "rapidFire", 1, 5, 1, 0, " shots")
+    baToggle(BAP, "Reuse Shot Id (probe)", "ba_dedupe", "dedupeProbe", false)
+    baToggle(BAP, "Force World Mode (probe)", "ba_mode_probe", "modeProbe", false)
+
+    local BAX = BowAimTab:AddGroup("Bow Patches", "Left")
+    baToggle(BAX, "Instant Charge", "ba_insta_charge", "instaCharge", true)
+    baToggle(BAX, "No Client Fire Rate", "ba_no_rate", "noClientRate", true)
+    baToggle(BAX, "Crossbow Always Loaded", "ba_xbow_loaded", "noReloadCrossbow", true)
+    baToggle(BAX, "Airborne Bypass", "ba_airborne", "airborneBypass", false)
+    baToggle(BAX, "Infinite Arrows", "ba_infinite_arrows", "infiniteArrows", false)
+    baSlider(BAX, "Arrow Count", "ba_arrow_count", "ammoAmount", 1, 99999, 9999, 0, "")
+
+    local BAH = BowAimTab:AddGroup("Fake Hits", "Right")
+    baToggle(BAH, "Fake Hits", "ba_fake_hits", "fakeHits", false)
+    baSlider(BAH, "Fake Damage", "ba_fake_damage", "fakeDamage", 1, 100000, 9999, 0, "")
+    BAH:AddDropdown({
+        Name = "Hit Region", Flag = "ba_fake_region",
+        Options = { "head", "torso", "limb" }, Default = "head",
+        Callback = function(option) bowAim:Set("fakeRegion", option) end,
+    })
+    baToggle(BAH, "Request Kill", "ba_fake_kill", "fakeKill", true)
+
+    local BAV = BowAimTab:AddGroup("Bow FOV", "Right")
+    baToggle(BAV, "Show FOV", "ba_show_fov", "showFov", false)
+    BAV:AddColor({
+        Name = "FOV Color", Flag = "ba_fov_color", Default = Color3.fromRGB(255, 170, 0),
+        Callback = function(color) bowAim:Set("fovColor", color) end,
+    })
+    baToggle(BAV, "Filled Circle", "ba_fov_filled", "fovFilled", false)
+    baSlider(BAV, "FOV Thickness", "ba_fov_thickness", "fovThickness", 1, 5, 1, 0, "px")
+    baSlider(BAV, "FOV Transparency", "ba_fov_transparency", "fovTransparency", 0, 100, 50, 0, "%")
+    BAV:AddLabel("Separate from the gun silent aim; it edits the Shoot payload, not the camera.")
+end
+
 -- Gun mods controls: the same feature module that scripts/gun_mods_ui.lua drives.
 if gunMods then
     local function gmToggle(group, name, flag, key, default, tooltip)
@@ -733,6 +841,8 @@ local function unload()
     if environment.ARC3USX_MAIN_WORLD_ESP == worldEsp then environment.ARC3USX_MAIN_WORLD_ESP = nil end
     if gunMods then pcall(function() gunMods:Unload() end) end
     if environment.ARC3USX_MAIN_GUN_MODS == gunMods then environment.ARC3USX_MAIN_GUN_MODS = nil end
+    if bowAim then pcall(function() bowAim:Unload() end) end
+    if environment.ARC3USX_MAIN_BOW_AIM == bowAim then environment.ARC3USX_MAIN_BOW_AIM = nil end
     for _, marker in pairs(weakspotMarkers) do pcall(function() marker:Destroy() end) end
     weakspotMarkers = {}
     for tag in pairs(changes) do restore(tag) end
