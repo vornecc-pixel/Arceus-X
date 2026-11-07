@@ -30,6 +30,8 @@ A dark, purple-accent Roblox UI library with an animated intro.
 | `scripts/esp.lua` | Player, NPC, resource, loot, deployable, helicopter, and staff ESP; usable standalone or in the main script |
 | `scripts/silent_aim.lua` | Silent aim features only; no UI, driven by either menu below |
 | `scripts/silent_aim_ui.lua` | Standalone Octohook menu for the silent aim features (UI only) |
+| `scripts/world_esp.lua` | Chams ESP features only (players, NPCs, nodes, skeleton, boxes); no UI |
+| `scripts/world_esp_ui.lua` | Standalone Octohook menu for the chams ESP (UI only) |
 | `logo.png` | The logo image (upload this to your repo for `LogoUrl`) |
 | `README.md` | This file |
 
@@ -271,4 +273,49 @@ aim:Unload()
 
 Every option clamps or validates on the way in (`aim:Set` returns `false, reason` for bad input), so a broken config cannot put the feature in an invalid state.
 
-Mocked tests are in `tests/esp_mock.lua`, `tests/ui_mock.lua` and `tests/silent_aim_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). `silent_aim_mock.lua` covers the option table, every targeting rule, the camera sandwich, cleanup, the Octohook control wiring and the real `main.lua` integration; none of this replaces testing in Roblox with the target game's hierarchy and executor.
+## Chams ESP: features and UI are separate files
+
+The chams/skeleton/box ESP from the second supplied script uses the same split as the silent aim:
+
+| File | Contains | Contains nothing else |
+| --- | --- | --- |
+| `scripts/world_esp.lua` | tracking, boxes, R15/R6 skeletons, health bars, names, distance, weapons, chams and filters | no window, no buttons, no library |
+| `scripts/world_esp_ui.lua` | Octohook window with Targets / Visuals / Colors / Settings tabs | no drawing or tracking code |
+
+`scripts/main.lua` adds the same feature module as its own **Chams ESP** tab with ARC3USX controls, next to the existing ESP tab.
+
+Standalone Octohook menu:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/d7cd4b6e-arceus-x/scripts/world_esp_ui.lua"))()
+```
+
+Every control is wired:
+
+- **Targets**: master toggle with a keybind (B), players / NPCs / resource nodes, max distance, update rate (0 = every frame), and the NPC and node name lists (comma separated; models with the `Scavenger` attribute also count as NPCs)
+- **Visuals**: chams, skeleton, health bar, name, distance, weapon, box mode (corners or full), corner size, box and skeleton thickness, text size, studs per metre
+- **Colors**: box, skeleton, name and cham colour per category, live
+
+What changed from the pasted version, since it could not run as written:
+
+- Drawing objects were released with `:Destroy()`, which the Drawing API does not have - they use `:Remove()` now, and unload clears them all
+- The camera was captured once at load; it is re-read every frame, so camera swaps no longer freeze the ESP
+- Chams were only created when the first target was built; the highlight is now created and destroyed live as the toggle changes
+- R6 rigs got no skeleton (only R15 bone names were checked) - both rigs are covered now
+- Depth could be 0, producing infinite box sizes; heights are guarded and clamped
+- `unload` only cleared drawings, leaving the render loop and player hooks connected; unload now disconnects everything, drops every record, and calls `cleardrawcache` when the executor provides it
+- Nodes, NPCs and players are validated against the whitelists every rescan, so removing a name stops tracking it
+
+Drive it without a UI:
+
+```lua
+local WorldESP = assert(loadstring(game:HttpGet(ROOT .. "scripts/world_esp.lua")))()
+local esp = WorldESP.newSingleton({ enabled = true })
+esp:Set("boxMode", "full")
+esp:SetNpcWhitelist("Guard, Soldier")
+esp:Set("playerChamColor", Color3.fromRGB(255, 60, 60))
+print(esp:GetStatus().players, esp:GetStatus().npcs, esp:GetStatus().nodes)
+esp:Unload()
+```
+
+Mocked tests are in `tests/esp_mock.lua`, `tests/ui_mock.lua`, `tests/silent_aim_mock.lua` and `tests/world_esp_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). `silent_aim_mock.lua` covers the option table, every targeting rule, the camera sandwich, cleanup, the Octohook control wiring and the real `main.lua` integration; `world_esp_mock.lua` does the same for the chams ESP (tracking, boxes, skeletons for both rigs, chams, filters, teardown). None of this replaces testing in Roblox with the target game's hierarchy and executor.

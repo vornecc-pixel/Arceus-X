@@ -8,6 +8,7 @@ local ROOT = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/head
 local ESP_URL = ROOT .. "scripts/esp.lua"
 local UI_URL = ROOT .. "scripts/ui_bootstrap.lua"
 local SILENT_AIM_URL = ROOT .. "scripts/silent_aim.lua"
+local WORLD_ESP_URL = ROOT .. "scripts/world_esp.lua"
 
 local function report(message)
     warn("[ARC3USX] " .. tostring(message))
@@ -38,6 +39,7 @@ if not ok or not ui then
 end
 local Library, Window, Mix = ui.Library, ui.Window, ui.Mix
 local Visuals = Window:AddTab("ESP / World")
+local Chams = Window:AddTab("Chams ESP")
 local Combat = Window:AddTab("Combat")
 local Misc = Window:AddTab("Misc")
 local unloaded = false
@@ -86,6 +88,29 @@ if silentAimLoaded and type(silentAimModule) == "table" and type(silentAimModule
     end
 else
     report("Silent aim module unavailable: " .. tostring(silentAimModule))
+end
+
+-- Chams ESP features (scripts/world_esp.lua) also hold no UI: the controls live in the
+-- "Chams ESP" tab below, while scripts/world_esp_ui.lua is the standalone Octohook menu.
+local worldEsp
+local worldEspLoaded, worldEspModule = pcall(function()
+    local source = game:HttpGet(WORLD_ESP_URL)
+    if cancelled then return nil end
+    return assert(loadstring(source))()
+end)
+if cancelled then
+    return
+end
+if worldEspLoaded and type(worldEspModule) == "table" and type(worldEspModule.new) == "function" then
+    local created, instance = pcall(worldEspModule.new, { enabled = false })
+    if created and instance then
+        worldEsp = instance
+        environment.ARC3USX_MAIN_WORLD_ESP = worldEsp
+    else
+        report("Chams ESP failed to start: " .. tostring(instance))
+    end
+else
+    report("Chams ESP module unavailable: " .. tostring(worldEspModule))
 end
 
 local GunMods = {
@@ -531,6 +556,85 @@ if silentAim then
     })
     SAF:AddLabel("Snaps the camera only for the shot frame; no game tool is hooked.")
 end
+
+-- Chams ESP controls: the same feature module that scripts/world_esp_ui.lua drives.
+if worldEsp then
+    local function weToggle(group, name, flag, key, default)
+        group:AddToggle({
+            Name = name, Flag = flag, Default = default or false,
+            Callback = function(on) worldEsp:Set(key, on) end,
+        })
+    end
+    local function weSlider(group, name, flag, key, min, max, default, rounding, suffix)
+        group:AddSlider({
+            Name = name, Flag = flag, Min = min, Max = max, Default = default,
+            Rounding = rounding or 0, Suffix = suffix,
+            Callback = function(value) worldEsp:Set(key, value) end,
+        })
+    end
+    local BOX_MODES = { ["Corners"] = "corners", ["Full"] = "full" }
+
+    local WEG = Chams:AddGroup("Chams ESP", "Left")
+    WEG:AddToggle({
+        Name = "Enable Chams ESP", Flag = "we_enabled", Default = false,
+        Bind = true, BindDefault = Enum.KeyCode.B,
+        Callback = function(on) worldEsp:Set("enabled", on) end,
+    })
+    weToggle(WEG, "Players", "we_players", "players", true)
+    weToggle(WEG, "NPCs", "we_npcs", "npcs", true)
+    weToggle(WEG, "Resource Nodes", "we_nodes", "nodes", true)
+    weToggle(WEG, "Chams (highlight)", "we_chams", "chams", true)
+    weToggle(WEG, "Skeleton", "we_skeleton", "skeleton", true)
+    weToggle(WEG, "Health Bar", "we_health", "healthBar", true)
+    weToggle(WEG, "Name", "we_name", "name", true)
+    weToggle(WEG, "Distance", "we_distance", "distance", true)
+    weToggle(WEG, "Weapon", "we_weapon", "weapon", true)
+
+    local WEB = Chams:AddGroup("Chams Box", "Right")
+    WEB:AddDropdown({
+        Name = "Box Mode", Flag = "we_box_mode", Options = { "Corners", "Full" }, Default = "Corners",
+        Callback = function(option) worldEsp:Set("boxMode", BOX_MODES[option] or option) end,
+    })
+    weSlider(WEB, "Corner Size", "we_corner", "cornerFraction", 0.05, 1, 0.25, 2, "x")
+    weSlider(WEB, "Box Thickness", "we_box_thickness", "boxThickness", 1, 4, 1, 0, "px")
+    weSlider(WEB, "Skeleton Thickness", "we_skel_thickness", "skelThickness", 1, 4, 1, 0, "px")
+    weSlider(WEB, "Text Size", "we_text_size", "textSize", 8, 24, 14, 0, "px")
+
+    local WEF = Chams:AddGroup("Chams Filters", "Right")
+    weSlider(WEF, "Max Distance", "we_max_distance", "maxDistance", 0, 2000, 0, 0, " (0 = off)")
+    weSlider(WEF, "Update Rate", "we_rate", "updateRate", 0, 60, 0, 0, " Hz")
+    WEF:AddTextbox({
+        Name = "NPC Names", Flag = "we_npc_names", Default = worldEsp:Get("npcWhitelist"),
+        Placeholder = "Guard, Soldier",
+        Callback = function(text) worldEsp:Set("npcWhitelist", text) end,
+    })
+    WEF:AddTextbox({
+        Name = "Node Names", Flag = "we_node_names", Default = worldEsp:Get("nodeWhitelist"),
+        Placeholder = "MetalNode, Tree",
+        Callback = function(text) worldEsp:Set("nodeWhitelist", text) end,
+    })
+
+    local WEC = Chams:AddGroup("Chams Colors", "Left")
+    local COLOR_ROWS = {
+        { "Player Box", "we_player_box", "playerBoxColor" },
+        { "Player Chams", "we_player_cham", "playerChamColor" },
+        { "Player Name", "we_player_name", "playerNameColor" },
+        { "NPC Box", "we_npc_box", "npcBoxColor" },
+        { "NPC Chams", "we_npc_cham", "npcChamColor" },
+        { "NPC Name", "we_npc_name", "npcNameColor" },
+        { "Node Box", "we_node_box", "nodeBoxColor" },
+        { "Node Chams", "we_node_cham", "nodeChamColor" },
+        { "Node Name", "we_node_name", "nodeNameColor" },
+    }
+    for _, row in ipairs(COLOR_ROWS) do
+        local key = row[3]
+        WEC:AddColor({
+            Name = row[1], Flag = row[2], Default = worldEsp:Get(key),
+            Callback = function(color) worldEsp:Set(key, color) end,
+        })
+    end
+    WEC:AddLabel("Colors update live; chams follow their category colour.")
+end
 local WG = Misc:AddGroup("Auto Weakspot", "Left")
 WG:AddToggle({ Name = "Enable Auto Weakspot", Flag = "weakspot_enabled", Default = false })
 WG:AddLabel("Aims and auto-swings at the nearest node weakspot.")
@@ -544,6 +648,8 @@ local function unload()
     if espUnload then pcall(espUnload) end
     if silentAim then pcall(function() silentAim:Unload() end) end
     if environment.ARC3USX_MAIN_SILENT_AIM == silentAim then environment.ARC3USX_MAIN_SILENT_AIM = nil end
+    if worldEsp then pcall(function() worldEsp:Unload() end) end
+    if environment.ARC3USX_MAIN_WORLD_ESP == worldEsp then environment.ARC3USX_MAIN_WORLD_ESP = nil end
     for _, marker in pairs(weakspotMarkers) do pcall(function() marker:Destroy() end) end
     weakspotMarkers = {}
     for tag in pairs(changes) do restore(tag) end
