@@ -122,7 +122,7 @@ getgc=function() return {sampleGun} end
 setreadonly=function() end
 local loadedLibrary, disableMix
 loadstring=function(url)
-    local path=url:match("refs/heads/arena/da1d5ede%-arceus%-x/(.+)$")
+    local path=url:match("refs/heads/arena/[^/]+/(.+)$")
     if not path then error("Unexpected URL " .. url) end
     if disableMix and path == "ARC3USX_NH.lua" then error("simulated missing mix") end
     local chunk=assert(loadfile(path))
@@ -201,8 +201,27 @@ assert(type(environment.ARC3USX_MAIN_UNLOAD)=="function" and type(environment.AR
 local fallback=pg:FindFirstChild("ARC3USX")
 assert(fallback and not fallback:FindFirstChild("Intro"), "fallback intro completes")
 assert(loadedLibrary.Options.plr_enabled and loadedLibrary.Options.gunmods_enabled, "fallback has feature controls")
+assert(loadedLibrary.Options.sa_enabled and loadedLibrary.Options.sa_fov and loadedLibrary.Options.sa_fov_color, "silent aim controls exist in the combat tab")
+local mainAim = environment.ARC3USX_MAIN_SILENT_AIM
+assert(type(mainAim) == "table" and not mainAim.Running, "silent aim starts disabled")
+loadedLibrary.Options.sa_enabled:Set(true)
+step(0.1)
+assert(mainAim:Get("enabled") == true and mainAim.Running, "silent aim toggle starts the feature")
+loadedLibrary.Options.sa_fov:Set(333)
+step(0.1)
+assert(mainAim:Get("fov") == 333, "fov slider reaches the feature")
+loadedLibrary.Options.sa_activation:Set("Hold (RMB)")
+step(0.1)
+assert(mainAim:Get("activation") == "Hold", "activation dropdown maps to the feature")
+loadedLibrary.Options.sa_fov_color:Set(Color3.fromRGB(10, 20, 30))
+step(0.1)
+assert(mainAim:Get("fovColor").R == 10/255, "fov colour reaches the feature")
+loadedLibrary.Options.sa_enabled:Set(false)
+step(0.1)
+assert(mainAim.Running == false, "silent aim toggle stops the feature")
 environment.ARC3USX_MAIN_UNLOAD()
 step(1)
+assert(environment.ARC3USX_MAIN_SILENT_AIM == nil and not mainAim.Running, "main unload stops silent aim")
 assert(#failures==0, table.concat(failures,"; "))
 
 -- Reinjection while the first intro is still running must cancel the first startup.

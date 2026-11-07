@@ -4,8 +4,10 @@ local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
 local environment = type(getgenv) == "function" and getgenv() or _G
-local ESP_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/esp.lua"
-local UI_URL = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/da1d5ede-arceus-x/scripts/ui_bootstrap.lua"
+local ROOT = "https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/d7cd4b6e-arceus-x/"
+local ESP_URL = ROOT .. "scripts/esp.lua"
+local UI_URL = ROOT .. "scripts/ui_bootstrap.lua"
+local SILENT_AIM_URL = ROOT .. "scripts/silent_aim.lua"
 
 local function report(message)
     warn("[ARC3USX] " .. tostring(message))
@@ -60,6 +62,30 @@ if loaded and type(result) == "function" then
     espUnload = result
 else
     report("ESP failed to load: " .. tostring(result))
+end
+
+-- Silent aim features (scripts/silent_aim.lua) hold no UI: the controls are added to
+-- the Combat tab below. The standalone Octohook menu is scripts/silent_aim_ui.lua and
+-- is not loaded here, so both share the same feature module.
+local silentAim
+local silentAimLoaded, silentAimModule = pcall(function()
+    local source = game:HttpGet(SILENT_AIM_URL)
+    if cancelled then return nil end
+    return assert(loadstring(source))()
+end)
+if cancelled then
+    return
+end
+if silentAimLoaded and type(silentAimModule) == "table" and type(silentAimModule.new) == "function" then
+    local created, instance = pcall(silentAimModule.new, { enabled = false })
+    if created and instance then
+        silentAim = instance
+        environment.ARC3USX_MAIN_SILENT_AIM = silentAim
+    else
+        report("Silent aim failed to start: " .. tostring(instance))
+    end
+else
+    report("Silent aim module unavailable: " .. tostring(silentAimModule))
 end
 
 local GunMods = {
@@ -452,6 +478,59 @@ toggle(BG, "No Drop (every bow)", "bowmods_nodrop", BowMods, "NoDrop")
 local UG = Combat:AddGroup("Universal Bypass", "Right")
 toggle(UG, "Infinite Ammo (every weapon)", "universal_ammo", Universal, "InfiniteAmmo")
 toggle(UG, "No Air Block (fire while jumping)", "universal_noair", Universal, "NoAirBlock")
+
+-- Silent aim controls: the same feature module that scripts/silent_aim_ui.lua drives.
+if silentAim then
+    local function saToggle(group, name, flag, key, default)
+        group:AddToggle({
+            Name = name, Flag = flag, Default = default or false,
+            Callback = function(on) silentAim:Set(key, on) end,
+        })
+    end
+    local function saSlider(group, name, flag, key, min, max, default, rounding, suffix)
+        group:AddSlider({
+            Name = name, Flag = flag, Min = min, Max = max, Default = default,
+            Rounding = rounding or 0, Suffix = suffix,
+            Callback = function(value) silentAim:Set(key, value) end,
+        })
+    end
+    local ACTIVATION = { ["Always"] = "Always", ["Hold (RMB)"] = "Hold", ["Toggle (Key)"] = "Toggle" }
+
+    local SAG = Combat:AddGroup("Silent Aim", "Left")
+    SAG:AddToggle({
+        Name = "Enable Silent Aim", Flag = "sa_enabled", Default = false,
+        Bind = true, BindDefault = Enum.KeyCode.V,
+        Callback = function(on) silentAim:Set("enabled", on) end,
+    })
+    SAG:AddDropdown({
+        Name = "Activation", Flag = "sa_activation",
+        Options = { "Always", "Hold (RMB)", "Toggle (Key)" }, Default = "Always",
+        Callback = function(option) silentAim:Set("activation", ACTIVATION[option] or option) end,
+    })
+    saToggle(SAG, "Only While Firing", "sa_shot_only", "shotOnly", true)
+    saToggle(SAG, "Prediction", "sa_prediction", "prediction", true)
+    SAG:AddDropdown({
+        Name = "Target Bone", Flag = "sa_bone",
+        Options = { "Head", "HumanoidRootPart" }, Default = "Head",
+        Callback = function(option) silentAim:Set("bone", option) end,
+    })
+    saSlider(SAG, "Hit Chance", "sa_hit_chance", "hitChance", 0, 100, 100, 0, "%")
+    saSlider(SAG, "FOV Radius", "sa_fov", "fov", 0, 800, 220, 0, "px")
+    saSlider(SAG, "Distance Limit", "sa_distance", "distance", 0, 1000, 0, 0)
+
+    local SAF = Combat:AddGroup("Silent Aim Filters", "Right")
+    saToggle(SAF, "Wall Check", "sa_wall_check", "wallCheck", false)
+    saToggle(SAF, "Team Check", "sa_team_check", "teamCheck", true)
+    saToggle(SAF, "Target NPCs", "sa_target_npcs", "targetNpcs", false)
+    saSlider(SAF, "Bullet Speed Override", "sa_gun_speed", "gunSpeed", 0, 6000, 0, 0)
+    saSlider(SAF, "Snap Cooldown", "sa_cooldown", "cooldown", 0, 1, 0, 2, "s")
+    saToggle(SAF, "Show FOV Circle", "sa_show_fov", "showFov", true)
+    SAF:AddColor({
+        Name = "FOV Color", Flag = "sa_fov_color", Default = Color3.fromRGB(255, 80, 80),
+        Callback = function(color) silentAim:Set("fovColor", color) end,
+    })
+    SAF:AddLabel("Snaps the camera only for the shot frame; no game tool is hooked.")
+end
 local WG = Misc:AddGroup("Auto Weakspot", "Left")
 WG:AddToggle({ Name = "Enable Auto Weakspot", Flag = "weakspot_enabled", Default = false })
 WG:AddLabel("Aims and auto-swings at the nearest node weakspot.")
@@ -463,6 +542,8 @@ local function unload()
     unloaded = true
     for _, connection in ipairs(connections) do connection:Disconnect() end
     if espUnload then pcall(espUnload) end
+    if silentAim then pcall(function() silentAim:Unload() end) end
+    if environment.ARC3USX_MAIN_SILENT_AIM == silentAim then environment.ARC3USX_MAIN_SILENT_AIM = nil end
     for _, marker in pairs(weakspotMarkers) do pcall(function() marker:Destroy() end) end
     weakspotMarkers = {}
     for tag in pairs(changes) do restore(tag) end

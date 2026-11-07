@@ -28,6 +28,8 @@ A dark, purple-accent Roblox UI library with an animated intro.
 | `scripts/ui_bootstrap.lua` | Shared logo, intro, and mix UI startup |
 | `scripts/main.lua` | Main script with combat and weakspot controls; loads ESP separately |
 | `scripts/esp.lua` | Player, NPC, resource, loot, deployable, helicopter, and staff ESP; usable standalone or in the main script |
+| `scripts/silent_aim.lua` | Silent aim features only; no UI, driven by either menu below |
+| `scripts/silent_aim_ui.lua` | Standalone Octohook menu for the silent aim features (UI only) |
 | `logo.png` | The logo image (upload this to your repo for `LogoUrl`) |
 | `README.md` | This file |
 
@@ -224,4 +226,49 @@ Resources match names in `ORE_COLORS`. Ore icon previews use the game's optional
 
 The script performs one initial workspace scan and handles later additions/removals through events, updates overlays at the selected rate (5–60 Hz), throttles visibility raycasts, and removes drawings on despawn, unload, and reinjection. Failed drawing operations clean up partial overlays and retry after a delay. Runtime performance depends on the number of tracked objects, chosen update rate, and executor. Use **Unload Script & Clear ESP** before switching scripts; the standalone script also cleans up a previous instance of itself on reinjection. The available candidate anticheat script is obfuscated and its identity is unconfirmed: neither these overlays nor the combat features are verified as undetected or safe from enforcement.
 
-Mocked tests are in `tests/esp_mock.lua` and `tests/ui_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). They exercise ESP lifecycle, UI startup, fallback, and cleanup, but do not replace testing in Roblox with the target game's hierarchy and executor.
+## Silent aim: features and UI are separate files
+
+The silent aim from the supplied script was split in two so the menu can be swapped without touching the logic:
+
+| File | Contains | Contains nothing else |
+| --- | --- | --- |
+| `scripts/silent_aim.lua` | Targeting, prediction, wall/team checks, hit chance, camera sandwich, FOV circle, per-gun speeds | no window, no buttons, no library |
+| `scripts/silent_aim_ui.lua` | Octohook window, tabs, toggles, sliders, dropdowns, keybind, colour picker, status labels | no camera or target code |
+
+`scripts/main.lua` wires the same `scripts/silent_aim.lua` into its own **Combat** tab with ARC3USX controls, so both menus always behave identically.
+
+Standalone Octohook menu:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/d7cd4b6e-arceus-x/scripts/silent_aim_ui.lua"))()
+```
+
+The loader pulls `scripts/silent_aim.lua` and the Octohook library from their own URLs. Point `getgenv().ARC3USX_RAW_ROOT` at another folder or branch before running it if you host the files somewhere else. The menu window is 520×660, centered and clamped to the viewport, with **Aim**, **Visuals** and **Settings** tabs; the settings tab also gets the library's config list.
+
+Controls (all wired; nothing here is a placeholder):
+
+- **Enabled** with a toggle keybind (V), **Activation**: Always / Hold (RMB) / Toggle (Key), **Only While Firing (LMB)**
+- **Targeting**: hit chance, FOV radius, distance limit (0 = off), target bone (Head / HumanoidRootPart)
+- **Filters**: wall check, team check (uses the `FustMates` attribute and `Team`), target NPCs (`workspace.Npcs`, `Guard`/`Soldier`/`Scavenger`)
+- **Gun**: bullet-speed override (0 = per-gun table), snap cooldown per gun
+- **Visuals**: FOV circle on/off, colour, fill, thickness, transparency
+
+How it fires: the camera is aimed at the target at `RenderPriority.Camera + 2` and put back at `Camera + 4`, so the vanilla camera never shows the snap. No game tool or `Namecall`/`Index` hook is installed. Hit chance is rolled once per acquired target (locked for 0.25 s) instead of every frame, so a 60% setting behaves like 60% rather than a flicker.
+
+Both the standalone menu and `main.lua` clean up after themselves: render steps unbind, input connections disconnect, the FOV circle is removed, and re-executing the script destroys the previous menu first (the Octohook library does not unload itself). An injected library is left alone — the caller unloads it.
+
+Drive the features without any UI:
+
+```lua
+local SilentAim = assert(loadstring(game:HttpGet(ROOT .. "scripts/silent_aim.lua")))()
+local aim = SilentAim.newSingleton({ enabled = true, fov = 300, hitChance = 80 })
+aim:Set("activation", "Hold")        -- "Always" | "Hold" | "Toggle"
+aim:Set("bone", "HumanoidRootPart")  -- "Head" | "HumanoidRootPart"
+aim:OnChanged(function(key, value) print(key, value) end)
+print(aim:GetStatus().target)
+aim:Unload()
+```
+
+Every option clamps or validates on the way in (`aim:Set` returns `false, reason` for bad input), so a broken config cannot put the feature in an invalid state.
+
+Mocked tests are in `tests/esp_mock.lua`, `tests/ui_mock.lua` and `tests/silent_aim_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). `silent_aim_mock.lua` covers the option table, every targeting rule, the camera sandwich, cleanup, the Octohook control wiring and the real `main.lua` integration; none of this replaces testing in Roblox with the target game's hierarchy and executor.
