@@ -32,6 +32,8 @@ A dark, purple-accent Roblox UI library with an animated intro.
 | `scripts/silent_aim_ui.lua` | Standalone Octohook menu for the silent aim features (UI only) |
 | `scripts/world_esp.lua` | Chams ESP features only (players, NPCs, nodes, skeleton, boxes); no UI |
 | `scripts/world_esp_ui.lua` | Standalone Octohook menu for the chams ESP (UI only) |
+| `scripts/gun_mods.lua` | Gun mods features only (no recoil, no bloom, spread payload hook); no UI |
+| `scripts/gun_mods_ui.lua` | Standalone Octohook menu for the gun mods (UI only) |
 | `logo.png` | The logo image (upload this to your repo for `LogoUrl`) |
 | `README.md` | This file |
 
@@ -318,4 +320,61 @@ print(esp:GetStatus().players, esp:GetStatus().npcs, esp:GetStatus().nodes)
 esp:Unload()
 ```
 
-Mocked tests are in `tests/esp_mock.lua`, `tests/ui_mock.lua`, `tests/silent_aim_mock.lua` and `tests/world_esp_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). `silent_aim_mock.lua` covers the option table, every targeting rule, the camera sandwich, cleanup, the Octohook control wiring and the real `main.lua` integration; `world_esp_mock.lua` does the same for the chams ESP (tracking, boxes, skeletons for both rigs, chams, filters, teardown). None of this replaces testing in Roblox with the target game's hierarchy and executor.
+## Mods: features and UI are separate files
+
+The No Recoil / No Bloom / spread script uses the same split as the other two ports:
+
+| File | Contains | Contains nothing else |
+| --- | --- | --- |
+| `scripts/gun_mods.lua` | recoil cancellation, crosshair tick hiding, the spread payload hook and the option table | no window, no buttons, no library |
+| `scripts/gun_mods_ui.lua` | Octohook window with Mods / Settings tabs | no camera, GUI or remote code |
+
+`scripts/main.lua` adds the same feature module as its own **Mods** tab with ARC3USX controls.
+
+Standalone Octohook menu:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Arceus-X/refs/heads/arena/d7cd4b6e-arceus-x/scripts/gun_mods_ui.lua"))()
+```
+
+The loader pulls `scripts/gun_mods.lua` and the Octohook library itself. Point `getgenv().ARC3USX_RAW_ROOT` at another folder or branch if you host the files elsewhere. Every control is wired:
+
+- **Gun Mods**: master toggle with a keybind (N)
+- **No Recoil**: on/off, mouse grace (0–0.5 s), pitch and yaw tolerance (0–0.05 rad)
+- **Crosshair**: No Bloom on/off, sweep rate (0.05–1 s)
+- **Spread Payload**: zero spread fields on/off, with the detection warning
+- **Settings**: live status labels (cancellations, hidden ticks, hook state) and an Unload button
+
+How the recoil part works: a `RunService:BindToRenderStep` callback runs at `RenderPriority.Camera.Value + 500`, reads the camera `LookVector` back into pitch/yaw, and rewrites the camera to the last mouse-driven aim when the difference exceeds the tolerances. Any mouse movement in the last `MOUSE_GRACE` seconds is treated as real aim and becomes the new base, so aiming is not fought. The camera is re-read every frame and the base is reset on `Start`, so a camera swap or respawn does not freeze it.
+
+Bloom hiding sweeps `Players.LocalPlayer.PlayerGui.FustGather` on a timer, hides `Frame`s whose name starts with `Tick`, and stores the original `Visible` value of each one. Turning the option off or unloading puts the original values back — including ticks that were already hidden. The loop is token-guarded, so changing the rate, toggling off, or unloading stops it immediately instead of leaving a second loop behind.
+
+The spread hook is the only part that needs executor functions (`getrawmetatable`, `setreadonly`, `getnamecallmethod`, `newcclosure` optional). It finds the `RemoteEvent`/`UnreliableRemoteEvent`s under `ReplicatedStorage.Fust`, installs **one** `__namecall` wrapper on their shared metatable, and only touches `FireServer` calls on those remotes, zeroing `spread`, `spreadMult`, `spreadMul`, `bloom`, `bloomAmount` and similar numeric fields in the payload (including one level of nested tables). Turning it off restores the original `__namecall`, but only if the wrapper is still the one in place. If the functions are missing, the toggle stays off and the status label shows the reason instead of erroring.
+
+What changed from the pasted version, since it could not run as written:
+
+- The hook wrapped `__namecall` once **per remote**, chaining wrappers on the same shared metatable and breaking other remotes; one wrapper keyed by the target remotes now handles all of them
+- The hook could never be removed; it is restored on toggle-off and unload
+- `getrawmetatable`/`setreadonly` were unguarded (instant error on executors without them); they are capability-checked first
+- `while task.wait(0.1) do ... end` kept a hidden tick-hider running forever; the sweep is token-guarded and restores what it hid
+- The base aim was captured once at load and lost on camera swaps; it is reset on start and the camera is re-read
+- The bloom loop ran even with the option off, and `Enum.UnreliableRemoteEvent` was assumed to exist; both are conditional now
+- Unload left the render binding and hidden ticks behind; `:Unload()` unbinds, disconnects, restores and drops the hook
+
+Honest limits: recoil cancellation only affects **your camera** — the server-side shot direction, and any spread the game applies on the server, are unchanged. Zeroing payload fields only helps if the game trusts the client value, and the metatable hook is exactly the kind of thing anticheats look for. `ReplicatedStorage.Fust`, `PlayerGui.FustGather` and the payload field names come from the pasted script and are not verified against the live game.
+
+Drive it without a UI:
+
+```lua
+local GunMods = assert(loadstring(game:HttpGet(ROOT .. "scripts/gun_mods.lua")))()
+local mods = GunMods.newSingleton({ enabled = true, noRecoil = true, noBloom = true })
+mods:Set("recoilGrace", 0.02)      -- seconds
+mods:Set("bloomRate", 0.05)        -- sweep interval
+mods:Set("zeroSpread", true)       -- needs executor hook functions
+print(mods:GetStatus().recoilUndos, mods:GetStatus().hookError)
+mods:Unload()
+```
+
+`Set` returns `false, reason` for unknown keys or non-numeric values, and clamps every numeric option to its range. Re-executing either half destroys the previous instance first.
+
+Mocked tests are in `tests/esp_mock.lua`, `tests/ui_mock.lua`, `tests/silent_aim_mock.lua`, `tests/world_esp_mock.lua` and `tests/gun_mods_mock.lua` (run from the repository root with Lua 5.3 or a compatible interpreter). `silent_aim_mock.lua` covers the option table, every targeting rule, the camera sandwich, cleanup, the Octohook control wiring and the real `main.lua` integration; `world_esp_mock.lua` does the same for the chams ESP (tracking, boxes, skeletons for both rigs, chams, filters, teardown); `gun_mods_mock.lua` covers recoil cancellation and its grace/tolerance behaviour, tick hiding with visibility restore, the namecall wrapper and its removal, the missing-executor path, teardown, and the Mods tab in both menus. None of this replaces testing in Roblox with the target game's hierarchy, payloads and executor.

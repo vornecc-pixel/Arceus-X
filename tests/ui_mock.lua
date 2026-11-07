@@ -237,10 +237,55 @@ assert(mainWorld:Get("playerBoxColor").R == 10/255, "chams colour reaches the fe
 loadedLibrary.Options.we_enabled:Set(false)
 step(0.1)
 assert(mainWorld.Running == false, "chams toggle stops tracking")
+local modsTab
+for _, tab in ipairs(loadedLibrary._windows[1].Tabs) do
+    if tab.Name == "Mods" then modsTab = tab end
+end
+assert(modsTab ~= nil and #modsTab.Left:GetChildren() >= 2 and #modsTab.Right:GetChildren() >= 2,
+    "the Mods tab exists with both columns populated")
+local function hasLabel(parent, text)
+    for _, child in ipairs(parent:GetChildren()) do
+        if child.ClassName == "TextLabel" and child.Text == text then return true end
+        if hasLabel(child, text) then return true end
+    end
+    return false
+end
+assert(hasLabel(modsTab.Left, "Gun Mods") and hasLabel(modsTab.Left, "No Recoil"), "mods groups are built")
+assert(hasLabel(modsTab.Right, "Crosshair") and hasLabel(modsTab.Right, "Spread Payload"), "mods right column is built")
+assert(loadedLibrary.Options.gm_enabled and loadedLibrary.Options.gm_no_recoil
+    and loadedLibrary.Options.gm_no_bloom and loadedLibrary.Options.gm_zero_spread, "gun mods controls exist")
+local mainMods = environment.ARC3USX_MAIN_GUN_MODS
+assert(type(mainMods) == "table" and not mainMods.Running, "gun mods start disabled")
+loadedLibrary.Options.gm_enabled:Set(true)
+step(0.1)
+assert(mainMods.Running and mainMods:Get("enabled"), "gun mods toggle starts the feature")
+loadedLibrary.Options.gm_recoil_grace:Set(0.2)
+step(0.1)
+assert(mainMods:Get("recoilGrace") == 0.2, "grace slider reaches the feature")
+loadedLibrary.Options.gm_recoil_pitch:Set(0.01)
+step(0.1)
+assert(mainMods:Get("recoilPitchEps") == 0.01, "pitch tolerance slider reaches the feature")
+loadedLibrary.Options.gm_bloom_rate:Set(0.5)
+step(0.1)
+assert(mainMods:Get("bloomRate") == 0.5, "bloom rate slider reaches the feature")
+loadedLibrary.Options.gm_no_recoil:Set(false)
+step(0.1)
+assert(mainMods:Get("noRecoil") == false, "recoil toggle reaches the feature")
+loadedLibrary.Options.gm_no_bloom:Set(false)
+step(0.1)
+assert(mainMods:Get("noBloom") == false, "bloom toggle reaches the feature")
+loadedLibrary.Options.gm_zero_spread:Set(true)
+step(0.1)
+assert(mainMods:Get("zeroSpread") == true and mainMods.HookInstalled == false, "spread toggle is safe without executor hooks")
+loadedLibrary.Options.gm_zero_spread:Set(false)
+loadedLibrary.Options.gm_enabled:Set(false)
+step(0.1)
+assert(mainMods.Running == false, "gun mods toggle stops the feature")
 environment.ARC3USX_MAIN_UNLOAD()
 step(1)
 assert(environment.ARC3USX_MAIN_SILENT_AIM == nil and not mainAim.Running, "main unload stops silent aim")
 assert(environment.ARC3USX_MAIN_WORLD_ESP == nil and not mainWorld.Running, "main unload stops chams esp")
+assert(environment.ARC3USX_MAIN_GUN_MODS == nil and not mainMods.Running, "main unload stops gun mods")
 assert(#failures==0, table.concat(failures,"; "))
 
 -- Reinjection while the first intro is still running must cancel the first startup.

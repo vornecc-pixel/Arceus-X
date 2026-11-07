@@ -9,6 +9,7 @@ local ESP_URL = ROOT .. "scripts/esp.lua"
 local UI_URL = ROOT .. "scripts/ui_bootstrap.lua"
 local SILENT_AIM_URL = ROOT .. "scripts/silent_aim.lua"
 local WORLD_ESP_URL = ROOT .. "scripts/world_esp.lua"
+local GUN_MODS_URL = ROOT .. "scripts/gun_mods.lua"
 
 local function report(message)
     warn("[ARC3USX] " .. tostring(message))
@@ -40,6 +41,7 @@ end
 local Library, Window, Mix = ui.Library, ui.Window, ui.Mix
 local Visuals = Window:AddTab("ESP / World")
 local Chams = Window:AddTab("Chams ESP")
+local ModsTab = Window:AddTab("Mods")
 local Combat = Window:AddTab("Combat")
 local Misc = Window:AddTab("Misc")
 local unloaded = false
@@ -111,6 +113,29 @@ if worldEspLoaded and type(worldEspModule) == "table" and type(worldEspModule.ne
     end
 else
     report("Chams ESP module unavailable: " .. tostring(worldEspModule))
+end
+
+-- Gun mods features (scripts/gun_mods.lua) also hold no UI: the controls live in the
+-- "Mods" tab below, while scripts/gun_mods_ui.lua is the standalone Octohook menu.
+local gunMods
+local gunModsLoaded, gunModsModule = pcall(function()
+    local source = game:HttpGet(GUN_MODS_URL)
+    if cancelled then return nil end
+    return assert(loadstring(source))()
+end)
+if cancelled then
+    return
+end
+if gunModsLoaded and type(gunModsModule) == "table" and type(gunModsModule.new) == "function" then
+    local created, instance = pcall(gunModsModule.new, { enabled = false })
+    if created and instance then
+        gunMods = instance
+        environment.ARC3USX_MAIN_GUN_MODS = gunMods
+    else
+        report("Gun mods failed to start: " .. tostring(instance))
+    end
+else
+    report("Gun mods module unavailable: " .. tostring(gunModsModule))
 end
 
 local GunMods = {
@@ -635,6 +660,44 @@ if worldEsp then
     end
     WEC:AddLabel("Colors update live; chams follow their category colour.")
 end
+
+-- Gun mods controls: the same feature module that scripts/gun_mods_ui.lua drives.
+if gunMods then
+    local function gmToggle(group, name, flag, key, default, tooltip)
+        group:AddToggle({
+            Name = name, Flag = flag, Default = default or false,
+            Callback = function(on) gunMods:Set(key, on) end,
+        })
+    end
+    local function gmSlider(group, name, flag, key, min, max, default, rounding, suffix)
+        group:AddSlider({
+            Name = name, Flag = flag, Min = min, Max = max, Default = default,
+            Rounding = rounding or 0, Suffix = suffix,
+            Callback = function(value) gunMods:Set(key, value) end,
+        })
+    end
+
+    local GMG = ModsTab:AddGroup("Gun Mods", "Left")
+    GMG:AddToggle({
+        Name = "Enable Gun Mods", Flag = "gm_enabled", Default = false,
+        Bind = true, BindDefault = Enum.KeyCode.N,
+        Callback = function(on) gunMods:Set("enabled", on) end,
+    })
+    gmToggle(GMG, "No Recoil", "gm_no_recoil", "noRecoil", true)
+    gmSlider(GMG, "Mouse Grace", "gm_recoil_grace", "recoilGrace", 0, 0.5, 0.025, 3, "s")
+    gmSlider(GMG, "Pitch Tolerance", "gm_recoil_pitch", "recoilPitchEps", 0, 0.05, 0.0008, 4, "rad")
+    gmSlider(GMG, "Yaw Tolerance", "gm_recoil_yaw", "recoilYawEps", 0, 0.05, 0.0008, 4, "rad")
+    GMG:AddLabel("Cancels the camera kick added after your real aim input.")
+
+    local GMB = ModsTab:AddGroup("Crosshair", "Right")
+    gmToggle(GMB, "No Bloom", "gm_no_bloom", "noBloom", true)
+    gmSlider(GMB, "Sweep Rate", "gm_bloom_rate", "bloomRate", 0.05, 1, 0.1, 2, "s")
+    GMB:AddLabel("Hides the FustGather spread ticks; server spread is unchanged.")
+
+    local GMS = ModsTab:AddGroup("Spread Payload", "Right")
+    gmToggle(GMS, "Zero Spread Fields", "gm_zero_spread", "zeroSpread", false)
+    GMS:AddLabel("Needs executor hook functions; zeroes spread/bloom numbers in Fust remotes.")
+end
 local WG = Misc:AddGroup("Auto Weakspot", "Left")
 WG:AddToggle({ Name = "Enable Auto Weakspot", Flag = "weakspot_enabled", Default = false })
 WG:AddLabel("Aims and auto-swings at the nearest node weakspot.")
@@ -650,6 +713,8 @@ local function unload()
     if environment.ARC3USX_MAIN_SILENT_AIM == silentAim then environment.ARC3USX_MAIN_SILENT_AIM = nil end
     if worldEsp then pcall(function() worldEsp:Unload() end) end
     if environment.ARC3USX_MAIN_WORLD_ESP == worldEsp then environment.ARC3USX_MAIN_WORLD_ESP = nil end
+    if gunMods then pcall(function() gunMods:Unload() end) end
+    if environment.ARC3USX_MAIN_GUN_MODS == gunMods then environment.ARC3USX_MAIN_GUN_MODS = nil end
     for _, marker in pairs(weakspotMarkers) do pcall(function() marker:Destroy() end) end
     weakspotMarkers = {}
     for tag in pairs(changes) do restore(tag) end
